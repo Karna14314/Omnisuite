@@ -30,5 +30,13 @@ Thumbs.db
 .externalNativeBuild/
 .cxx/
 
+# Keystores and private signing credentials
+keystore.properties
+*.jks
+
 # Gradle Wrapper JAR (can be re-downloaded/re-generated, but some teams commit it. We ignore it for light repo or keep it. Let's ignore typical built objects)
 # Note: Usually gradle-wrapper.jar is committed, but wrapper properties is the source of truth. We exclude built jar here if we want or check.
+
+# JVM heap dumps
+*.hprof
+

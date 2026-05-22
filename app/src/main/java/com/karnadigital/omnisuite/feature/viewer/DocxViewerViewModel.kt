@@ -3,6 +3,8 @@ package com.karnadigital.omnisuite.feature.viewer
 import android.content.Context
 import android.net.Uri
 import com.karnadigital.omnisuite.core.engine.document.OfficeConverter
+import com.karnadigital.omnisuite.core.engine.DocumentSearchEngine
+import com.karnadigital.omnisuite.core.engine.SearchResult
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
@@ -56,6 +58,15 @@ class DocxViewerViewModel @Inject constructor(
 
     private var activeDocument: XWPFDocument? = null
     private var activeFilePath: String? = null
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
+    val searchResults: StateFlow<List<SearchResult>> = _searchResults.asStateFlow()
+
+    private val _currentMatchIndex = MutableStateFlow(-1)
+    val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
     /**
      * Safely reads DOCX paragraphs inside coroutines using Apache POI,
@@ -262,6 +273,41 @@ class DocxViewerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val path = activeFilePath ?: return@withContext
+                val results = DocumentSearchEngine.searchDocx(path, query)
+                _searchResults.value = results
+                if (results.isNotEmpty()) {
+                    _currentMatchIndex.value = 0
+                } else {
+                    _currentMatchIndex.value = -1
+                }
+            }
+        }
+    }
+
+    fun nextMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val nextIndex = (_currentMatchIndex.value + 1) % results.size
+        _currentMatchIndex.value = nextIndex
+    }
+
+    fun prevMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val prevIndex = (_currentMatchIndex.value - 1 + results.size) % results.size
+        _currentMatchIndex.value = prevIndex
     }
 
     override fun onCleared() {

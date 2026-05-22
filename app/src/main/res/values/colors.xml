@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sleek, dark modern navy slate for the launcher background -->
+    <color name="ic_launcher_background">#0F172A</color>
+    <color name="colorPrimary">#6366F1</color>
+    <color name="colorAccent">#06B6D4</color>
+</resources>

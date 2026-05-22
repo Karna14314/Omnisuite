@@ -55,6 +55,7 @@ fun HomeScreen(
     onNavigateToOcr: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit,
+    onNavigateToBatchTools: () -> Unit,
     onOpenFile: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -611,7 +612,58 @@ fun HomeScreen(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Premium Full-Width Batch Utilities Card
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .clickable(onClick = onNavigateToBatchTools)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("⚡", fontSize = 24.sp)
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Batch Utilities",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                    Text(
+                                        text = "Concurrent image labs & PDF lock tools",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                                Text("➔", fontSize = 18.sp, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(32.dp))
+
                     }
                 }
                 HomeTab.History -> {

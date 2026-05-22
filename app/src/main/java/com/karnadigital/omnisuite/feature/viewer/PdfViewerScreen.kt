@@ -1,6 +1,7 @@
 package com.karnadigital.omnisuite.feature.viewer
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -8,8 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +40,20 @@ fun PdfViewerScreen(
     val state by viewModel.loadState.collectAsState()
     val lazyListState = rememberLazyListState()
 
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+
+    var searchExpanded by remember { mutableStateOf(false) }
+
+    // Scroll to the active search match page index dynamically
+    LaunchedEffect(currentMatchIndex) {
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+            val match = searchResults[currentMatchIndex]
+            lazyListState.animateScrollToItem(match.pageIndex)
+        }
+    }
+
     // Track active top-most visible page dynamically for toolbar tracking
     val currentPageIndex by remember {
         derivedStateOf {
@@ -49,42 +63,123 @@ fun PdfViewerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = when (val s = state) {
-                                is PdfLoadState.Success -> s.fileName
-                                else -> "Loading PDF..."
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+            if (searchExpanded) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            searchExpanded = false
+                            viewModel.setSearchQuery("")
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = { Text("Search text in PDF...") },
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true
                         )
-                        if (state is PdfLoadState.Success) {
-                            val successState = state as PdfLoadState.Success
+
+                        if (searchResults.isNotEmpty()) {
                             Text(
-                                text = "Page $currentPageIndex of ${successState.pageCount}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            IconButton(onClick = { viewModel.prevMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Prev match"
+                                )
+                            }
+                            IconButton(onClick = { viewModel.nextMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Next match"
+                                )
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "No matches",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate back"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = when (val s = state) {
+                                    is PdfLoadState.Success -> s.fileName
+                                    else -> "Loading PDF..."
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (state is PdfLoadState.Success) {
+                                val successState = state as PdfLoadState.Success
+                                Text(
+                                    text = "Page $currentPageIndex of ${successState.pageCount}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Navigate back"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (state is PdfLoadState.Success) {
+                            IconButton(onClick = { searchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search"
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
-            )
+            }
         }
     ) { paddingValues ->
         Box(
@@ -123,9 +218,11 @@ fun PdfViewerScreen(
                         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
                     ) {
                         items(currentState.pageCount) { pageIndex ->
+                            val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == pageIndex
                             PdfPageItem(
                                 pageIndex = pageIndex,
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                isHighlighted = isHighlighted
                             )
                         }
                     }
@@ -168,7 +265,8 @@ fun PdfViewerScreen(
 @Composable
 fun PdfPageItem(
     pageIndex: Int,
-    viewModel: PdfViewerViewModel
+    viewModel: PdfViewerViewModel,
+    isHighlighted: Boolean
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf(false) }
@@ -194,6 +292,7 @@ fun PdfPageItem(
             .fillMaxWidth()
             .aspectRatio(aspectRatio),
         shape = RoundedCornerShape(4.dp),
+        border = if (isHighlighted) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {

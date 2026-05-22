@@ -6,6 +6,8 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.karnadigital.omnisuite.core.engine.DocumentSearchEngine
+import com.karnadigital.omnisuite.core.engine.SearchResult
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +38,17 @@ class PdfViewerViewModel @Inject constructor(
     private var pdfRenderer: PdfRenderer? = null
     private val pageRatios = mutableMapOf<Int, Float>()
 
+    private var activeFilePath: String? = null
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
+    val searchResults: StateFlow<List<SearchResult>> = _searchResults.asStateFlow()
+
+    private val _currentMatchIndex = MutableStateFlow(-1)
+    val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
+
     // 5-item LRU Bitmap cache to prevent OutOfMemory crashes
     private val bitmapCache = object : android.util.LruCache<Int, Bitmap>(5) {
         override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
@@ -57,6 +70,7 @@ class PdfViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
+                    activeFilePath = filePath
                     // Open file descriptor
                     val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                     parcelFileDescriptor = pfd
@@ -152,6 +166,41 @@ class PdfViewerViewModel @Inject constructor(
             e.printStackTrace()
             null
         }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val path = activeFilePath ?: return@withContext
+                val results = DocumentSearchEngine.searchPdf(path, query)
+                _searchResults.value = results
+                if (results.isNotEmpty()) {
+                    _currentMatchIndex.value = 0
+                } else {
+                    _currentMatchIndex.value = -1
+                }
+            }
+        }
+    }
+
+    fun nextMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val nextIndex = (_currentMatchIndex.value + 1) % results.size
+        _currentMatchIndex.value = nextIndex
+    }
+
+    fun prevMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val prevIndex = (_currentMatchIndex.value - 1 + results.size) % results.size
+        _currentMatchIndex.value = prevIndex
     }
 
     private fun closeRenderer() {

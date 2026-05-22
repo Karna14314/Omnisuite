@@ -59,5 +59,11 @@ sealed class Screen(val route: String) {
      * Document Watermarking settings panel screen.
      */
     object Watermark : Screen("watermark")
+
+    /**
+     * Offline Batch operations panel screen (Image Lab, PDF Lock).
+     */
+    object BatchTools : Screen("batch_tools")
 }
+
 

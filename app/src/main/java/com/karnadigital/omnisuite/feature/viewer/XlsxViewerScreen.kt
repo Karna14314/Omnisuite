@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -15,6 +16,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,12 +51,32 @@ fun XlsxViewerScreen(
     }
 
     val state by viewModel.loadState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+    var searchExpanded by remember { mutableStateOf(false) }
+    val lazyListState = rememberLazyListState()
+
     var activeSheetIndex by remember { mutableStateOf(0) }
     val horizontalScrollState = rememberScrollState()
 
     var selectedCell by remember { mutableStateOf<CellCoords?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var bottomSheetValue by remember { mutableStateOf("") }
+
+    LaunchedEffect(currentMatchIndex) {
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+            val match = searchResults[currentMatchIndex]
+            activeSheetIndex = match.pageIndex
+            val parts = match.extraData?.split(",")
+            if (parts != null && parts.size == 2) {
+                val r = parts[0].toInt()
+                val c = parts[1].toInt()
+                selectedCell = CellCoords(r, c)
+                lazyListState.animateScrollToItem(r + 1)
+            }
+        }
+    }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -96,73 +122,152 @@ fun XlsxViewerScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (val s = state) {
-                            is XlsxLoadState.Success -> s.fileName
-                            else -> "Spreadsheet Viewer"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate back"
+            if (searchExpanded) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            searchExpanded = false
+                            viewModel.setSearchQuery("")
+                            selectedCell = null
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = { Text("Search spreadsheet cells...") },
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true
                         )
-                    }
-                },
-                actions = {
-                    if (state is XlsxLoadState.Success) {
-                        var showMenu by remember { mutableStateOf(false) }
 
-                        IconButton(onClick = { viewModel.commitChanges() }) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Commit changes to disk",
-                                tint = MaterialTheme.colorScheme.primary
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
-                        }
-
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More Options"
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Export to PDF") },
-                                onClick = {
-                                    showMenu = false
-                                    val currentSuccess = state as XlsxLoadState.Success
-                                    val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                    exportPdfLauncher.launch(defaultName)
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.PictureAsPdf,
-                                        contentDescription = "PDF Export"
-                                    )
-                                }
+                            IconButton(onClick = { viewModel.prevMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Prev match"
+                                )
+                            }
+                            IconButton(onClick = { viewModel.nextMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Next match"
+                                )
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "No matches",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = when (val s = state) {
+                                is XlsxLoadState.Success -> s.fileName
+                                else -> "Spreadsheet Viewer"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Navigate back"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (state is XlsxLoadState.Success) {
+                            var showMenu by remember { mutableStateOf(false) }
+
+                            IconButton(onClick = { searchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search"
+                                )
+                            }
+
+                            IconButton(onClick = { viewModel.commitChanges() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Commit changes to disk",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More Options"
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export to PDF") },
+                                    onClick = {
+                                        showMenu = false
+                                        val currentSuccess = state as XlsxLoadState.Success
+                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                        exportPdfLauncher.launch(defaultName)
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureAsPdf,
+                                            contentDescription = "PDF Export"
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
-            )
+            }
         }
     ) { paddingValues ->
         Box(
@@ -211,6 +316,7 @@ fun XlsxViewerScreen(
                                         .horizontalScroll(horizontalScrollState)
                                 ) {
                                     LazyColumn(
+                                        state = lazyListState,
                                         modifier = Modifier.fillMaxHeight(),
                                         contentPadding = PaddingValues(bottom = 16.dp)
                                     ) {
@@ -235,9 +341,16 @@ fun XlsxViewerScreen(
                                                 // Data Row Values
                                                 rowCells.forEachIndexed { colIndex, cellText ->
                                                     val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
+                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                        match.pageIndex == activeSheetIndex &&
+                                                        match.extraData?.split(",")?.let { parts ->
+                                                            parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
+                                                        } ?: false
+                                                    } ?: false
                                                     DataCell(
                                                         text = cellText,
                                                         isSelected = isSelected,
+                                                        isSearchResult = isSearchResult,
                                                         onClick = {
                                                             selectedCell = CellCoords(rowIndex, colIndex)
                                                             bottomSheetValue = cellText
@@ -436,6 +549,7 @@ fun HeaderCell(
 fun DataCell(
     text: String,
     isSelected: Boolean,
+    isSearchResult: Boolean = false,
     onClick: () -> Unit
 ) {
     Box(
@@ -444,11 +558,13 @@ fun DataCell(
             .height(32.dp)
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                else if (isSearchResult) Color(0xFFFFF59D)
                 else MaterialTheme.colorScheme.surface
             )
             .border(
-                width = if (isSelected) 1.5.dp else 0.5.dp,
+                width = if (isSelected || isSearchResult) 1.5.dp else 0.5.dp,
                 color = if (isSelected) MaterialTheme.colorScheme.primary
+                else if (isSearchResult) Color(0xFFFBC02D)
                 else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
             )
             .clickable(onClick = onClick)
@@ -459,8 +575,9 @@ fun DataCell(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = if (isSelected) MaterialTheme.colorScheme.primary
+            else if (isSearchResult) Color(0xFF212121)
             else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            fontWeight = if (isSelected || isSearchResult) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

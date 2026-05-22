@@ -15,6 +15,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,6 +61,21 @@ fun DocxViewerScreen(
     val context = LocalContext.current
     var isExporting by remember { mutableStateOf(false) }
 
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+
+    var searchExpanded by remember { mutableStateOf(false) }
+    val lazyListState = rememberLazyListState()
+
+    // Scroll to active search match paragraph index
+    LaunchedEffect(currentMatchIndex) {
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+            val match = searchResults[currentMatchIndex]
+            lazyListState.animateScrollToItem(match.pageIndex)
+        }
+    }
+
     val exportPdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf"),
         onResult = { uri ->
@@ -89,81 +109,159 @@ fun DocxViewerScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (val s = state) {
-                            is DocxLoadState.Success -> s.fileName
-                            else -> "Document Viewer"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate back"
-                        )
-                    }
-                },
-                actions = {
-                    if (state is DocxLoadState.Success) {
-                        var showMenu by remember { mutableStateOf(false) }
+            if (searchExpanded) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            searchExpanded = false
+                            viewModel.setSearchQuery("")
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
 
-                        if (isEditMode) {
-                            IconButton(onClick = { viewModel.commitChanges() }) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = { Text("Search text in Word...") },
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true
+                        )
+
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            IconButton(onClick = { viewModel.prevMatch() }) {
                                 Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Commit changes",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Prev match"
+                                )
+                            }
+                            IconButton(onClick = { viewModel.nextMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Next match"
+                                )
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "No matches",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
+                    }
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = when (val s = state) {
+                                is DocxLoadState.Success -> s.fileName
+                                else -> "Document Viewer"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Navigate back"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (state is DocxLoadState.Success) {
+                            var showMenu by remember { mutableStateOf(false) }
+
+                            IconButton(onClick = { searchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search text"
+                                )
+                            }
+
+                            if (isEditMode) {
+                                IconButton(onClick = { viewModel.commitChanges() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Commit changes",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { isEditMode = !isEditMode }) {
+                                Icon(
+                                    imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
+                                    contentDescription = "Toggle Edit Mode"
+                                )
+                            }
+                            
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More Options"
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export to PDF") },
+                                    onClick = {
+                                        showMenu = false
+                                        val currentSuccess = state as DocxLoadState.Success
+                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                        exportPdfLauncher.launch(defaultName)
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureAsPdf,
+                                            contentDescription = "PDF Export"
+                                        )
+                                    }
                                 )
                             }
                         }
-                        IconButton(onClick = { isEditMode = !isEditMode }) {
-                            Icon(
-                                imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
-                                contentDescription = "Toggle Edit Mode"
-                            )
-                        }
-                        
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More Options"
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Export to PDF") },
-                                onClick = {
-                                    showMenu = false
-                                    val currentSuccess = state as DocxLoadState.Success
-                                    val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                    exportPdfLauncher.launch(defaultName)
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.PictureAsPdf,
-                                        contentDescription = "PDF Export"
-                                    )
-                                }
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
-            )
+            }
         },
         floatingActionButton = {
             if (isEditMode && state is DocxLoadState.Success) {
@@ -209,22 +307,28 @@ fun DocxViewerScreen(
                         EmptyDocumentState()
                     } else {
                         LazyColumn(
+                            state = lazyListState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(MaterialTheme.colorScheme.surface),
                             contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
                         ) {
                             itemsIndexed(document.paragraphs) { index, paragraph ->
+                                val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
                                 if (isEditMode) {
                                     DocxParagraphEditorItem(
                                         index = index,
                                         paragraph = paragraph,
+                                        isHighlighted = isHighlighted,
                                         onTextChange = { updatedText ->
                                             viewModel.updateParagraph(index, updatedText)
                                         }
                                     )
                                 } else {
-                                    DocxParagraphItem(paragraph)
+                                    DocxParagraphItem(
+                                        paragraph = paragraph,
+                                        isHighlighted = isHighlighted
+                                    )
                                 }
                             }
                         }
@@ -322,11 +426,14 @@ fun DocxViewerScreen(
 fun DocxParagraphEditorItem(
     index: Int,
     paragraph: DocxParagraph,
+    isHighlighted: Boolean = false,
     onTextChange: (String) -> Unit
 ) {
     var textState by remember(paragraph) { 
         mutableStateOf(paragraph.runs.joinToString("") { it.text }) 
     }
+
+    val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.1f) else Color.Transparent
 
     OutlinedTextField(
         value = textState,
@@ -336,6 +443,7 @@ fun DocxParagraphEditorItem(
         },
         modifier = Modifier
             .fillMaxWidth()
+            .background(backgroundColor)
             .padding(horizontal = 20.dp, vertical = 8.dp),
         textStyle = if (paragraph.isHeading) {
             MaterialTheme.typography.titleLarge.copy(
@@ -352,7 +460,10 @@ fun DocxParagraphEditorItem(
 }
 
 @Composable
-fun DocxParagraphItem(paragraph: DocxParagraph) {
+fun DocxParagraphItem(
+    paragraph: DocxParagraph,
+    isHighlighted: Boolean = false
+) {
     val annotatedString = remember(paragraph) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
@@ -396,6 +507,7 @@ fun DocxParagraphItem(paragraph: DocxParagraph) {
     }
 
     val verticalPadding = if (paragraph.isHeading) 12.dp else 6.dp
+    val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
     Text(
         text = annotatedString,
@@ -403,6 +515,7 @@ fun DocxParagraphItem(paragraph: DocxParagraph) {
         textAlign = textAlign,
         modifier = Modifier
             .fillMaxWidth()
+            .background(backgroundColor)
             .padding(horizontal = 20.dp, vertical = verticalPadding)
     )
 }

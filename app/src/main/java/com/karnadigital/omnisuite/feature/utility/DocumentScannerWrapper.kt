@@ -10,11 +10,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import com.google.android.gms.documentscanner.GmsDocumentScannerOptions
-import com.google.android.gms.documentscanner.GmsDocumentScannerOptions.RESULT_FORMAT_PDF
-import com.google.android.gms.documentscanner.GmsDocumentScannerOptions.SCANNER_MODE_FULL
-import com.google.android.gms.documentscanner.GmsDocumentScanning
-import com.google.android.gms.documentscanner.GmsDocumentScanningResult
+import android.content.IntentSender
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.RESULT_FORMAT_PDF
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.SCANNER_MODE_FULL
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
 import java.io.FileOutputStream
 
@@ -58,7 +59,7 @@ fun rememberDocumentScannerLauncher(
 
     val options = remember {
         GmsDocumentScannerOptions.Builder()
-            .setGalleryAllowed(true)
+            .setGalleryImportAllowed(true)
             .setPageLimit(100)
             .setResultFormats(RESULT_FORMAT_PDF)
             .setScannerMode(SCANNER_MODE_FULL)
@@ -73,11 +74,11 @@ fun rememberDocumentScannerLauncher(
         val activity = context.findActivity()
         if (activity != null) {
             scannerClient.getStartScanIntent(activity)
-                .addOnSuccessListener { intentSender ->
+                .addOnSuccessListener { intentSender: IntentSender ->
                     val request = IntentSenderRequest.Builder(intentSender).build()
                     scannerLauncher.launch(request)
                 }
-                .addOnFailureListener { exception ->
+                .addOnFailureListener { exception: Exception ->
                     onScanFailure(exception)
                 }
         } else {

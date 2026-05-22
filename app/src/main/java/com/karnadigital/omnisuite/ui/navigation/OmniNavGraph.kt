@@ -16,6 +16,8 @@ import com.karnadigital.omnisuite.feature.pdf_tools.PdfToolsScreen
 import com.karnadigital.omnisuite.feature.utility.OcrScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
+import com.karnadigital.omnisuite.feature.tools.BatchToolsScreen
+
 
 /**
  * Global Jetpack Compose Navigation graph for OmniSuite.
@@ -57,11 +59,15 @@ fun OmniNavGraph(
                 onNavigateToWatermark = {
                     navController.navigate(Screen.Watermark.route)
                 },
+                onNavigateToBatchTools = {
+                    navController.navigate(Screen.BatchTools.route)
+                },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
+
 
         // 2. Settings Panel
         composable(route = Screen.Settings.route) {
@@ -154,5 +160,15 @@ fun OmniNavGraph(
                 }
             )
         }
+
+        // 11. Offline Batch Utilities Screen (Image Lab, PDF Lock)
+        composable(route = Screen.BatchTools.route) {
+            BatchToolsScreen(
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
     }
 }
+

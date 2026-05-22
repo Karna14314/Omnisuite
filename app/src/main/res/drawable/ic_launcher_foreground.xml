@@ -1,0 +1,52 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Sleek outer ring of the geometric O-Loop -->
+    <path
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 34,54 C 34,40 44,34 54,34 C 64,34 74,40 74,54 C 74,68 64,74 54,74 C 44,74 34,68 34,54 Z">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="34"
+                android:startY="34"
+                android:endX="74"
+                android:endY="74"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#818CF8" />
+                <item android:offset="0.5" android:color="#6366F1" />
+                <item android:offset="1.0" android:color="#06B6D4" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Interlocking inner ring of the geometric O-Loop -->
+    <path
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 43,54 C 43,47 48,42 54,42 C 60,42 65,47 65,54 C 65,61 60,66 54,66 C 48,66 43,61 43,54 Z">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="43"
+                android:startY="43"
+                android:endX="65"
+                android:endY="65"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#06B6D4" />
+                <item android:offset="1.0" android:color="#818CF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sparkling central accent node representing productivity focus -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M 54,49 A 2 2 0 1 0 54,53 A 2 2 0 1 0 54,49 Z" />
+
+</vector>

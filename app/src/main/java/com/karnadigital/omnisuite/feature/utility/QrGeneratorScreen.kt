@@ -99,13 +99,13 @@ fun QrGeneratorScreen(
                 modifier = Modifier
                     .size(280.dp)
                     .clip(RoundedCornerShape(24.dp))
-                    .padding(bottom = 24.dp),
-                contentPadding = PaddingValues(16.dp)
+                    .padding(bottom = 24.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.White),
+                        .background(Color.White)
+                        .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     val bitmap = qrBitmap
