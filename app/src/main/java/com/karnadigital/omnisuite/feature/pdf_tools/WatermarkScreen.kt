@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,9 +150,7 @@ fun WatermarkScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
                         ),
-                        border = RowDefaults.run {
-                            CardDefaults.outlinedCardBorder().copy()
-                        }
+                        border = BorderStroke(width = 1.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
                         Row(
                             modifier = Modifier
@@ -368,21 +369,28 @@ fun WatermarkScreen(
 
             // Processing overlay dialog spinner
             if (viewModel.isProcessing) {
-                AlertDialog(
+                Dialog(
                     onDismissRequest = {},
-                    confirmButton = {},
-                    title = { Text("Stamping Watermarks", fontWeight = FontWeight.Bold) },
-                    text = {
+                    properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        tonalElevation = 8.dp
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                            modifier = Modifier.padding(24.dp)
                         ) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            Text("Applying offline changes to all pages...", style = MaterialTheme.typography.bodyMedium)
+                            Column {
+                                Text("Stamping Watermarks", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text("Applying offline changes to all pages...", style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
-                )
+                }
             }
         }
     }

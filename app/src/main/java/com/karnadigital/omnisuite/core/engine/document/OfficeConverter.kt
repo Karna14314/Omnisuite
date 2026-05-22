@@ -1,12 +1,12 @@
 package com.karnadigital.omnisuite.core.engine.document
 
 import android.content.Context
-import com.tomroush.pdfbox.pdmodel.PDDocument
-import com.tomroush.pdfbox.pdmodel.PDPage
-import com.tomroush.pdfbox.pdmodel.PDPageContentStream
-import com.tomroush.pdfbox.pdmodel.common.PDRectangle
-import com.tomroush.pdfbox.pdmodel.font.PDType1Font
-import com.tomroush.pdfbox.util.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.CellType
@@ -72,7 +72,7 @@ object OfficeConverter {
                     // Empty paragraph serves as spacer
                     yPosition -= leading
                     if (yPosition < margin) {
-                        contentStream.close()
+                        contentStream?.close()
                         currentPage = PDPage(pageBounds)
                         pdf.addPage(currentPage)
                         contentStream = PDPageContentStream(pdf, currentPage)
@@ -89,7 +89,7 @@ object OfficeConverter {
 
                     // Check page bound break
                     if (yPosition - leading < margin) {
-                        contentStream.close()
+                        contentStream?.close()
                         currentPage = PDPage(pageBounds)
                         pdf.addPage(currentPage)
                         contentStream = PDPageContentStream(pdf, currentPage)
@@ -97,11 +97,11 @@ object OfficeConverter {
                     }
 
                     // Paint line onto canvas stream
-                    contentStream.beginText()
-                    contentStream.setFont(font, fontSize)
-                    contentStream.newLineAtOffset(margin, yPosition)
-                    contentStream.showText(sanitizedLine)
-                    contentStream.endText()
+                    contentStream?.beginText()
+                    contentStream?.setFont(font, fontSize)
+                    contentStream?.newLineAtOffset(margin, yPosition)
+                    contentStream?.showText(sanitizedLine)
+                    contentStream?.endText()
 
                     yPosition -= leading
                 }
@@ -110,7 +110,7 @@ object OfficeConverter {
                 yPosition -= 6f
             }
 
-            contentStream.close()
+            contentStream?.close()
             contentStream = null
 
             FileOutputStream(pdfFile).use { out ->
@@ -189,11 +189,11 @@ object OfficeConverter {
                 contentStream = PDPageContentStream(pdf, currentPage)
 
                 // Page headers and title
-                contentStream.beginText()
-                contentStream.setFont(fontBold, 12f)
-                contentStream.newLineAtOffset(margin, pageBounds.height - margin + 12f)
-                contentStream.showText("Spreadsheet Export: ${sheet.sheetName}")
-                contentStream.endText()
+                contentStream?.beginText()
+                contentStream?.setFont(fontBold, 12f)
+                contentStream?.newLineAtOffset(margin, pageBounds.height - margin + 12f)
+                contentStream?.showText("Spreadsheet Export: ${sheet.sheetName}")
+                contentStream?.endText()
 
                 var yPosition = pageBounds.height - margin - 20f
 
@@ -202,7 +202,7 @@ object OfficeConverter {
 
                     // Check bounds for page breaks
                     if (yPosition - rowHeight < margin) {
-                        contentStream.close()
+                        contentStream?.close()
                         currentPage = PDPage(pageBounds)
                         pdf.addPage(currentPage)
                         contentStream = PDPageContentStream(pdf, currentPage)
@@ -236,32 +236,32 @@ object OfficeConverter {
                         val cellX = margin + (colIndex * colWidth)
 
                         // 1. Draw Cell border lines
-                        contentStream.setStrokingColor(200, 200, 200)
-                        contentStream.setLineWidth(0.5f)
-                        contentStream.moveTo(cellX, yPosition)
-                        contentStream.lineTo(cellX + colWidth, yPosition)
-                        contentStream.lineTo(cellX + colWidth, yPosition - rowHeight)
-                        contentStream.lineTo(cellX, yPosition - rowHeight)
-                        contentStream.lineTo(cellX, yPosition)
-                        contentStream.stroke()
+                        contentStream?.setStrokingColor(200, 200, 200)
+                        contentStream?.setLineWidth(0.5f)
+                        contentStream?.moveTo(cellX, yPosition)
+                        contentStream?.lineTo(cellX + colWidth, yPosition)
+                        contentStream?.lineTo(cellX + colWidth, yPosition - rowHeight)
+                        contentStream?.lineTo(cellX, yPosition - rowHeight)
+                        contentStream?.lineTo(cellX, yPosition)
+                        contentStream?.stroke()
 
                         // 2. Draw cell string values (with custom truncation if needed)
                         if (cellValue.isNotBlank()) {
                             val sanitizedValue = sanitizeText(cellValue)
                             val displayValue = truncateToWidth(sanitizedValue, fontNormal, fontSizeCell, colWidth - 8f)
 
-                            contentStream.beginText()
-                            contentStream.setFont(fontNormal, fontSizeCell)
-                            contentStream.newLineAtOffset(cellX + 4f, yPosition - rowHeight + 6f)
-                            contentStream.showText(displayValue)
-                            contentStream.endText()
+                            contentStream?.beginText()
+                            contentStream?.setFont(fontNormal, fontSizeCell)
+                            contentStream?.newLineAtOffset(cellX + 4f, yPosition - rowHeight + 6f)
+                            contentStream?.showText(displayValue)
+                            contentStream?.endText()
                         }
                     }
 
                     yPosition -= rowHeight
                 }
 
-                contentStream.close()
+                contentStream?.close()
                 contentStream = null
             }
 
