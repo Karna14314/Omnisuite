@@ -10,17 +10,18 @@ import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
-import com.tomroush.pdfbox.android.PDFBoxResourceLoader
-import com.tomroush.pdfbox.pdmodel.PDDocument
-import com.tomroush.pdfbox.pdmodel.PDPageContentStream
-import com.tomroush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
-import com.tomroush.pdfbox.pdmodel.font.PDType1Font
-import com.tomroush.pdfbox.util.Matrix
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.util.Matrix
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import java.io.File
 import javax.inject.Inject
 
@@ -52,6 +53,9 @@ class WatermarkViewModel @Inject constructor(
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    var activeDocument: PDDocument? = null
         private set
 
     fun selectPdf(uri: Uri) {
@@ -86,6 +90,7 @@ class WatermarkViewModel @Inject constructor(
                         ?: throw Exception("Could not cache source PDF file.")
 
                     doc = PDDocument.load(tempInputFile)
+                    activeDocument = doc
                     val font = PDType1Font.HELVETICA_BOLD
                     val numPages = doc.numberOfPages
 
@@ -162,14 +167,16 @@ class WatermarkViewModel @Inject constructor(
                     e.printStackTrace()
                     errorMessage = "Failed to apply watermark: ${e.localizedMessage}"
                 } finally {
-                    try {
-                        doc?.close()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    withContext(NonCancellable) {
+                        try {
+                            doc?.close()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        tempInputFile?.let { if (it.exists()) it.delete() }
+                        tempOutputFile?.let { if (it.exists()) it.delete() }
+                        isProcessing = false
                     }
-                    tempInputFile?.let { if (it.exists()) it.delete() }
-                    tempOutputFile?.let { if (it.exists()) it.delete() }
-                    isProcessing = false
                 }
             }
         }
@@ -199,6 +206,15 @@ class WatermarkViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             null
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            activeDocument?.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

@@ -13,15 +13,16 @@ import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
-import com.tomroush.pdfbox.android.PDFBoxResourceLoader
-import com.tomroush.pdfbox.pdmodel.PDDocument
-import com.tomroush.pdfbox.pdmodel.PDPageContentStream
-import com.tomroush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -61,6 +62,9 @@ class SignatureViewModel @Inject constructor(
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    var activeDocument: PDDocument? = null
         private set
 
     // Track the dimensions of the currently rendered PDF page in points
@@ -195,6 +199,7 @@ class SignatureViewModel @Inject constructor(
                     val targetPdfY = (currentPdfPageHeight - (tapY * ratioY)) - (targetHeightPoints / 2f)
 
                     doc = PDDocument.load(pdfFile)
+                    activeDocument = doc
                     val page = doc.getPage(currentPageIndex)
 
                     val signatureImage = PDImageXObject.createFromFileByExtension(sigFile, doc)
@@ -253,13 +258,15 @@ class SignatureViewModel @Inject constructor(
                     e.printStackTrace()
                     errorMessage = "Failed to stamp signature: ${e.localizedMessage}"
                 } finally {
-                    try {
-                        doc?.close()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    withContext(NonCancellable) {
+                        try {
+                            doc?.close()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        tempOutputFile?.let { if (it.exists()) it.delete() }
+                        isProcessing = false
                     }
-                    tempOutputFile?.let { if (it.exists()) it.delete() }
-                    isProcessing = false
                 }
             }
         }
@@ -303,6 +310,11 @@ class SignatureViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        try {
+            activeDocument?.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         closeRenderer()
         // Clean cached temporary files
         viewModelScope.launch(Dispatchers.IO) {
