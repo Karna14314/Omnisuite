@@ -53,13 +53,3 @@ Instead of relying on globally installed Gradle instances, OmniSuite uses a port
 
 ---
 
-## 🏗️ Production Release Signing
-
-To package the application for release, ensure a local `keystore.properties` is created inside the root project directory containing the following:
-```properties
-storeFile=omnisuite_release.jks
-storePassword=your_keystore_password
-keyAlias=your_key_alias
-keyPassword=your_key_password
-```
-The keystore file (`omnisuite_release.jks`) and the properties file are explicitly excluded from Git history to maintain security.
