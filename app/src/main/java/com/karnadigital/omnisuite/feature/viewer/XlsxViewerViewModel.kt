@@ -84,8 +84,13 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    fileInputStream = FileInputStream(file)
-                    workbook = XSSFWorkbook(fileInputStream)
+                    val isCsv = file.name.endsWith(".csv", ignoreCase = true)
+                    workbook = if (isCsv) {
+                        loadCsvAsWorkbook(file)
+                    } else {
+                        fileInputStream = FileInputStream(file)
+                        XSSFWorkbook(fileInputStream)
+                    }
 
                     val parsedWb = parseWorkbook(workbook)
 
@@ -94,7 +99,7 @@ class XlsxViewerViewModel @Inject constructor(
                         val recentFile = RecentFile(
                             fileUri = file.absolutePath,
                             fileName = file.name,
-                            mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            mimeType = if (isCsv) "text/csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             fileSize = file.length(),
                             lastOpened = System.currentTimeMillis()
                         )
@@ -118,7 +123,7 @@ class XlsxViewerViewModel @Inject constructor(
                     } catch (ex: Exception) {
                         ex.printStackTrace()
                     }
-                    _loadState.value = XlsxLoadState.Error("Apache POI parser failure: ${e.localizedMessage}")
+                    _loadState.value = XlsxLoadState.Error("Spreadsheet parser failure: ${e.localizedMessage}")
                 } finally {
                     try {
                         fileInputStream?.close()
@@ -128,6 +133,62 @@ class XlsxViewerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun loadCsvAsWorkbook(file: File): XSSFWorkbook {
+        val workbook = XSSFWorkbook()
+        val sheet = workbook.createSheet("CSV Document")
+        val lines = file.readLines()
+        for (r in lines.indices) {
+            val row = sheet.createRow(r)
+            val line = lines[r]
+            val cells = parseCsvLine(line)
+            for (c in cells.indices) {
+                val cell = row.createCell(c)
+                val cellVal = cells[c]
+                val doubleVal = cellVal.toDoubleOrNull()
+                if (doubleVal != null) {
+                    cell.setCellValue(doubleVal)
+                } else {
+                    cell.setCellValue(cellVal)
+                }
+            }
+        }
+        return workbook
+    }
+
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        var curVal = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val ch = line[i]
+            if (inQuotes) {
+                if (ch == '\"') {
+                    if (i + 1 < line.length && line[i + 1] == '\"') {
+                        curVal.append('\"')
+                        i++
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    curVal.append(ch)
+                }
+            } else {
+                if (ch == '\"') {
+                    inQuotes = true
+                } else if (ch == ',') {
+                    result.add(curVal.toString())
+                    curVal = StringBuilder()
+                } else {
+                    curVal.append(ch)
+                }
+            }
+            i++
+        }
+        result.add(curVal.toString())
+        return result
     }
 
     private fun parseWorkbook(wb: XSSFWorkbook): ExcelWorkbook {
@@ -226,19 +287,48 @@ class XlsxViewerViewModel @Inject constructor(
             }
 
             withContext(Dispatchers.IO) {
-                var fileOutputStream: java.io.FileOutputStream? = null
-                try {
-                    fileOutputStream = java.io.FileOutputStream(File(filePath))
-                    wb.write(fileOutputStream)
-                    _saveStatus.emit("Spreadsheet changes committed successfully!")
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    _saveStatus.emit("Failed to save changes: ${e.localizedMessage}")
-                } finally {
+                if (filePath.endsWith(".csv", ignoreCase = true)) {
                     try {
-                        fileOutputStream?.close()
+                        val sheet = wb.getSheetAt(0)
+                        val stringBuilder = StringBuilder()
+                        for (r in 0..sheet.lastRowNum) {
+                            val row = sheet.getRow(r)
+                            val rowCells = mutableListOf<String>()
+                            if (row != null) {
+                                for (c in 0 until row.lastCellNum) {
+                                    val cell = row.getCell(c)
+                                    val valStr = if (cell != null) getFormattedCellValue(cell) else ""
+                                    val escaped = if (valStr.contains(",") || valStr.contains("\n") || valStr.contains("\"")) {
+                                        "\"" + valStr.replace("\"", "\"\"") + "\""
+                                    } else {
+                                        valStr
+                                    }
+                                    rowCells.add(escaped)
+                                }
+                            }
+                            stringBuilder.append(rowCells.joinToString(",")).append("\n")
+                        }
+                        File(filePath).writeText(stringBuilder.toString())
+                        _saveStatus.emit("CSV changes committed successfully!")
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        _saveStatus.emit("Failed to save CSV: ${e.localizedMessage}")
+                    }
+                } else {
+                    var fileOutputStream: java.io.FileOutputStream? = null
+                    try {
+                        fileOutputStream = java.io.FileOutputStream(File(filePath))
+                        wb.write(fileOutputStream)
+                        _saveStatus.emit("Spreadsheet changes committed successfully!")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _saveStatus.emit("Failed to save changes: ${e.localizedMessage}")
+                    } finally {
+                        try {
+                            fileOutputStream?.close()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 }
             }

@@ -11,6 +11,16 @@ sealed class Screen(val route: String) {
     object MainShell : Screen("main_shell")
 
     /**
+     * Dedicated All Tools hub screen.
+     */
+    object Tools : Screen("tools")
+
+    /**
+     * Storage Access Framework file browser screen.
+     */
+    object Files : Screen("files")
+
+    /**
      * Settings configurations screen.
      */
     object Settings : Screen("settings")

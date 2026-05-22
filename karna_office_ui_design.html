@@ -1,0 +1,668 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); background: var(--color-background-tertiary); }
+  .phone { width: 360px; margin: 0 auto; background: var(--color-background-secondary); border-radius: 20px; border: 0.5px solid var(--color-border-secondary); overflow: hidden; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .status-bar { padding: 8px 16px 4px; display: flex; justify-content: space-between; align-items: center; background: var(--color-background-primary); }
+  .status-bar span { font-size: 11px; color: var(--color-text-secondary); font-weight: 500; }
+  .topbar { background: var(--color-background-primary); padding: 10px 16px 12px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .topbar-row { display: flex; justify-content: space-between; align-items: center; }
+  .app-title { font-size: 18px; font-weight: 500; color: var(--color-text-primary); }
+  .app-logo { width: 30px; height: 30px; border-radius: 8px; background: #1a1a2e; display: flex; align-items: center; justify-content: center; }
+  .app-logo span { color: #fff; font-size: 13px; font-weight: 700; }
+  .search-bar { margin-top: 10px; background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
+  .search-bar span { font-size: 13px; color: var(--color-text-tertiary); }
+  .scroll-area { overflow-y: auto; max-height: 560px; background: var(--color-background-tertiary); padding-bottom: 60px; }
+  .section { padding: 14px 16px 4px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .section-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); text-transform: uppercase; letter-spacing: 0.06em; }
+  .section-action { font-size: 12px; color: var(--color-text-info); }
+  .recents-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .recents-scroll::-webkit-scrollbar { display: none; }
+  .recent-card { min-width: 120px; max-width: 120px; background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 10px; cursor: pointer; flex-shrink: 0; }
+  .file-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px; }
+  .badge-pdf { background: #fce8e8; color: #b91c1c; }
+  .badge-doc { background: #dbeafe; color: #1d4ed8; }
+  .badge-xls { background: #dcfce7; color: #15803d; }
+  .badge-ppt { background: #fef3c7; color: #92400e; }
+  .badge-img { background: #f3e8ff; color: #7e22ce; }
+  .badge-txt { background: #f1f5f9; color: #475569; }
+  .badge-zip { background: #fff7ed; color: #c2410c; }
+  .recent-name { font-size: 11px; font-weight: 500; color: var(--color-text-primary); line-height: 1.3; margin-bottom: 2px; word-break: break-all; }
+  .recent-size { font-size: 10px; color: var(--color-text-tertiary); }
+  .category-tabs { display: flex; gap: 6px; padding: 12px 16px 0; overflow-x: auto; scrollbar-width: none; }
+  .category-tabs::-webkit-scrollbar { display: none; }
+  .cat-tab { flex-shrink: 0; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-secondary); transition: all 0.15s; }
+  .cat-tab.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+  .tools-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px 16px; }
+  .tool-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+  .tool-card:active { background: var(--color-background-secondary); }
+  .tool-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .tool-name { font-size: 12px; font-weight: 500; color: var(--color-text-primary); line-height: 1.3; }
+  .tool-desc { font-size: 10px; color: var(--color-text-secondary); line-height: 1.3; }
+  .viewer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px 16px; }
+  .viewer-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .viewer-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .viewer-info .vname { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+  .viewer-info .vext { font-size: 10px; color: var(--color-text-tertiary); }
+  .divider-label { margin: 6px 16px 0; font-size: 11px; font-weight: 500; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+  .bottom-nav { position: sticky; bottom: 0; background: var(--color-background-primary); border-top: 0.5px solid var(--color-border-tertiary); display: flex; padding: 8px 0 10px; }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 2px 0; }
+  .nav-item i { font-size: 20px; color: var(--color-text-tertiary); }
+  .nav-item span { font-size: 10px; color: var(--color-text-tertiary); font-weight: 500; }
+  .nav-item.active i, .nav-item.active span { color: #1a1a2e; }
+  .viewer-screen { background: #1a1a2e; min-height: 620px; }
+  .viewer-topbar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 0.5px solid rgba(255,255,255,0.08); }
+  .viewer-topbar .back { color: #fff; font-size: 20px; cursor: pointer; }
+  .viewer-topbar .vtitle { flex: 1; font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .viewer-topbar .vactions { display: flex; gap: 12px; }
+  .viewer-topbar .vactions i { color: rgba(255,255,255,0.7); font-size: 19px; cursor: pointer; }
+  .pdf-page { margin: 12px; background: #fff; border-radius: 6px; height: 420px; display: flex; align-items: center; justify-content: center; position: relative; }
+  .pdf-page-content { padding: 20px; width: 100%; }
+  .pdf-line { height: 8px; background: #e5e7eb; border-radius: 3px; margin-bottom: 8px; }
+  .pdf-line.short { width: 60%; }
+  .pdf-line.med { width: 80%; }
+  .pdf-line.full { width: 100%; }
+  .pdf-line.title { height: 12px; width: 70%; background: #d1d5db; margin-bottom: 16px; }
+  .page-indicator { position: absolute; bottom: 8px; right: 10px; font-size: 10px; color: #9ca3af; background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; }
+  .viewer-toolbar { display: flex; justify-content: space-around; padding: 10px 16px; border-top: 0.5px solid rgba(255,255,255,0.08); }
+  .vt-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+  .vt-btn i { font-size: 19px; color: rgba(255,255,255,0.7); }
+  .vt-btn span { font-size: 9px; color: rgba(255,255,255,0.5); }
+  .qr-screen { padding: 0; }
+  .qr-topbar { background: var(--color-background-primary); padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .qr-topbar .back { font-size: 20px; color: var(--color-text-primary); cursor: pointer; }
+  .qr-topbar .qtitle { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+  .qr-tabs { display: flex; gap: 0; border-bottom: 0.5px solid var(--color-border-tertiary); background: var(--color-background-primary); }
+  .qr-tab { flex: 1; text-align: center; padding: 10px 4px; font-size: 12px; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; }
+  .qr-tab.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
+  .qr-body { padding: 16px; background: var(--color-background-tertiary); }
+  .qr-preview-box { background: var(--color-background-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 20px; display: flex; justify-content: center; margin-bottom: 14px; }
+  .qr-svg-mock { width: 120px; height: 120px; }
+  .qr-options { background: var(--color-background-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 12px 14px; margin-bottom: 10px; }
+  .qr-opt-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .qr-opt-row:last-child { border-bottom: none; }
+  .qr-opt-label { font-size: 12px; color: var(--color-text-primary); }
+  .qr-opt-value { font-size: 12px; color: var(--color-text-info); font-weight: 500; }
+  .color-row { display: flex; gap: 6px; }
+  .color-dot { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 0.5px solid var(--color-border-secondary); }
+  .color-dot.selected { border: 2px solid #1a1a2e; }
+  .input-row { background: var(--color-background-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 10px 14px; margin-bottom: 10px; }
+  .input-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+  .input-mock { font-size: 13px; color: var(--color-text-primary); }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-primary { flex: 1; background: #1a1a2e; color: #fff; border: none; border-radius: var(--border-radius-md); padding: 11px; font-size: 13px; font-weight: 500; cursor: pointer; text-align: center; }
+  .btn-secondary { flex: 1; background: var(--color-background-primary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 11px; font-size: 13px; font-weight: 500; cursor: pointer; text-align: center; }
+  .tab-nav-row { display: flex; gap: 0; background: var(--color-background-primary); border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .tab-btn { flex: 1; text-align: center; padding: 9px 4px; font-size: 11px; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab-btn.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
+  .tools-section { display: none; }
+  .tools-section.active { display: block; }
+  .empty-recent { padding: 12px 0; text-align: center; font-size: 12px; color: var(--color-text-tertiary); }
+</style>
+
+<div class="phone">
+
+  <div id="screen-home" class="screen active">
+    <div class="status-bar"><span>9:41</span><span>5G ▐ 🔋</span></div>
+    <div class="topbar">
+      <div class="topbar-row">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="app-logo"><span>KO</span></div>
+          <span class="app-title">Karna Office</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <i class="ti ti-bell" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i>
+          <i class="ti ti-settings" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i>
+        </div>
+      </div>
+      <div class="search-bar" onclick="showScreen('screen-tools')">
+        <i class="ti ti-search" style="font-size:15px;color:var(--color-text-tertiary);" aria-hidden="true"></i>
+        <span>Search tools, files…</span>
+      </div>
+    </div>
+    <div class="scroll-area">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Recent Files</span>
+          <span class="section-action">Clear</span>
+        </div>
+        <div class="recents-scroll">
+          <div class="recent-card">
+            <span class="file-badge badge-pdf">PDF</span>
+            <div class="recent-name">Report_Q4.pdf</div>
+            <div class="recent-size">2.1 MB</div>
+          </div>
+          <div class="recent-card">
+            <span class="file-badge badge-doc">DOC</span>
+            <div class="recent-name">Project_Proposal.docx</div>
+            <div class="recent-size">121 KB</div>
+          </div>
+          <div class="recent-card">
+            <span class="file-badge badge-xls">XLS</span>
+            <div class="recent-name">Budget.xlsx</div>
+            <div class="recent-size">88 KB</div>
+          </div>
+          <div class="recent-card">
+            <span class="file-badge badge-ppt">PPT</span>
+            <div class="recent-name">Pitch_Deck.pptx</div>
+            <div class="recent-size">3.4 MB</div>
+          </div>
+          <div class="recent-card">
+            <span class="file-badge badge-img">IMG</span>
+            <div class="recent-name">banner.png</div>
+            <div class="recent-size">540 KB</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header"><span class="section-title">Open File</span></div>
+        <div class="viewer-grid">
+          <div class="viewer-card" onclick="showScreen('screen-viewer')">
+            <div class="viewer-icon" style="background:#fce8e8;">📄</div>
+            <div class="viewer-info"><div class="vname">PDF</div><div class="vext">.pdf</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#dbeafe;">📝</div>
+            <div class="viewer-info"><div class="vname">Word</div><div class="vext">.doc .docx</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#dcfce7;">📊</div>
+            <div class="viewer-info"><div class="vname">Excel</div><div class="vext">.xls .xlsx .csv</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#fef3c7;">📑</div>
+            <div class="viewer-info"><div class="vname">Slides</div><div class="vext">.ppt .pptx</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#f3e8ff;">🖼️</div>
+            <div class="viewer-info"><div class="vname">Image</div><div class="vext">.jpg .png .webp</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#f1f5f9;">📃</div>
+            <div class="viewer-info"><div class="vname">Text</div><div class="vext">.txt .md .rtf</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#fff7ed;">🗜️</div>
+            <div class="viewer-info"><div class="vname">Archive</div><div class="vext">.zip .rar</div></div>
+          </div>
+          <div class="viewer-card">
+            <div class="viewer-icon" style="background:#ecfdf5;">📚</div>
+            <div class="viewer-info"><div class="vname">eBook</div><div class="vext">.epub</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header"><span class="section-title">Tools</span><span class="section-action" onclick="showScreen('screen-tools')">See all →</span></div>
+      </div>
+
+      <div class="divider-label">PDF</div>
+      <div class="tools-grid">
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-git-merge" style="font-size:18px;color:#b91c1c;" aria-hidden="true"></i></div>
+          <div class="tool-name">Merge PDFs</div>
+          <div class="tool-desc">Combine multiple files</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-cut" style="font-size:18px;color:#b91c1c;" aria-hidden="true"></i></div>
+          <div class="tool-name">Split PDF</div>
+          <div class="tool-desc">Extract page ranges</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-lock" style="font-size:18px;color:#b91c1c;" aria-hidden="true"></i></div>
+          <div class="tool-name">Encrypt PDF</div>
+          <div class="tool-desc">Password protect</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-writing" style="font-size:18px;color:#b91c1c;" aria-hidden="true"></i></div>
+          <div class="tool-name">Watermark</div>
+          <div class="tool-desc">Stamp text or image</div>
+        </div>
+      </div>
+
+      <div class="divider-label" style="margin-top:6px;">Image</div>
+      <div class="tools-grid">
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-photo-scan" style="font-size:18px;color:#7e22ce;" aria-hidden="true"></i></div>
+          <div class="tool-name">Scanner</div>
+          <div class="tool-desc">Camera document scan</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-crop" style="font-size:18px;color:#7e22ce;" aria-hidden="true"></i></div>
+          <div class="tool-name">Crop &amp; Resize</div>
+          <div class="tool-desc">Trim and scale images</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-eraser" style="font-size:18px;color:#7e22ce;" aria-hidden="true"></i></div>
+          <div class="tool-name">Remove BG</div>
+          <div class="tool-desc">Cut out background</div>
+        </div>
+        <div class="tool-card" onclick="showScreen('screen-qr')">
+          <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-qrcode" style="font-size:18px;color:#7e22ce;" aria-hidden="true"></i></div>
+          <div class="tool-name">QR Code</div>
+          <div class="tool-desc">Generate &amp; scan QR</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <div class="nav-item active"><i class="ti ti-home" aria-hidden="true"></i><span>Home</span></div>
+      <div class="nav-item" onclick="showScreen('screen-tools')"><i class="ti ti-tools" aria-hidden="true"></i><span>Tools</span></div>
+      <div class="nav-item"><i class="ti ti-folder-open" aria-hidden="true"></i><span>Files</span></div>
+      <div class="nav-item"><i class="ti ti-clock" aria-hidden="true"></i><span>History</span></div>
+    </div>
+  </div>
+
+  <div id="screen-tools" class="screen">
+    <div class="status-bar"><span>9:41</span><span>5G ▐ 🔋</span></div>
+    <div class="topbar">
+      <div class="topbar-row">
+        <span class="app-title">All Tools</span>
+        <i class="ti ti-search" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i>
+      </div>
+    </div>
+    <div class="tab-nav-row">
+      <div class="tab-btn active" onclick="switchTab(this,'tab-pdf')">PDF</div>
+      <div class="tab-btn" onclick="switchTab(this,'tab-doc')">Documents</div>
+      <div class="tab-btn" onclick="switchTab(this,'tab-img')">Image</div>
+      <div class="tab-btn" onclick="switchTab(this,'tab-util')">Utilities</div>
+    </div>
+    <div class="scroll-area">
+
+      <div id="tab-pdf" class="tools-section active">
+        <div class="divider-label" style="margin-top:12px;">View &amp; Read</div>
+        <div class="tools-grid">
+          <div class="tool-card" onclick="showScreen('screen-viewer')">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-file-text" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">PDF Viewer</div><div class="tool-desc">Open &amp; read PDFs</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-bookmark" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Annotate</div><div class="tool-desc">Highlight, draw, note</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-forms" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Fill Form</div><div class="tool-desc">Fill AcroForm fields</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-signature" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Signature</div><div class="tool-desc">Draw &amp; stamp sign</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Modify</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-git-merge" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Merge PDFs</div><div class="tool-desc">Combine files</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-cut" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Split PDF</div><div class="tool-desc">Extract pages</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-arrows-sort" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Manage Pages</div><div class="tool-desc">Reorder, delete</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-rotate" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Rotate Pages</div><div class="tool-desc">Fix orientation</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-file-zip" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Compress</div><div class="tool-desc">Reduce file size</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-writing" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Watermark</div><div class="tool-desc">Text or image stamp</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-lock" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Encrypt PDF</div><div class="tool-desc">Password protect</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-photo" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Images from PDF</div><div class="tool-desc">Extract embedded</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Convert</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-file-export" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Image to PDF</div><div class="tool-desc">Photos → PDF</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fce8e8;"><i class="ti ti-file-export" style="color:#b91c1c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Doc to PDF</div><div class="tool-desc">DOCX/PPTX/XLSX</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-doc" class="tools-section">
+        <div class="divider-label" style="margin-top:12px;">Viewers</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dbeafe;"><i class="ti ti-file-text" style="color:#1d4ed8;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Word Viewer</div><div class="tool-desc">.doc .docx</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dcfce7;"><i class="ti ti-table" style="color:#15803d;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Excel Viewer</div><div class="tool-desc">.xls .xlsx .csv</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fef3c7;"><i class="ti ti-presentation" style="color:#92400e;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Slides Viewer</div><div class="tool-desc">.ppt .pptx</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f1f5f9;"><i class="ti ti-align-left" style="color:#475569;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Text Editor</div><div class="tool-desc">.txt .md .rtf</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Edit &amp; Create</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dbeafe;"><i class="ti ti-edit" style="color:#1d4ed8;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Edit Word</div><div class="tool-desc">Basic text edit</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dcfce7;"><i class="ti ti-cell" style="color:#15803d;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Edit Cells</div><div class="tool-desc">XLSX edit + formula</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dbeafe;"><i class="ti ti-file-analytics" style="color:#1d4ed8;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Word Count</div><div class="tool-desc">Doc statistics</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#dbeafe;"><i class="ti ti-file-description" style="color:#1d4ed8;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">CSV to XLSX</div><div class="tool-desc">Convert spreadsheet</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-img" class="tools-section">
+        <div class="divider-label" style="margin-top:12px;">Capture &amp; Scan</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-camera" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Scanner</div><div class="tool-desc">Document camera</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-abc" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">OCR / Extract Text</div><div class="tool-desc">Read text from image</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Edit</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-crop" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Crop &amp; Resize</div><div class="tool-desc">Trim, scale, rotate</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-adjustments" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Enhance</div><div class="tool-desc">Brightness, contrast</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-background" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Remove BG</div><div class="tool-desc">Cut out background</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-writing" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Watermark</div><div class="tool-desc">Add text or image</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-stack-2" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Long Image</div><div class="tool-desc">Stitch images tall</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-eraser" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Magic Eraser</div><div class="tool-desc">Remove objects</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Convert &amp; Compress</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-file-zip" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Compress</div><div class="tool-desc">Reduce image size</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-refresh" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Convert Format</div><div class="tool-desc">JPG PNG WEBP BMP</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-maximize" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Lossless Resize</div><div class="tool-desc">WebP lossless</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f3e8ff;"><i class="ti ti-photo-off" style="color:#7e22ce;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Image to PDF</div><div class="tool-desc">Photos → PDF doc</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-util" class="tools-section">
+        <div class="divider-label" style="margin-top:12px;">QR &amp; Barcode</div>
+        <div class="tools-grid">
+          <div class="tool-card" onclick="showScreen('screen-qr')">
+            <div class="tool-icon" style="background:#ecfdf5;"><i class="ti ti-qrcode" style="color:#065f46;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">QR Generator</div><div class="tool-desc">Customise &amp; export</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#ecfdf5;"><i class="ti ti-scan" style="color:#065f46;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">QR Scanner</div><div class="tool-desc">Camera scan QR</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#ecfdf5;"><i class="ti ti-barcode" style="color:#065f46;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Barcode</div><div class="tool-desc">Generate barcodes</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#ecfdf5;"><i class="ti ti-eye" style="color:#065f46;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Scan &amp; Copy</div><div class="tool-desc">Read any code</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Archive &amp; Files</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fff7ed;"><i class="ti ti-archive" style="color:#c2410c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">ZIP Viewer</div><div class="tool-desc">Browse archives</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fff7ed;"><i class="ti ti-file-plus" style="color:#c2410c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Create ZIP</div><div class="tool-desc">Compress files</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fff7ed;"><i class="ti ti-folders" style="color:#c2410c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Extract ZIP</div><div class="tool-desc">Unzip to folder</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#fff7ed;"><i class="ti ti-lock" style="color:#c2410c;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">ZIP Password</div><div class="tool-desc">Protect archives</div>
+          </div>
+        </div>
+        <div class="divider-label" style="margin-top:4px;">Other</div>
+        <div class="tools-grid">
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f0fdf4;"><i class="ti ti-ruler-2" style="color:#15803d;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Unit Converter</div><div class="tool-desc">Length, weight, temp</div>
+          </div>
+          <div class="tool-card">
+            <div class="tool-icon" style="background:#f0fdf4;"><i class="ti ti-markdown" style="color:#15803d;font-size:18px" aria-hidden="true"></i></div>
+            <div class="tool-name">Markdown Viewer</div><div class="tool-desc">Preview .md files</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="showScreen('screen-home')"><i class="ti ti-home" aria-hidden="true"></i><span>Home</span></div>
+      <div class="nav-item active"><i class="ti ti-tools" aria-hidden="true"></i><span>Tools</span></div>
+      <div class="nav-item"><i class="ti ti-folder-open" aria-hidden="true"></i><span>Files</span></div>
+      <div class="nav-item"><i class="ti ti-clock" aria-hidden="true"></i><span>History</span></div>
+    </div>
+  </div>
+
+  <div id="screen-viewer" class="screen">
+    <div class="viewer-screen">
+      <div class="viewer-topbar">
+        <i class="ti ti-arrow-left back" onclick="showScreen('screen-home')" aria-label="Back"></i>
+        <span class="vtitle">Report_Q4.pdf</span>
+        <div class="vactions">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <i class="ti ti-bookmark" aria-hidden="true"></i>
+          <i class="ti ti-dots-vertical" aria-hidden="true"></i>
+        </div>
+      </div>
+      <div class="pdf-page">
+        <div class="pdf-page-content">
+          <div class="pdf-line title"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line med"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line short"></div>
+          <div style="height:12px;"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line med"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line short"></div>
+          <div style="height:12px;"></div>
+          <div class="pdf-line full"></div>
+          <div class="pdf-line med"></div>
+          <div class="pdf-line full"></div>
+        </div>
+        <span class="page-indicator">1 / 12</span>
+      </div>
+      <div class="viewer-toolbar">
+        <div class="vt-btn"><i class="ti ti-pencil" aria-hidden="true"></i><span>Annotate</span></div>
+        <div class="vt-btn"><i class="ti ti-signature" aria-hidden="true"></i><span>Sign</span></div>
+        <div class="vt-btn"><i class="ti ti-share" aria-hidden="true"></i><span>Share</span></div>
+        <div class="vt-btn"><i class="ti ti-printer" aria-hidden="true"></i><span>Print</span></div>
+        <div class="vt-btn"><i class="ti ti-tools" aria-hidden="true"></i><span>Tools</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-qr" class="screen">
+    <div class="status-bar"><span>9:41</span><span>5G ▐ 🔋</span></div>
+    <div class="qr-topbar">
+      <i class="ti ti-arrow-left back" onclick="showScreen('screen-tools')" aria-label="Back"></i>
+      <span class="qtitle">QR Code Generator</span>
+    </div>
+    <div class="qr-tabs">
+      <div class="qr-tab active">URL</div>
+      <div class="qr-tab">Text</div>
+      <div class="qr-tab">Contact</div>
+      <div class="qr-tab">WiFi</div>
+      <div class="qr-tab">Email</div>
+    </div>
+    <div class="scroll-area" style="max-height:520px;">
+      <div class="qr-body">
+        <div class="input-row">
+          <div class="input-label">Enter URL</div>
+          <div class="input-mock">https://karnadigital.com</div>
+        </div>
+        <div class="qr-preview-box">
+          <svg class="qr-svg-mock" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+            <rect width="120" height="120" fill="white"/>
+            <rect x="10" y="10" width="35" height="35" rx="4" fill="none" stroke="#1a1a2e" stroke-width="3"/>
+            <rect x="17" y="17" width="21" height="21" rx="2" fill="#1a1a2e"/>
+            <rect x="75" y="10" width="35" height="35" rx="4" fill="none" stroke="#1a1a2e" stroke-width="3"/>
+            <rect x="82" y="17" width="21" height="21" rx="2" fill="#1a1a2e"/>
+            <rect x="10" y="75" width="35" height="35" rx="4" fill="none" stroke="#1a1a2e" stroke-width="3"/>
+            <rect x="17" y="82" width="21" height="21" rx="2" fill="#1a1a2e"/>
+            <rect x="55" y="10" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="63" y="10" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="18" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="63" y="26" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="34" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="63" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="71" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="79" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="63" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="71" y="63" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="71" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="63" y="71" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="71" y="79" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="79" y="71" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="87" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="95" y="55" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="103" y="63" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="87" y="71" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="95" y="79" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="79" y="87" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="87" y="87" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="87" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="63" y="95" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="55" y="103" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="71" y="95" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="95" y="95" width="5" height="5" fill="#1a1a2e"/>
+            <rect x="103" y="87" width="5" height="5" fill="#1a1a2e"/>
+          </svg>
+        </div>
+        <div class="qr-options">
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Foreground color</span>
+            <div class="color-row">
+              <div class="color-dot selected" style="background:#1a1a2e;"></div>
+              <div class="color-dot" style="background:#b91c1c;"></div>
+              <div class="color-dot" style="background:#1d4ed8;"></div>
+              <div class="color-dot" style="background:#15803d;"></div>
+              <div class="color-dot" style="background:#7e22ce;"></div>
+            </div>
+          </div>
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Background</span>
+            <div class="color-row">
+              <div class="color-dot selected" style="background:#ffffff;border:1px solid #ccc;"></div>
+              <div class="color-dot" style="background:#f1f5f9;"></div>
+              <div class="color-dot" style="background:#1a1a2e;"></div>
+              <div class="color-dot" style="background:#fef3c7;"></div>
+            </div>
+          </div>
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Corner style</span>
+            <span class="qr-opt-value">Rounded ›</span>
+          </div>
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Error correction</span>
+            <span class="qr-opt-value">M (15%) ›</span>
+          </div>
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Add logo / icon</span>
+            <span class="qr-opt-value">None ›</span>
+          </div>
+          <div class="qr-opt-row">
+            <span class="qr-opt-label">Size</span>
+            <span class="qr-opt-value">512 × 512 ›</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <div class="btn-secondary">📋 Copy</div>
+          <div class="btn-primary">⬇ Save PNG</div>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="btn-secondary" style="text-align:center;">Share QR Code</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function switchTab(el, tabId) {
+  el.closest('.tab-nav-row').querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.tools-section').forEach(s => s.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+}
+</script>

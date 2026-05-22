@@ -1,5 +1,12 @@
 package com.karnadigital.omnisuite.feature.home
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,9 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,28 +25,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.feature.history.HistoryScreen
-import androidx.hilt.navigation.compose.hiltViewModel
-import android.widget.Toast
-import android.net.Uri
-import androidx.compose.ui.platform.LocalContext
+import com.karnadigital.omnisuite.feature.tools.AllToolsScreen
 import com.karnadigital.omnisuite.feature.utility.rememberDocumentScannerLauncher
 
 /**
  * Bottom Navigation Primary Root Tabs.
  */
 enum class HomeTab {
-    Workspace,
+    Home,
+    Tools,
+    Files,
     History
 }
 
+data class OpenFileItem(
+    val title: String,
+    val iconText: String,
+    val color: Color,
+    val onClick: () -> Unit
+)
+
 /**
- * Premium 2-Tab root Scaffold viewport shell for OmniSuite.
+ * Premium 4-Tab root Scaffold viewport shell for OmniSuite.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +73,43 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    var selectedTab by remember { mutableStateOf(HomeTab.Workspace) }
+    var selectedTab by remember { mutableStateOf(HomeTab.Home) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Reusable Storage Access Framework picker launcher
+    val documentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                // Grant persistable URI read/write permissions
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(it, takeFlags)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            val fileName = getFileName(context, it)
+            val fileSize = getFileSize(context, it)
+            val mimeType = context.contentResolver.getType(it) ?: when {
+                fileName.endsWith(".pdf") -> "application/pdf"
+                fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                fileName.endsWith(".txt") -> "text/plain"
+                fileName.endsWith(".csv") -> "text/csv"
+                fileName.endsWith(".zip") -> "application/zip"
+                else -> "*/*"
+            }
+            viewModel.addRecentFile(
+                fileUri = it.toString(),
+                fileName = fileName,
+                mimeType = mimeType,
+                fileSize = fileSize
+            )
+            onOpenFile(it.toString())
+        }
+    }
 
     // Dynamic camera edge-crop smart scanner launcher
     val scannerLauncher = rememberDocumentScannerLauncher(
@@ -72,6 +121,7 @@ fun HomeScreen(
                 mimeType = "application/pdf",
                 fileSize = savedFile.length()
             )
+            onOpenFile(Uri.fromFile(savedFile).toString())
         },
         onScanFailure = { exception ->
             Toast.makeText(context, "Scan error: ${exception.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -134,13 +184,25 @@ fun HomeScreen(
                 tonalElevation = 8.dp
             ) {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Workspace Panel") },
-                    label = { Text("Workspace") },
-                    selected = selectedTab == HomeTab.Workspace,
-                    onClick = { selectedTab = HomeTab.Workspace }
+                    icon = { Icon(Icons.Default.Home, contentDescription = "Home Workspace Dashboard") },
+                    label = { Text("Home") },
+                    selected = selectedTab == HomeTab.Home,
+                    onClick = { selectedTab = HomeTab.Home }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.List, contentDescription = "History Log") },
+                    icon = { Icon(Icons.Default.Build, contentDescription = "Dedicated Tools Hub") },
+                    label = { Text("Tools") },
+                    selected = selectedTab == HomeTab.Tools,
+                    onClick = { selectedTab = HomeTab.Tools }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Folder, contentDescription = "Storage Browser") },
+                    label = { Text("Files") },
+                    selected = selectedTab == HomeTab.Files,
+                    onClick = { selectedTab = HomeTab.Files }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.List, contentDescription = "Recent Files History") },
                     label = { Text("History") },
                     selected = selectedTab == HomeTab.History,
                     onClick = { selectedTab = HomeTab.History }
@@ -155,16 +217,31 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             when (selectedTab) {
-                HomeTab.Workspace -> {
+                HomeTab.Home -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp)
                     ) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        // Search bar
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search files or tools...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            ),
+                            singleLine = true
+                        )
 
-                        // ZONE 1: THE ACTIVE PIPELINE (RECENTS)
+                        // Recent Files horizontal scroll
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -218,15 +295,40 @@ fun HomeScreen(
                                 }
                             }
                             is RecentFilesUiState.Success -> {
-                                LazyRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(state.files) { file ->
-                                        RecentFileCard(
-                                            file = file,
-                                            onClick = { onOpenFile(file.fileName) }
+                                val filteredFiles = if (searchQuery.isBlank()) {
+                                    state.files
+                                } else {
+                                    state.files.filter { it.fileName.contains(searchQuery, ignoreCase = true) }
+                                }
+
+                                if (filteredFiles.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(130.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No matching files found.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                    }
+                                } else {
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        items(filteredFiles) { file ->
+                                            RecentFileCard(
+                                                file = file,
+                                                onClick = { onOpenFile(file.fileUri) } // Fixed: Pass fileUri instead of fileName!
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -234,442 +336,183 @@ fun HomeScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // ZONE 2: THE DOCUMENT HUB (POLYMORPHIC VIEWERS)
-                        CategoryHeader("Document Suite", "Tap to browse local device files")
+                        // OPEN FILE grid cards (2x4 list)
+                        CategoryHeader("Open File", "Select and open any document offline")
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            val row1 = listOf(
+                                OpenFileItem("PDF", "📕", Color(0xFFEF4444)) { documentLauncher.launch(arrayOf("application/pdf")) },
+                                OpenFileItem("Word", "📝", Color(0xFF3B82F6)) { documentLauncher.launch(arrayOf("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }
+                            )
+                            val row2 = listOf(
+                                OpenFileItem("Excel", "📊", Color(0xFF10B981)) { documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv")) },
+                                OpenFileItem("Slides", "🖼️", Color(0xFFF59E0B)) { documentLauncher.launch(arrayOf("application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation")) }
+                            )
+                            val row3 = listOf(
+                                OpenFileItem("Image", "📷", Color(0xFF8B5CF6)) { documentLauncher.launch(arrayOf("image/*")) },
+                                OpenFileItem("Text", "📄", Color(0xFF64748B)) { documentLauncher.launch(arrayOf("text/plain")) }
+                            )
+                            val row4 = listOf(
+                                OpenFileItem("Archive", "🗜️", Color(0xFF06B6D4)) { documentLauncher.launch(arrayOf("application/zip", "application/x-tar", "application/x-rar-compressed", "application/x-7z-compressed")) },
+                                OpenFileItem("eBook", "📚", Color(0xFF14B8A6)) { documentLauncher.launch(arrayOf("application/epub+zip", "application/x-mobipocket-ebook")) }
+                            )
+
+                            listOf(row1, row2, row3, row4).forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    rowItems.forEach { item ->
+                                        OpenFileCard(
+                                            title = item.title,
+                                            iconText = item.iconText,
+                                            color = item.color,
+                                            onClick = item.onClick,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Quick toolkits
+                        Spacer(modifier = Modifier.height(24.dp))
+                        CategoryHeader("Quick Toolkits", "Direct access to local offline operations")
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ToolItemCard(
+                                title = "PDF Factory",
+                                description = "Merge, split & lock",
+                                iconText = "🥞",
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToPdfTools
+                            )
+                            ToolItemCard(
+                                title = "Image Lab",
+                                description = "Compress & convert",
+                                iconText = "🖼️",
+                                color = Color(0xFF8B5CF6),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToImageTools
+                            )
+                        }
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            DocumentHubItem(
-                                title = "Word",
-                                iconText = "📝",
-                                color = Color(0xFF3B82F6),
-                                onClick = {
-                                    viewModel.addRecentFile(
-                                        fileUri = "content://com.android.providers.downloads.documents/document/proposal_doc",
-                                        fileName = "Project_Proposal.docx",
-                                        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        fileSize = 124500L
-                                    )
-                                    onOpenFile("placeholder_word.docx")
-                                },
-                                modifier = Modifier.weight(1f)
+                            ToolItemCard(
+                                title = "QR Generator",
+                                description = "vCard, WiFi forms",
+                                iconText = "🧬",
+                                color = Color(0xFF06B6D4),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToQrGenerator
                             )
-                            DocumentHubItem(
-                                title = "Excel",
-                                iconText = "📊",
+                            ToolItemCard(
+                                title = "Text OCR",
+                                description = "Camera page extraction",
+                                iconText = "🔬",
                                 color = Color(0xFF10B981),
-                                onClick = {
-                                    viewModel.addRecentFile(
-                                        fileUri = "content://com.android.providers.downloads.documents/document/budget_sheet",
-                                        fileName = "Q3_Monthly_Budget.xlsx",
-                                        mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        fileSize = 45280L
-                                    )
-                                    onOpenFile("placeholder_excel.xlsx")
-                                },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToOcr
                             )
-                            DocumentHubItem(
-                                title = "Slides",
-                                iconText = "🖼️",
-                                color = Color(0xFFF59E0B),
-                                onClick = {
-                                    viewModel.addRecentFile(
-                                        fileUri = "content://com.android.providers.downloads.documents/document/pitch_slides",
-                                        fileName = "Product_Pitch_Slides.pptx",
-                                        mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                        fileSize = 852000L
-                                    )
-                                    onOpenFile("placeholder_slides.pptx")
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                            DocumentHubItem(
-                                title = "Text",
-                                iconText = "📄",
-                                color = Color(0xFF64748B),
-                                onClick = {
-                                    viewModel.addRecentFile(
-                                        fileUri = "content://com.android.providers.downloads.documents/document/notes_txt",
-                                        fileName = "Meeting_Notes.txt",
-                                        mimeType = "text/plain",
-                                        fileSize = 1500L
-                                    )
-                                    onOpenFile("placeholder_text.txt")
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // ZONE 3: THE PDF FACTORY (STRUCTURE CHANGERS)
-                        Card(
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                CategoryHeader("PDF Modification Toolkit", "Heavy off-device operations (PDFBox)")
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    ToolItemCard(
-                                        title = "Merge PDFs",
-                                        description = "Combine files",
-                                        iconText = "🥞",
-                                        color = Color(0xFFEF4444),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = onNavigateToPdfTools
-                                    )
-                                    ToolItemCard(
-                                        title = "Split PDF",
-                                        description = "Extract pages",
-                                        iconText = "✂️",
-                                        color = Color(0xFFEF4444),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = onNavigateToPdfTools
-                                    )
-                                    ToolItemCard(
-                                        title = "Encrypt PDF",
-                                        description = "Password lock",
-                                        iconText = "🔒",
-                                        color = Color(0xFFEF4444),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = onNavigateToPdfTools
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    ToolItemCard(
-                                        title = "Digital Sign",
-                                        description = "Stamp signature",
-                                        iconText = "✍️",
-                                        color = Color(0xFFEF4444),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = onNavigateToSignaturePad
-                                    )
-                                    ToolItemCard(
-                                        title = "Watermark",
-                                        description = "Stamp security",
-                                        iconText = "🎨",
-                                        color = Color(0xFFEF4444),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = onNavigateToWatermark
-                                    )
-                                    Box(modifier = Modifier.weight(1f)) // spacer block for balanced row grid alignment
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // ZONE 4: UTILITY & SCANNER LAB
-                        CategoryHeader("Quick Utilities", "CameraX viewfinder & barcode generators")
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(120.dp)
-                                    .clickable(onClick = onNavigateToBarcodeScanner)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("📷", fontSize = 18.sp)
-                                    }
-                                    Column {
-                                        Text(
-                                            text = "Scan Barcode",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                        Text(
-                                            text = "Live scanner loop",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                        )
-                                    }
-                                }
-                            }
-
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(120.dp)
-                                    .clickable(onClick = onNavigateToQrGenerator)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("🧬", fontSize = 18.sp)
-                                    }
-                                    Column {
-                                        Text(
-                                            text = "Generate QR",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                                        )
-                                        Text(
-                                            text = "Create codes offline",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // Smart Document Scanner Card
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(120.dp)
-                                    .clickable(onClick = scannerLauncher)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("📄", fontSize = 18.sp)
-                                    }
-                                    Column {
-                                        Text(
-                                            text = "Smart Scanner",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                        Text(
-                                            text = "Auto edge-crop & PDF",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                }
-                            }
-
-                            // On-Demand Text Recognition Card
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(120.dp)
-                                    .clickable(onClick = onNavigateToOcr)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("🔬", fontSize = 18.sp)
-                                    }
-                                    Column {
-                                        Text(
-                                            text = "Text OCR",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                                        )
-                                        Text(
-                                            text = "Offline character extraction",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Premium Full-Width Image Utilities Card
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp)
-                                .clickable(onClick = onNavigateToImageTools)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("🖼️", fontSize = 24.sp)
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "Image Lab",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Text(
-                                        text = "Compress, resize, rotate, or convert images fully offline",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                    )
-                                }
-                                Text("➔", fontSize = 18.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Premium Full-Width Batch Utilities Card
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp)
-                                .clickable(onClick = onNavigateToBatchTools)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("⚡", fontSize = 24.sp)
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "Batch Utilities",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                                    )
-                                    Text(
-                                        text = "Concurrent image labs & PDF lock tools",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
-                                    )
-                                }
-                                Text("➔", fontSize = 18.sp, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
-                            }
                         }
 
                         Spacer(modifier = Modifier.height(32.dp))
-
                     }
+                }
+                HomeTab.Tools -> {
+                    AllToolsScreen(
+                        isInline = true,
+                        onBack = { selectedTab = HomeTab.Home },
+                        onNavigateToPdfTools = onNavigateToPdfTools,
+                        onNavigateToSignaturePad = onNavigateToSignaturePad,
+                        onNavigateToWatermark = onNavigateToWatermark,
+                        onNavigateToImageTools = onNavigateToImageTools,
+                        onNavigateToQrGenerator = onNavigateToQrGenerator,
+                        onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
+                        onNavigateToOcr = onNavigateToOcr,
+                        onNavigateToBatchTools = onNavigateToBatchTools,
+                        onSelectFileForType = { type ->
+                            when (type) {
+                                "pdf" -> documentLauncher.launch(arrayOf("application/pdf"))
+                                "word" -> documentLauncher.launch(arrayOf("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                "excel" -> documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                "slides" -> documentLauncher.launch(arrayOf("application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
+                                "image" -> documentLauncher.launch(arrayOf("image/*"))
+                                "text" -> documentLauncher.launch(arrayOf("text/plain"))
+                                "csv" -> documentLauncher.launch(arrayOf("text/csv"))
+                            }
+                        }
+                    )
+                }
+                HomeTab.Files -> {
+                    FileBrowserScreen(
+                        onOpenFile = onOpenFile
+                    )
                 }
                 HomeTab.History -> {
                     HistoryScreen()
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun OpenFileCard(
+    title: String,
+    iconText: String,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = iconText,
+                    fontSize = 24.sp
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -884,4 +727,58 @@ private fun formatFileSize(bytes: Long): String {
     val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
     val pre = "KMGTPE"[exp - 1]
     return String.format("%.1f %sB", bytes / Math.pow(1024.0, exp.toDouble()), pre)
+}
+
+private fun getFileName(context: Context, uri: Uri): String {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        result = cursor.getString(nameIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) {
+            result = result?.substring(cut + 1)
+        }
+    }
+    return result ?: "Unknown_File"
+}
+
+private fun getFileSize(context: Context, uri: Uri): Long {
+    var result: Long = 0L
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (sizeIndex != -1) {
+                        result = cursor.getLong(sizeIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    } else if (uri.scheme == "file") {
+        try {
+            val file = java.io.File(uri.path ?: "")
+            if (file.exists()) {
+                result = file.length()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    return result
 }

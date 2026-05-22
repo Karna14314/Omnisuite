@@ -1,53 +1,78 @@
-# Developer Agent Guidelines & Gradle Setup
+# Developer Agent Guidelines & Onboarding Manual
 
-This document provides developer agents and engineers with setup guidelines for managing compiling, packaging, and dependency execution parameters.
+This document provides developer agents and engineers with setup guidelines for managing compilations, packaging, testing pipelines, dependency execution parameters, and navigation/viewer architectures within the OmniSuite project.
 
 ---
 
-## 🛠️ Portable Gradle Wrapper Reuse & Standardization
+## 🛠️ Portable Gradle Wrapper Standardization
+To maintain absolute consistency and reuse the standardized Gradle `8.11.1` configuration across sibling or downstream projects:
 
-To maintain consistency and reuse the standardized Gradle 8.11.1 configuration in sibling or downstream projects:
-
-### Step-by-Step Wrapper Setup:
-
-1. **Navigate to the target project's root directory:**
-   ```powershell
-   cd C:\path\to\your\other\project
-   ```
-
-2. **Check if a Gradle wrapper exists:**
-   - If `gradlew.bat` is already present, skip to **Step 4**.
-   - If not, proceed to **Step 3**.
-
-3. **Generate the wrapper with the standard version (8.11.1):**
-   ```powershell
-   gradle wrapper --gradle-version=8.11.1
-   ```
-   This generates the portable wrapper assets:
-   - `gradle-wrapper.jar` (in `gradle/wrapper/`)
-   - `gradle-wrapper.properties` (in `gradle/wrapper/`)
-   - `gradlew` (Linux/Mac script)
-   - `gradlew.bat` (Windows script)
-
-4. **Verify the wrapper points to Gradle 8.11.1:**
-   ```powershell
-   cat gradle\wrapper\gradle-wrapper.properties
-   ```
-   Confirm that the `distributionUrl` line matches:
+### Wrapper Configuration setup:
+1. **Target Directory**: Root directory of the project.
+2. **Verify Wrapper properties** in `gradle/wrapper/gradle-wrapper.properties`:
    ```properties
    distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-bin.zip
    ```
+3. **Command Wrapper Execution**:
+   - **Windows**: `.\gradlew.bat <TASK>`
+   - **macOS/Linux**: `./gradlew <TASK>`
 
-5. **Execute commands via the local wrapper:**
-   ```powershell
-   .\gradlew.bat build
+---
+
+## 📂 Core Package Structure & Key Coordinates
+
+Understanding the codebase directories:
+- `com.karnadigital.omnisuite.core`: Core modules
+  - `com.karnadigital.omnisuite.core.engine`: Contains `OfficeConverter.kt` (PDF transcoder using PDFBox-Android and Apache POI) and `DocumentSearchEngine.kt` (real-time in-document matches).
+  - `com.karnadigital.omnisuite.core.util`: Contains `UriCacheUtils.kt` (SAF content streams cacher for sandboxing).
+  - `com.karnadigital.omnisuite.core.repository`: SQLite DB logs mapping `RecentFile` elements.
+- `com.karnadigital.omnisuite.feature`: User interfaces built in Jetpack Compose
+  - `com.karnadigital.omnisuite.feature.home`: Contains `HomeScreen.kt` (4-tab bottom navigation) and `FileBrowserScreen.kt`.
+  - `com.karnadigital.omnisuite.feature.tools`: Contains `AllToolsScreen.kt` (categorized 30+ planning tools).
+  - `com.karnadigital.omnisuite.feature.viewer`: Contains `ViewerDispatcherScreen.kt` (automatic MIME cacher/type resolver), `ImageViewerScreen.kt` (Coil cinematic viewer), `XlsxViewerScreen.kt` and `XlsxViewerViewModel.kt` (dual XLSX + CSV editor).
+  - `com.karnadigital.omnisuite.feature.utility`: Contains `QrGeneratorScreen.kt` (11-payload compiler and color model configurations) and `QrGeneratorViewModel.kt`.
+
+---
+
+## 🧪 Deployment & Deployment Automation Commands
+
+To compile, verify, package, and deploy the application to a connected Android phone or active emulator in **one single command**, execute the automated deployment pipeline script in the project root:
+
+### Windows Command:
+```powershell
+.\build_and_install.bat
+```
+
+### macOS/Linux Command:
+```bash
+./build_and_install.sh
+```
+
+### Single Command Under-the-Hood Sequence:
+1. **Kotlin Syntax Compilation Check**:
+   ```bash
+   ./gradlew compileDebugKotlin --no-daemon
    ```
-   Or:
-   ```powershell
-   gradlew build
+2. **Execute JVM Unit Tests**:
+   ```bash
+   ./gradlew testDebugUnitTest --no-daemon
+   ```
+3. **Assemble Debug APK Binary**:
+   ```bash
+   ./gradlew assembleDebug --no-daemon
+   ```
+4. **ADB Device Installation**:
+   ```bash
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   ```
+5. **Direct Intent Activity Boot**:
+   ```bash
+   adb shell am start -n com.karnadigital.omnisuite/.MainActivity
    ```
 
-### Benefits of the Wrapper Strategy:
-- **Portable & Isolated:** Each project maintains its own isolated wrapper, removing local path dependencies or globally installed Gradle mismatches.
-- **Cache-Optimized:** Reuses cached distributions under `~/.gradle/wrapper/dists/` to avoid redundant downloads.
-- **Consistent Execution:** Guarantees that compilation behaves identically across local machines, build systems, and pipelines.
+---
+
+## 📝 Key Verification Specs (For Future Agents)
+- **100% Offline Integrity**: Absolutely zero network adapters or cloud APIs are allowed. Document parser engines, ML Kit OCR, and QR generators run entirely in-device.
+- **Persistent SAF Authority**: Persistent content URI locks across device reboots must call `context.contentResolver.takePersistableUriPermission(uri, takeFlags)` inside launchers.
+- **Reflective R8 KeepRules**: Ensure that standard reflection calls utilized by Apache POI and PDFBox are fully detailed in `app/proguard-rules.pro` to prevent runtime `ClassNotFoundException` crashes upon R8 minification.

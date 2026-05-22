@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.karnadigital.omnisuite.feature.viewer.ImageViewerScreen
 import java.io.File
 
 sealed class DispatcherState {
@@ -30,7 +31,7 @@ sealed class DispatcherState {
 }
 
 enum class FileType {
-    PDF, TXT, DOCX, XLSX, PPTX
+    PDF, TXT, DOCX, XLSX, PPTX, IMAGE, CSV
 }
 
 /**
@@ -108,6 +109,8 @@ fun ViewerDispatcherScreen(
                     FileType.DOCX -> DocxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.XLSX -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.PPTX -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.IMAGE -> ImageViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                 }
             }
             is DispatcherState.Error -> {
@@ -137,6 +140,8 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 mimeType.contains("word") || mimeType == "application/msword" || mimeType.contains("wordprocessingml") -> return FileType.DOCX
                 mimeType.contains("excel") || mimeType == "application/vnd.ms-excel" || mimeType.contains("spreadsheetml") -> return FileType.XLSX
                 mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> return FileType.PPTX
+                mimeType.startsWith("image/") -> return FileType.IMAGE
+                mimeType == "text/csv" || mimeType == "text/comma-separated-values" -> return FileType.CSV
             }
         }
     } catch (e: Exception) {
@@ -152,6 +157,8 @@ private fun determineFileType(context: Context, originalUriString: String, cache
         nameToCheck.endsWith(".docx") || nameToCheck.endsWith(".doc") -> FileType.DOCX
         nameToCheck.endsWith(".xlsx") || nameToCheck.endsWith(".xls") -> FileType.XLSX
         nameToCheck.endsWith(".pptx") || nameToCheck.endsWith(".ppt") -> FileType.PPTX
+        nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> FileType.IMAGE
+        nameToCheck.endsWith(".csv") -> FileType.CSV
         else -> null
     }
 }
@@ -231,7 +238,7 @@ fun ErrorCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "We currently support PDF, TXT, DOCX, XLSX, and PPTX documents.",
+                text = "We currently support PDF, TXT, DOCX, XLSX, PPTX, CSV and standard images (JPEG, PNG, WEBP, GIF, BMP).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center,
