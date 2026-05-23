@@ -29,7 +29,13 @@ import androidx.compose.ui.unit.sp
 fun AllToolsScreen(
     onBack: () -> Unit = {},
     isInline: Boolean = false, // If true, hides the top app bar for seamless inline tab presentation
-    onNavigateToPdfTools: () -> Unit,
+    onNavigateToPdfMerge: () -> Unit,
+    onNavigateToPdfSplit: () -> Unit,
+    onNavigateToPdfLock: () -> Unit,
+    onNavigateToDocToPdf: () -> Unit,
+    onNavigateToPptToPdf: () -> Unit,
+    onNavigateToScanToPdf: () -> Unit,
+    onNavigateToPdfToImages: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit,
     onNavigateToImageTools: () -> Unit,
@@ -112,7 +118,13 @@ fun AllToolsScreen(
             ) {
                 when (selectedTabState) {
                     0 -> PdfToolsGrid(
-                        onNavigateToPdfTools = onNavigateToPdfTools,
+                        onNavigateToPdfMerge = onNavigateToPdfMerge,
+                        onNavigateToPdfSplit = onNavigateToPdfSplit,
+                        onNavigateToPdfLock = onNavigateToPdfLock,
+                        onNavigateToDocToPdf = onNavigateToDocToPdf,
+                        onNavigateToPptToPdf = onNavigateToPptToPdf,
+                        onNavigateToScanToPdf = onNavigateToScanToPdf,
+                        onNavigateToPdfToImages = onNavigateToPdfToImages,
                         onNavigateToSignaturePad = onNavigateToSignaturePad,
                         onNavigateToWatermark = onNavigateToWatermark
                     )
@@ -137,19 +149,26 @@ fun AllToolsScreen(
 
 @Composable
 fun PdfToolsGrid(
-    onNavigateToPdfTools: () -> Unit,
+    onNavigateToPdfMerge: () -> Unit,
+    onNavigateToPdfSplit: () -> Unit,
+    onNavigateToPdfLock: () -> Unit,
+    onNavigateToDocToPdf: () -> Unit,
+    onNavigateToPptToPdf: () -> Unit,
+    onNavigateToScanToPdf: () -> Unit,
+    onNavigateToPdfToImages: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit
 ) {
     val items = listOf(
-        ToolItem("Merge PDFs", "Combine multiple files", "🥞", Color(0xFFEF4444), onNavigateToPdfTools),
-        ToolItem("Split PDF", "Extract custom page ranges", "✂️", Color(0xFFEF4444), onNavigateToPdfTools),
-        ToolItem("Encrypt PDF", "Lock with secure password", "🔒", Color(0xFFEF4444), onNavigateToPdfTools),
+        ToolItem("Merge PDFs", "Combine multiple files", "🥞", Color(0xFFEF4444), onNavigateToPdfMerge),
+        ToolItem("Split PDF", "Extract page ranges", "✂️", Color(0xFFEF4444), onNavigateToPdfSplit),
+        ToolItem("Encrypt PDF", "Lock with secure password", "🔒", Color(0xFFEF4444), onNavigateToPdfLock),
         ToolItem("Digital Sign", "Stamp digital signature", "✍️", Color(0xFFEF4444), onNavigateToSignaturePad),
         ToolItem("Watermark", "Add security stamp overlay", "🎨", Color(0xFFEF4444), onNavigateToWatermark),
-        ToolItem("Annotate PDF", "Mark, highlight & add text", "🖋️", Color(0xFFEF4444), onNavigateToPdfTools),
-        ToolItem("Image to PDF", "Convert images directly to PDF", "📸", Color(0xFFEF4444), onNavigateToPdfTools),
-        ToolItem("Doc to PDF", "Transcode Office files to PDF", "💾", Color(0xFFEF4444), onNavigateToPdfTools)
+        ToolItem("Doc to PDF", "Transcode Word files to PDF", "💾", Color(0xFFEF4444), onNavigateToDocToPdf),
+        ToolItem("Slides to PDF", "Transcode PPTX files to PDF", "🖼️", Color(0xFFEF4444), onNavigateToPptToPdf),
+        ToolItem("Scan to PDF", "Compile camera scans to PDF", "📷", Color(0xFFEF4444), onNavigateToScanToPdf),
+        ToolItem("PDF to Images", "Extract PDF pages to PNGs", "📸", Color(0xFFEF4444), onNavigateToPdfToImages)
     )
 
     ToolsLazyGrid(items)

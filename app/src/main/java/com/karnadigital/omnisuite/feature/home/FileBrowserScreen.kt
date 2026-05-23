@@ -1,6 +1,9 @@
 package com.karnadigital.omnisuite.feature.home
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -17,19 +20,49 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun FileBrowserScreen(
+    viewModel: HomeScreenViewModel = hiltViewModel(),
     onOpenFile: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val pickFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
+            try {
+                // Grant persistable URI read/write permissions
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(it, takeFlags)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            val fileName = getFileName(context, it)
+            val fileSize = getFileSize(context, it)
+            val mimeType = context.contentResolver.getType(it) ?: when {
+                fileName.endsWith(".pdf") -> "application/pdf"
+                fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                fileName.endsWith(".txt") -> "text/plain"
+                fileName.endsWith(".csv") -> "text/csv"
+                fileName.endsWith(".zip") -> "application/zip"
+                else -> "*/*"
+            }
+            viewModel.addRecentFile(
+                fileUri = it.toString(),
+                fileName = fileName,
+                mimeType = mimeType,
+                fileSize = fileSize
+            )
             onOpenFile(it.toString())
         }
     }
@@ -103,7 +136,7 @@ fun FileBrowserScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Button(
-                    onClick = { pickFileLauncher.launch("*/*") },
+                    onClick = { pickFileLauncher.launch(arrayOf("*/*")) },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
@@ -130,4 +163,58 @@ fun FileBrowserScreen(
             }
         }
     }
+}
+
+private fun getFileName(context: Context, uri: Uri): String {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        result = cursor.getString(nameIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) {
+            result = result?.substring(cut + 1)
+        }
+    }
+    return result ?: "Unknown_File"
+}
+
+private fun getFileSize(context: Context, uri: Uri): Long {
+    var result: Long = 0L
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (sizeIndex != -1) {
+                        result = cursor.getLong(sizeIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    } else if (uri.scheme == "file") {
+        try {
+            val file = java.io.File(uri.path ?: "")
+            if (file.exists()) {
+                result = file.length()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    return result
 }

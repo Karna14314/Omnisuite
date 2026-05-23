@@ -203,6 +203,106 @@ class PdfViewerViewModel @Inject constructor(
         _currentMatchIndex.value = prevIndex
     }
 
+    /**
+     * Saves drawing strokes, highlights, and text notes overlay directly into the PDF document streams using Apache PDFBox.
+     */
+    fun savePdfAnnotations(
+        pageIndex: Int,
+        paths: List<DrawingPathData>,
+        notes: List<TextNoteData>
+    ) {
+        val path = activeFilePath ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            var doc: com.tom_roush.pdfbox.pdmodel.PDDocument? = null
+            try {
+                val file = java.io.File(path)
+                doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file)
+                val page = doc.getPage(pageIndex)
+                
+                val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
+                    doc,
+                    page,
+                    com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
+                    true,
+                    true
+                )
+
+                val pageWidth = page.mediaBox.width
+                val pageHeight = page.mediaBox.height
+
+                // 1. Draw Paths / Highlights
+                paths.forEach { drawPath ->
+                    if (drawPath.points.size >= 2) {
+                        val color = android.graphics.Color.parseColor(drawPath.colorHex)
+                        val r = android.graphics.Color.red(color)
+                        val g = android.graphics.Color.green(color)
+                        val b = android.graphics.Color.blue(color)
+
+                        if (drawPath.isHighlight) {
+                            // Highlight: translucent yellow stroke
+                            contentStream.setStrokingColor(255, 255, 0)
+                            contentStream.setLineWidth(drawPath.strokeWidth)
+                        } else {
+                            contentStream.setStrokingColor(r, g, b)
+                            contentStream.setLineWidth(drawPath.strokeWidth)
+                        }
+
+                        val firstPoint = drawPath.points.first()
+                        val prevPdfX = firstPoint.x * pageWidth
+                        val prevPdfY = (1f - firstPoint.y) * pageHeight
+
+                        contentStream.moveTo(prevPdfX, prevPdfY)
+
+                        for (i in 1 until drawPath.points.size) {
+                            val pt = drawPath.points[i]
+                            val pdfX = pt.x * pageWidth
+                            val pdfY = (1f - pt.y) * pageHeight
+                            contentStream.lineTo(pdfX, pdfY)
+                        }
+                        contentStream.stroke()
+                    }
+                }
+
+                // 2. Draw Text Notes
+                notes.forEach { note ->
+                    if (note.text.isNotBlank()) {
+                        val pdfX = note.x * pageWidth
+                        val pdfY = (1f - note.y) * pageHeight
+
+                        contentStream.beginText()
+                        contentStream.setFont(com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, 12f)
+                        contentStream.setNonStrokingColor(0, 0, 0)
+                        contentStream.newLineAtOffset(pdfX, pdfY)
+                        contentStream.showText(note.text)
+                        contentStream.endText()
+                    }
+                }
+
+                contentStream.close()
+                doc.save(file)
+
+                // Evict this page from cache to force renderer reload the newly written strokes
+                synchronized(bitmapCache) {
+                    bitmapCache.remove(pageIndex)
+                }
+
+                // Re-trigger load to refresh renderer state
+                withContext(Dispatchers.Main) {
+                    loadPdf(path)
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                try {
+                    doc?.close()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
     private fun closeRenderer() {
         try {
             pdfRenderer?.close()
@@ -224,3 +324,16 @@ class PdfViewerViewModel @Inject constructor(
         closeRenderer()
     }
 }
+
+data class DrawingPointData(val x: Float, val y: Float)
+data class DrawingPathData(
+    val points: List<DrawingPointData>,
+    val colorHex: String,
+    val strokeWidth: Float,
+    val isHighlight: Boolean
+)
+data class TextNoteData(
+    val text: String,
+    val x: Float,
+    val y: Float
+)

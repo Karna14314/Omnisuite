@@ -1,17 +1,25 @@
 package com.karnadigital.omnisuite.core.engine.document
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.RectF
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.apache.poi.xwpf.usermodel.XWPFDocument
+import org.apache.poi.xslf.usermodel.XMLSlideShow
+import org.apache.poi.xslf.usermodel.XSLFTextShape
+import org.apache.poi.xslf.usermodel.XSLFSimpleShape
+import org.apache.poi.sl.usermodel.Placeholder
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -287,6 +295,222 @@ object OfficeConverter {
             }
             try {
                 xlsxStream?.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Converts a PPTX presentation file slide-by-slide to A4 PDF.
+     * Supports "image" mode (accurate slide shapes and text locations rendered to bitmaps)
+     * and "text" mode (clean reflowed text and title elements).
+     */
+    suspend fun convertPptxToPdf(context: Context, pptxFile: File, pdfFile: File, renderMode: String) = withContext(Dispatchers.IO) {
+        PDFBoxResourceLoader.init(context)
+
+        var pptxStream: FileInputStream? = null
+        var ppt: XMLSlideShow? = null
+        var pdf: PDDocument? = null
+        var contentStream: PDPageContentStream? = null
+
+        try {
+            pptxStream = FileInputStream(pptxFile)
+            ppt = XMLSlideShow(pptxStream)
+            pdf = PDDocument()
+
+            // Landscape A4 bounds
+            val pageBounds = PDRectangle(PDRectangle.A4.height, PDRectangle.A4.width)
+            val margin = 50f
+            val printableWidth = pageBounds.width - (2 * margin)
+
+            val fontNormal = PDType1Font.HELVETICA
+            val fontBold = PDType1Font.HELVETICA_BOLD
+            val fontSizeTitle = 18f
+            val fontSizeBody = 12f
+            val leadingTitle = fontSizeTitle * 1.3f
+            val leadingBody = fontSizeBody * 1.3f
+
+            for ((slideIndex, slide) in ppt.slides.withIndex()) {
+                val currentPage = PDPage(pageBounds)
+                pdf.addPage(currentPage)
+                contentStream = PDPageContentStream(pdf, currentPage)
+
+                if (renderMode.lowercase() == "image") {
+                    // 1. Accurate slide shape rendering to bitmap using reflection to bypass AWT classpath blocks
+                    val pageSizeObj = try { ppt.javaClass.getMethod("getPageSize").invoke(ppt) } catch(e: Exception) { null }
+                    val slideWidth = if (pageSizeObj != null) {
+                        try { (pageSizeObj.javaClass.getMethod("getWidth").invoke(pageSizeObj) as Number).toInt() } catch(e: Exception) { 720 }
+                    } else 720
+                    val slideHeight = if (pageSizeObj != null) {
+                        try { (pageSizeObj.javaClass.getMethod("getHeight").invoke(pageSizeObj) as Number).toInt() } catch(e: Exception) { 540 }
+                    } else 540
+                    
+                    // Create high-res bitmap (double size for crisp rendering in PDF)
+                    val scaleFactor = 2f
+                    val bitmap = Bitmap.createBitmap((slideWidth * scaleFactor).toInt(), (slideHeight * scaleFactor).toInt(), Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.scale(scaleFactor, scaleFactor)
+                    canvas.drawColor(android.graphics.Color.WHITE) // Background fill
+
+                    // Draw all shapes
+                    for (shape in slide.shapes) {
+                        val anchorObj = try { shape.javaClass.getMethod("getAnchor").invoke(shape) } catch(e: Exception) { null } ?: continue
+                        val x = try { (anchorObj.javaClass.getMethod("getX").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
+                        val y = try { (anchorObj.javaClass.getMethod("getY").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
+                        val w = try { (anchorObj.javaClass.getMethod("getWidth").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
+                        val h = try { (anchorObj.javaClass.getMethod("getHeight").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
+
+                        if (shape is XSLFSimpleShape) {
+                            val fillObj = try { shape.javaClass.getMethod("getFillColor").invoke(shape) } catch (e: Exception) { null }
+                            if (fillObj != null) {
+                                val fillPaint = Paint().apply {
+                                    val r = try { fillObj.javaClass.getMethod("getRed").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                    val g = try { fillObj.javaClass.getMethod("getGreen").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                    val b = try { fillObj.javaClass.getMethod("getBlue").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                    val a = try { fillObj.javaClass.getMethod("getAlpha").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                    color = android.graphics.Color.argb(a, r, g, b)
+                                    style = Paint.Style.FILL
+                                }
+                                canvas.drawRect(x, y, x + w, y + h, fillPaint)
+                            }
+                            
+                            val lineObj = try { shape.javaClass.getMethod("getLineColor").invoke(shape) } catch (e: Exception) { null }
+                            if (lineObj != null) {
+                                val strokePaint = Paint().apply {
+                                    val r = try { lineObj.javaClass.getMethod("getRed").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                    val g = try { lineObj.javaClass.getMethod("getGreen").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                    val b = try { lineObj.javaClass.getMethod("getBlue").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                    val a = try { lineObj.javaClass.getMethod("getAlpha").invoke(lineObj) as Int } catch (e: Exception) { 255 }
+                                    color = android.graphics.Color.argb(a, r, g, b)
+                                    style = Paint.Style.STROKE
+                                    strokeWidth = 1f
+                                }
+                                canvas.drawRect(x, y, x + w, y + h, strokePaint)
+                            }
+                        }
+
+                        if (shape is XSLFTextShape) {
+                            val text = shape.text ?: ""
+                            if (text.isNotBlank()) {
+                                val isTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                                val textPaint = Paint().apply {
+                                    color = android.graphics.Color.BLACK
+                                    textSize = if (isTitle) 22f else 14f
+                                    isAntiAlias = true
+                                    isFakeBoldText = isTitle
+                                }
+                                
+                                val lines = text.split("\n")
+                                var curY = y + textPaint.textSize + 4f
+                                for (line in lines) {
+                                    canvas.drawText(line, x + 8f, curY, textPaint)
+                                    curY += textPaint.textSize * 1.3f
+                                }
+                            }
+                        }
+                    }
+
+                    // Convert Bitmap directly to PDImageXObject using LosslessFactory
+                    val pdImage = LosslessFactory.createFromImage(pdf, bitmap)
+                    contentStream?.drawImage(pdImage, 0f, 0f, pageBounds.width, pageBounds.height)
+                    bitmap.recycle()
+                } else {
+                    // 2. Clean Text Reflow Mode
+                    var slideTitle = ""
+                    val bodyBlocks = mutableListOf<String>()
+
+                    for (shape in slide.shapes) {
+                        if (shape is XSLFTextShape) {
+                            val text = shape.text ?: ""
+                            if (text.isNotBlank()) {
+                                if (shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)) {
+                                    slideTitle = text
+                                } else {
+                                    bodyBlocks.add(text)
+                                }
+                            }
+                        }
+                    }
+
+                    if (slideTitle.isBlank()) {
+                        slideTitle = "Slide ${slideIndex + 1}"
+                    }
+
+                    var yPosition = pageBounds.height - margin
+
+                    // Draw Title
+                    val sanitizedTitle = sanitizeText(slideTitle)
+                    contentStream?.beginText()
+                    contentStream?.setFont(fontBold, fontSizeTitle)
+                    contentStream?.newLineAtOffset(margin, yPosition)
+                    contentStream?.showText(sanitizedTitle)
+                    contentStream?.endText()
+                    
+                    yPosition -= leadingTitle
+
+                    // Draw a visual separator line
+                    contentStream?.setStrokingColor(180, 180, 180)
+                    contentStream?.setLineWidth(1f)
+                    contentStream?.moveTo(margin, yPosition + 6f)
+                    contentStream?.lineTo(pageBounds.width - margin, yPosition + 6f)
+                    contentStream?.stroke()
+                    
+                    yPosition -= 12f
+
+                    // Draw body text blocks
+                    for (block in bodyBlocks) {
+                        val lines = wrapText(block, fontNormal, fontSizeBody, printableWidth)
+                        for (line in lines) {
+                            val sanitizedLine = sanitizeText(line)
+
+                            if (yPosition - leadingBody < margin) {
+                                // Add a sub-page if slide text overflows
+                                contentStream?.close()
+                                val nextSubPage = PDPage(pageBounds)
+                                pdf.addPage(nextSubPage)
+                                contentStream = PDPageContentStream(pdf, nextSubPage)
+                                yPosition = pageBounds.height - margin
+                            }
+
+                            contentStream?.beginText()
+                            contentStream?.setFont(fontNormal, fontSizeBody)
+                            contentStream?.newLineAtOffset(margin, yPosition)
+                            contentStream?.showText("• $sanitizedLine")
+                            contentStream?.endText()
+
+                            yPosition -= leadingBody
+                        }
+                        yPosition -= 8f // Spacing between different text shapes
+                    }
+                }
+
+                contentStream?.close()
+                contentStream = null
+            }
+
+            FileOutputStream(pdfFile).use { out ->
+                pdf.save(out)
+            }
+
+        } finally {
+            try {
+                contentStream?.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                pdf?.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                ppt?.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                pptxStream?.close()
             } catch (e: Exception) {
                 e.printStackTrace()
             }

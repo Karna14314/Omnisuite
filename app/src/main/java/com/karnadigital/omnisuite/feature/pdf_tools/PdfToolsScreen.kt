@@ -49,13 +49,6 @@ fun PdfToolsScreen(
         }
     )
 
-    val saveMergedPdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf"),
-        onResult = { uri ->
-            uri?.let { viewModel.mergePdfs(it) }
-        }
-    )
-
     val pickSplitPdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
@@ -63,24 +56,10 @@ fun PdfToolsScreen(
         }
     )
 
-    val chooseSplitDirLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree(),
-        onResult = { uri ->
-            uri?.let { viewModel.splitPdf(it) }
-        }
-    )
-
     val pickLockPdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
             uri?.let { viewModel.lockInputUri = uri }
-        }
-    )
-
-    val saveLockedPdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf"),
-        onResult = { uri ->
-            uri?.let { viewModel.encryptPdf(it) }
         }
     )
 
@@ -196,7 +175,7 @@ fun PdfToolsScreen(
                             onMoveUp = { idx -> viewModel.reorderMergeUris(idx, idx - 1) },
                             onMoveDown = { idx -> viewModel.reorderMergeUris(idx, idx + 1) },
                             onClearAll = { viewModel.clearMergeUris() },
-                            onExecuteMerge = { saveMergedPdfLauncher.launch("Merged_Document_${System.currentTimeMillis()}.pdf") }
+                            onExecuteMerge = { viewModel.mergePdfs(null) }
                         )
                         1 -> SplitTabContent(
                             inputUri = viewModel.splitInputUri,
@@ -204,7 +183,7 @@ fun PdfToolsScreen(
                             onRangesChange = { viewModel.splitRanges = it },
                             onPickPdf = { pickSplitPdfLauncher.launch("application/pdf") },
                             onClearPdf = { viewModel.splitInputUri = null },
-                            onExecuteSplit = { chooseSplitDirLauncher.launch(null) }
+                            onExecuteSplit = { viewModel.splitPdf() }
                         )
                         2 -> PasswordLockTabContent(
                             inputUri = viewModel.lockInputUri,
@@ -212,7 +191,7 @@ fun PdfToolsScreen(
                             onPasswordChange = { viewModel.lockPassword = it },
                             onPickPdf = { pickLockPdfLauncher.launch("application/pdf") },
                             onClearPdf = { viewModel.lockInputUri = null },
-                            onExecuteLock = { saveLockedPdfLauncher.launch("secured_${System.currentTimeMillis()}.pdf") }
+                            onExecuteLock = { viewModel.encryptPdf(null) }
                         )
                     }
                 }

@@ -64,7 +64,13 @@ fun HomeScreen(
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
     onNavigateToImageTools: () -> Unit,
-    onNavigateToPdfTools: () -> Unit,
+    onNavigateToPdfMerge: () -> Unit,
+    onNavigateToPdfSplit: () -> Unit,
+    onNavigateToPdfLock: () -> Unit,
+    onNavigateToDocToPdf: () -> Unit,
+    onNavigateToPptToPdf: () -> Unit,
+    onNavigateToScanToPdf: () -> Unit,
+    onNavigateToPdfToImages: () -> Unit,
     onNavigateToOcr: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit,
@@ -393,7 +399,7 @@ fun HomeScreen(
                                 iconText = "🥞",
                                 color = Color(0xFFEF4444),
                                 modifier = Modifier.weight(1f),
-                                onClick = onNavigateToPdfTools
+                                onClick = onNavigateToPdfMerge
                             )
                             ToolItemCard(
                                 title = "Image Lab",
@@ -434,7 +440,13 @@ fun HomeScreen(
                     AllToolsScreen(
                         isInline = true,
                         onBack = { selectedTab = HomeTab.Home },
-                        onNavigateToPdfTools = onNavigateToPdfTools,
+                        onNavigateToPdfMerge = onNavigateToPdfMerge,
+                        onNavigateToPdfSplit = onNavigateToPdfSplit,
+                        onNavigateToPdfLock = onNavigateToPdfLock,
+                        onNavigateToDocToPdf = onNavigateToDocToPdf,
+                        onNavigateToPptToPdf = onNavigateToPptToPdf,
+                        onNavigateToScanToPdf = onNavigateToScanToPdf,
+                        onNavigateToPdfToImages = onNavigateToPdfToImages,
                         onNavigateToSignaturePad = onNavigateToSignaturePad,
                         onNavigateToWatermark = onNavigateToWatermark,
                         onNavigateToImageTools = onNavigateToImageTools,
@@ -446,7 +458,7 @@ fun HomeScreen(
                             when (type) {
                                 "pdf" -> documentLauncher.launch(arrayOf("application/pdf"))
                                 "word" -> documentLauncher.launch(arrayOf("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                                "excel" -> documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                "excel" -> documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"))
                                 "slides" -> documentLauncher.launch(arrayOf("application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
                                 "image" -> documentLauncher.launch(arrayOf("image/*"))
                                 "text" -> documentLauncher.launch(arrayOf("text/plain"))
@@ -461,7 +473,7 @@ fun HomeScreen(
                     )
                 }
                 HomeTab.History -> {
-                    HistoryScreen()
+                    HistoryScreen(onOpenFile = onOpenFile)
                 }
             }
         }

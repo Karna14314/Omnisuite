@@ -50,13 +50,6 @@ fun WatermarkScreen(
         }
     )
 
-    val savePdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf"),
-        onResult = { uri ->
-            uri?.let { viewModel.applyWatermark(it) }
-        }
-    )
-
     LaunchedEffect(viewModel.successMessage) {
         viewModel.successMessage?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
@@ -352,8 +345,7 @@ fun WatermarkScreen(
                 // 4. EXPORT / APPLY BUTTON
                 Button(
                     onClick = {
-                        val defaultWatermarkedName = (viewModel.selectedPdfName?.substringBeforeLast(".") ?: "document") + "_Watermarked.pdf"
-                        savePdfLauncher.launch(defaultWatermarkedName)
+                        viewModel.applyWatermark()
                     },
                     modifier = Modifier
                         .fillMaxWidth()

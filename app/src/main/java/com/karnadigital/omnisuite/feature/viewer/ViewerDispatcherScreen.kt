@@ -31,7 +31,7 @@ sealed class DispatcherState {
 }
 
 enum class FileType {
-    PDF, TXT, DOCX, XLSX, PPTX, IMAGE, CSV
+    PDF, TXT, DOCX, XLSX, PPTX, IMAGE, CSV, ARCHIVE
 }
 
 /**
@@ -87,6 +87,9 @@ fun ViewerDispatcherScreen(
                     state = DispatcherState.Error("Unable to load document. The file stream could not be isolated.")
                 }
             }
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+            state = DispatcherState.Error("File permission has expired or was denied. Please re-open this file from the storage browser to grant fresh system permissions.")
         } catch (e: Exception) {
             e.printStackTrace()
             state = DispatcherState.Error("System error during document ingestion: ${e.localizedMessage}")
@@ -111,6 +114,7 @@ fun ViewerDispatcherScreen(
                     FileType.PPTX -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.IMAGE -> ImageViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.ARCHIVE -> ArchiveViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                 }
             }
             is DispatcherState.Error -> {
@@ -142,6 +146,7 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> return FileType.PPTX
                 mimeType.startsWith("image/") -> return FileType.IMAGE
                 mimeType == "text/csv" || mimeType == "text/comma-separated-values" -> return FileType.CSV
+                mimeType == "application/zip" || mimeType == "application/x-zip-compressed" -> return FileType.ARCHIVE
             }
         }
     } catch (e: Exception) {
@@ -159,6 +164,7 @@ private fun determineFileType(context: Context, originalUriString: String, cache
         nameToCheck.endsWith(".pptx") || nameToCheck.endsWith(".ppt") -> FileType.PPTX
         nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> FileType.IMAGE
         nameToCheck.endsWith(".csv") -> FileType.CSV
+        nameToCheck.endsWith(".zip") -> FileType.ARCHIVE
         else -> null
     }
 }

@@ -32,7 +32,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    viewModel: HistoryViewModel = hiltViewModel()
+    viewModel: HistoryViewModel = hiltViewModel(),
+    onOpenFile: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -150,8 +151,14 @@ fun HistoryScreen(
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(state.items) { item ->
+                        val isFile = item.fileUri.startsWith("content://") || item.fileUri.startsWith("file://")
                         HistoryItemRow(
                             item = item,
+                            onClick = {
+                                if (isFile) {
+                                    onOpenFile(item.fileUri)
+                                }
+                            },
                             onDelete = { viewModel.deleteItem(item) }
                         )
                     }
@@ -167,6 +174,7 @@ fun HistoryScreen(
 @Composable
 fun HistoryItemRow(
     item: RecentFile,
+    onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     val (typeLabel, iconText, themeColor) = when {
@@ -198,7 +206,12 @@ fun HistoryItemRow(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                enabled = item.fileUri.startsWith("content://") || item.fileUri.startsWith("file://"),
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier

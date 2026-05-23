@@ -1,5 +1,28 @@
 package com.karnadigital.omnisuite.feature.viewer
 
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Build
+import java.io.File
+import androidx.compose.foundation.clickable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +59,9 @@ fun PptxViewerScreen(
     onBack: () -> Unit,
     viewModel: PptxViewerViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     LaunchedEffect(fileUri) {
         viewModel.loadPptxFile(fileUri)
     }
@@ -70,6 +96,142 @@ fun PptxViewerScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
+        },
+        bottomBar = {
+            if (state is PptxLoadState.Success) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PptxActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                            try {
+                                val file = File(fileUri)
+                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(fileUriProvider, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(openIntent, "Open PPTX In"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        PptxActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                            coroutineScope.launch {
+                                val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "image")
+                                    }
+                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
+                                    val jobName = "OmniSuite Presentation Print"
+                                    printManager.print(
+                                        jobName,
+                                        PptxPrintDocumentAdapter(context, tempPdfFile),
+                                        null
+                                    )
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        PptxActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                            try {
+                                val file = File(fileUri)
+                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                    putExtra(Intent.EXTRA_STREAM, fileUriProvider)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Presentation"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        var showQuickToolsMenu by remember { mutableStateOf(false) }
+                        Box {
+                            PptxActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
+                                showQuickToolsMenu = true
+                            }
+                            DropdownMenu(
+                                expanded = showQuickToolsMenu,
+                                onDismissRequest = { showQuickToolsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("📕 Convert to PDF (Image Mode)") },
+                                    onClick = {
+                                        showQuickToolsMenu = false
+                                        coroutineScope.launch {
+                                            val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "image")
+                                                }
+                                                // Save to public Documents/OmniSuite/
+                                                val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
+                                                    context = context,
+                                                    bytes = tempPdfFile.readBytes(),
+                                                    filename = File(fileUri).name.substringBeforeLast(".") + "_converted.pdf",
+                                                    mimeType = "application/pdf",
+                                                    subfolder = ""
+                                                )
+                                                if (savedUri != null) {
+                                                    Toast.makeText(context, "Presentation saved under Documents/OmniSuite!", Toast.LENGTH_LONG).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            } finally {
+                                                if (tempPdfFile.exists()) tempPdfFile.delete()
+                                            }
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("📄 Convert to PDF (Text Reflow)") },
+                                    onClick = {
+                                        showQuickToolsMenu = false
+                                        coroutineScope.launch {
+                                            val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "text")
+                                                }
+                                                // Save to public Documents/OmniSuite/
+                                                val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
+                                                    context = context,
+                                                    bytes = tempPdfFile.readBytes(),
+                                                    filename = File(fileUri).name.substringBeforeLast(".") + "_reflowed.pdf",
+                                                    mimeType = "application/pdf",
+                                                    subfolder = ""
+                                                )
+                                                if (savedUri != null) {
+                                                    Toast.makeText(context, "Presentation saved under Documents/OmniSuite!", Toast.LENGTH_LONG).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            } finally {
+                                                if (tempPdfFile.exists()) tempPdfFile.delete()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { paddingValues ->
         Box(
@@ -294,3 +456,66 @@ fun EmptyPresentationState() {
         )
     }
 }
+
+private @Composable
+fun PptxActionColumnButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(8.dp)
+    ) {
+        Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+private class PptxPrintDocumentAdapter(private val context: Context, private val file: File) : PrintDocumentAdapter() {
+    override fun onLayout(
+        oldAttributes: PrintAttributes?,
+        newAttributes: PrintAttributes?,
+        cancellationSignal: CancellationSignal?,
+        callback: LayoutResultCallback?,
+        extras: Bundle?
+    ) {
+        if (cancellationSignal?.isCanceled == true) {
+            callback?.onLayoutCancelled()
+            return
+        }
+        val info = PrintDocumentInfo.Builder("print_output.pdf")
+            .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+            .build()
+        callback?.onLayoutFinished(info, true)
+    }
+
+    override fun onWrite(
+        pages: Array<out PageRange>?,
+        destination: ParcelFileDescriptor?,
+        cancellationSignal: CancellationSignal?,
+        callback: WriteResultCallback?
+    ) {
+        var input: java.io.InputStream? = null
+        var output: java.io.OutputStream? = null
+        try {
+            input = java.io.FileInputStream(file)
+            output = java.io.FileOutputStream(destination?.fileDescriptor)
+            val buffer = ByteArray(1024)
+            var bytesRead: Int
+            while (input.read(buffer).also { bytesRead = it } >= 0) {
+                output.write(buffer, 0, bytesRead)
+            }
+            callback?.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+        } catch (e: Exception) {
+            callback?.onWriteFailed(e.localizedMessage)
+        } finally {
+            try { input?.close() } catch(e: Exception) {}
+            try { output?.close() } catch(e: Exception) {}
+        }
+    }
+}
+

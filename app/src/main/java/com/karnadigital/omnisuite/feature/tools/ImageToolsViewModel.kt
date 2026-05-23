@@ -11,6 +11,7 @@ import com.karnadigital.omnisuite.core.engine.image.ImageUtils
 import com.karnadigital.omnisuite.core.engine.image.OutputFormat
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,10 @@ data class ImageToolsUiState(
     val outputFormat: OutputFormat = OutputFormat.JPEG,
     val isProcessing: Boolean = false,
     val processingMessage: String? = null,
-    val isSuccess: Boolean = false
+    val isSuccess: Boolean = false,
+    val successUri: Uri? = null,
+    val successName: String? = null,
+    val lastOutputBytes: ByteArray? = null
 )
 
 /**
@@ -176,7 +180,7 @@ class ImageToolsViewModel @Inject constructor(
      * Safe asynchronous image manipulator pipeline.
      * Executes rotate/resize/compress processes and saves raw bytes to custom SAF destination.
      */
-    fun processAndSaveImage(destinationUri: Uri) {
+    fun processAndSaveImage(customFilename: String? = null) {
         val bitmap = originalBitmap
         if (bitmap == null) {
             _uiState.value = _uiState.value.copy(
@@ -218,28 +222,37 @@ class ImageToolsViewModel @Inject constructor(
                         processed.recycle()
                     }
 
+                    val outName = customFilename ?: "processed_${System.currentTimeMillis()}.${currentState.outputFormat.name.lowercase()}"
+                    val mimeType = getMimeType(currentState.outputFormat)
+
                     // 4. Save to content provider Uri on IO pool
                     withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(destinationUri)?.use { out ->
-                            out.write(encodedBytes)
-                        }
+                        val savedUri = FileOutputManager.saveToDefault(
+                            context = context,
+                            bytes = encodedBytes,
+                            filename = outName,
+                            mimeType = mimeType,
+                            subfolder = "Images"
+                        ) ?: throw Exception("Failed to save image to OmniSuite default directory.")
 
-                        val fileName = getFileName(destinationUri) ?: "processed_${System.currentTimeMillis()}.${currentState.outputFormat.name.lowercase()}"
                         val recentFile = RecentFile(
-                            fileUri = destinationUri.toString(),
-                            fileName = fileName,
-                            mimeType = getMimeType(currentState.outputFormat),
+                            fileUri = savedUri.toString(),
+                            fileName = outName,
+                            mimeType = mimeType,
                             fileSize = encodedBytes.size.toLong(),
                             lastOpened = System.currentTimeMillis()
                         )
                         recentFileRepository.insertRecentFile(recentFile)
-                    }
 
-                    _uiState.value = _uiState.value.copy(
-                        isProcessing = false,
-                        processingMessage = "Image saved successfully!",
-                        isSuccess = true
-                    )
+                        _uiState.value = _uiState.value.copy(
+                            isProcessing = false,
+                            processingMessage = "Image saved successfully!",
+                            isSuccess = true,
+                            successUri = savedUri,
+                            successName = outName,
+                            lastOutputBytes = encodedBytes
+                        )
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                     _uiState.value = _uiState.value.copy(
@@ -248,6 +261,19 @@ class ImageToolsViewModel @Inject constructor(
                         isSuccess = false
                     )
                 }
+            }
+        }
+    }
+
+    fun saveToCustomLocation(targetUri: Uri) {
+        val bytes = _uiState.value.lastOutputBytes ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(targetUri)?.use { out ->
+                    out.write(bytes)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

@@ -76,3 +76,33 @@ To compile, verify, package, and deploy the application to a connected Android p
 - **100% Offline Integrity**: Absolutely zero network adapters or cloud APIs are allowed. Document parser engines, ML Kit OCR, and QR generators run entirely in-device.
 - **Persistent SAF Authority**: Persistent content URI locks across device reboots must call `context.contentResolver.takePersistableUriPermission(uri, takeFlags)` inside launchers.
 - **Reflective R8 KeepRules**: Ensure that standard reflection calls utilized by Apache POI and PDFBox are fully detailed in `app/proguard-rules.pro` to prevent runtime `ClassNotFoundException` crashes upon R8 minification.
+
+---
+
+## 🤖 LLM Behavioral Guidelines & Mistake Reduction (CLAUDE.md)
+
+### 1. Think Before Coding
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+- State assumptions explicitly. If uncertain, ask.
+- Present multiple interpretations instead of picking silently.
+- Push back when a simpler approach exists.
+- Stop and ask if something is unclear.
+
+### 2. Simplicity First
+**Minimum code that solves the problem. Nothing speculative.**
+- No extra features beyond what is asked.
+- No abstractions for single-use code.
+- No unsolicited flexibility or configurability.
+- Avoid error handling for impossible scenarios.
+- Keep implementations as concise as possible.
+
+### 3. Surgical Changes
+**Touch only what you must. Clean up only your own mess.**
+- Match existing style. Don't refactor or "improve" adjacent, working code.
+- Remove only imports, variables, or functions that your own changes made unused.
+- Do not delete pre-existing dead code unless explicitly requested.
+
+### 4. Goal-Driven Execution
+**Define success criteria. Loop until verified.**
+- Define verifiable success criteria and plan steps.
+- Write tests/verifications to confirm correctness.

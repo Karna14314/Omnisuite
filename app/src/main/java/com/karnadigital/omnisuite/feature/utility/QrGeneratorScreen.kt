@@ -8,26 +8,24 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -39,20 +37,26 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
-import java.io.OutputStream
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 
-enum class QrType(val displayName: String, val icon: String) {
-    URL("URL", "🔗"),
-    TEXT("Text", "📄"),
-    WIFI("WiFi", "📶"),
-    CONTACT("Contact", "📇"),
-    EMAIL("Email", "✉️"),
-    SMS("SMS", "💬"),
-    PHONE("Phone", "📞"),
-    GEO("Location", "📍"),
-    EVENT("Event", "📅"),
-    WHATSAPP("WhatsApp", "💬"),
-    PLAY_STORE("Play Store", "🛍️")
+enum class QrCategory {
+    PERSONAL, WEBLINKS, NETWORK, LOCATION
+}
+
+enum class QrType(val category: QrCategory, val displayName: String, val icon: String) {
+    URL(QrCategory.WEBLINKS, "Website URL", "🔗"),
+    TEXT(QrCategory.WEBLINKS, "Plain Text", "📄"),
+    PLAY_STORE(QrCategory.WEBLINKS, "Play Store", "🛍️"),
+    
+    CONTACT(QrCategory.PERSONAL, "Contact vCard", "📇"),
+    PHONE(QrCategory.PERSONAL, "Phone Number", "📞"),
+    EMAIL(QrCategory.PERSONAL, "Compose Email", "✉️"),
+    SMS(QrCategory.PERSONAL, "SMS Text", "💬"),
+    WHATSAPP(QrCategory.PERSONAL, "WhatsApp Link", "💬"),
+    
+    WIFI(QrCategory.NETWORK, "WiFi Access", "📶"),
+    
+    GEO(QrCategory.LOCATION, "Coordinates", "📍")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,8 +71,12 @@ fun QrGeneratorScreen(
 
     var selectedType by remember { mutableStateOf(QrType.URL) }
     var qrColor by remember { mutableStateOf(AndroidColor.BLACK) }
+    var qrSize by remember { mutableStateOf(512f) }
+    var errorCorrection by remember { mutableStateOf("M") } // L, M, Q, H
+    var embedLogo by remember { mutableStateOf(true) }
+    var isCustomizationExpanded by remember { mutableStateOf(false) }
 
-    // Forms States
+    // Form States
     var urlText by remember { mutableStateOf("") }
     var rawText by remember { mutableStateOf("") }
     
@@ -101,12 +109,6 @@ fun QrGeneratorScreen(
     var latitude by remember { mutableStateOf("") }
     var longitude by remember { mutableStateOf("") }
 
-    // Event
-    var eventTitle by remember { mutableStateOf("") }
-    var eventStart by remember { mutableStateOf("") } // YYYYMMDD
-    var eventLocation by remember { mutableStateOf("") }
-    var eventDesc by remember { mutableStateOf("") }
-
     // WhatsApp
     var waPhone by remember { mutableStateOf("") }
     var waMessage by remember { mutableStateOf("") }
@@ -133,20 +135,9 @@ fun QrGeneratorScreen(
                     END:VCARD
                 """.trimIndent()
                 QrType.EMAIL -> "mailto:$emailAddress?subject=${Uri.encode(emailSubject)}&body=${Uri.encode(emailBody)}"
-                QrType.SMS -> "SMTO:$smsPhone:$smsMessage"
+                QrType.SMS -> "smsto:$smsPhone:$smsMessage"
                 QrType.PHONE -> "tel:$phoneNumber"
                 QrType.GEO -> "geo:$latitude,$longitude"
-                QrType.EVENT -> """
-                    BEGIN:VCALENDAR
-                    VERSION:2.0
-                    BEGIN:VEVENT
-                    SUMMARY:$eventTitle
-                    DTSTART:${eventStart.trim()}T090000Z
-                    LOCATION:$eventLocation
-                    DESCRIPTION:$eventDesc
-                    END:VEVENT
-                    END:VCALENDAR
-                """.trimIndent()
                 QrType.WHATSAPP -> "https://wa.me/${waPhone.filter { it.isDigit() }}?text=${Uri.encode(waMessage)}"
                 QrType.PLAY_STORE -> "https://play.google.com/store/apps/details?id=${playStorePackage.trim()}"
             }
@@ -155,9 +146,16 @@ fun QrGeneratorScreen(
 
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(compiledPayload, qrColor) {
+    LaunchedEffect(compiledPayload, qrColor, qrSize, errorCorrection, embedLogo) {
         qrBitmap = if (compiledPayload.isNotBlank()) {
-            generateQrCodeBitmap(compiledPayload, qrColor)
+            generateQrCodeBitmap(
+                content = compiledPayload,
+                qrColor = qrColor,
+                size = qrSize.toInt(),
+                errorCorrection = errorCorrection,
+                embedLogo = embedLogo,
+                context = context
+            )
         } else {
             null
         }
@@ -166,7 +164,7 @@ fun QrGeneratorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Offline QR Creator", fontWeight = FontWeight.Bold) },
+                title = { Text("Offline QR Generator", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -189,60 +187,107 @@ fun QrGeneratorScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 1. HORIZONTAL TYPE SELECTOR
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 1. ORGANIZED CATEGORIES VIEW
+            Text(
+                text = "Select QR Payload Type",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Category sections
+            QrCategoryBlock(
+                title = "Personal & Social",
+                types = QrType.values().filter { it.category == QrCategory.PERSONAL },
+                selectedType = selectedType,
+                onSelect = { selectedType = it }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            QrCategoryBlock(
+                title = "Web & Store Links",
+                types = QrType.values().filter { it.category == QrCategory.WEBLINKS },
+                selectedType = selectedType,
+                onSelect = { selectedType = it }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(QrType.values()) { type ->
-                    FilterChip(
-                        selected = selectedType == type,
-                        onClick = { selectedType = type },
-                        label = { Text("${type.icon} ${type.displayName}") },
-                        shape = RoundedCornerShape(12.dp)
+                Box(modifier = Modifier.weight(1f)) {
+                    QrCategoryBlock(
+                        title = "Network Access",
+                        types = QrType.values().filter { it.category == QrCategory.NETWORK },
+                        selectedType = selectedType,
+                        onSelect = { selectedType = it }
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    QrCategoryBlock(
+                        title = "Location Coordinates",
+                        types = QrType.values().filter { it.category == QrCategory.LOCATION },
+                        selectedType = selectedType,
+                        onSelect = { selectedType = it }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // 2. DYNAMIC INPUT FORM CARDS
+            // 2. INPUT FORM CARD
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    containerColor = MaterialTheme.colorScheme.surface
                 ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Customize ${selectedType.displayName} Payload",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${selectedType.icon} Configure Payload",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = selectedType.displayName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
                     when (selectedType) {
                         QrType.URL -> {
                             OutlinedTextField(
                                 value = urlText,
                                 onValueChange = { urlText = it },
-                                label = { Text("Website URL") },
+                                label = { Text("Website Link URL") },
                                 placeholder = { Text("https://example.com") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.TEXT -> {
                             OutlinedTextField(
                                 value = rawText,
                                 onValueChange = { rawText = it },
-                                label = { Text("Plain Text") },
+                                label = { Text("Plain Text Note") },
                                 modifier = Modifier.fillMaxWidth(),
-                                minLines = 3
+                                minLines = 3,
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.WIFI -> {
@@ -250,13 +295,17 @@ fun QrGeneratorScreen(
                                 value = ssid,
                                 onValueChange = { ssid = it },
                                 label = { Text("Network Name (SSID)") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = wifiPassword,
                                 onValueChange = { wifiPassword = it },
                                 label = { Text("WiFi Password") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             Text("Security Protocol", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Row(
@@ -265,15 +314,15 @@ fun QrGeneratorScreen(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = wifiSecurity == "WPA", onClick = { wifiSecurity = "WPA" })
-                                    Text("WPA/WPA2")
+                                    Text("WPA/WPA2", fontSize = 13.sp)
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = wifiSecurity == "WEP", onClick = { wifiSecurity = "WEP" })
-                                    Text("WEP")
+                                    Text("WEP", fontSize = 13.sp)
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = wifiSecurity == "nopass", onClick = { wifiSecurity = "nopass" })
-                                    Text("None")
+                                    Text("Open", fontSize = 13.sp)
                                 }
                             }
                         }
@@ -283,38 +332,48 @@ fun QrGeneratorScreen(
                                     value = firstName,
                                     onValueChange = { firstName = it },
                                     label = { Text("First Name") },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 OutlinedTextField(
                                     value = lastName,
                                     onValueChange = { lastName = it },
                                     label = { Text("Last Name") },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                             }
                             OutlinedTextField(
                                 value = contactPhone,
                                 onValueChange = { contactPhone = it },
                                 label = { Text("Phone Number") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = contactEmail,
                                 onValueChange = { contactEmail = it },
                                 label = { Text("Email Address") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = contactOrg,
                                 onValueChange = { contactOrg = it },
-                                label = { Text("Company / Org") },
-                                modifier = Modifier.fillMaxWidth()
+                                label = { Text("Organization / Company") },
+                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = contactAddress,
                                 onValueChange = { contactAddress = it },
-                                label = { Text("Postal Address") },
-                                modifier = Modifier.fillMaxWidth()
+                                label = { Text("Address") },
+                                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.EMAIL -> {
@@ -322,20 +381,25 @@ fun QrGeneratorScreen(
                                 value = emailAddress,
                                 onValueChange = { emailAddress = it },
                                 label = { Text("Recipient Email") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = emailSubject,
                                 onValueChange = { emailSubject = it },
                                 label = { Text("Subject") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = emailBody,
                                 onValueChange = { emailBody = it },
-                                label = { Text("Email Body Message") },
+                                label = { Text("Compose Message Body") },
                                 modifier = Modifier.fillMaxWidth(),
-                                minLines = 2
+                                minLines = 2,
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.SMS -> {
@@ -343,22 +407,27 @@ fun QrGeneratorScreen(
                                 value = smsPhone,
                                 onValueChange = { smsPhone = it },
                                 label = { Text("Phone Number") },
-                                modifier = Modifier.fillMaxWidth()
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = smsMessage,
                                 onValueChange = { smsMessage = it },
                                 label = { Text("SMS Message Text") },
                                 modifier = Modifier.fillMaxWidth(),
-                                minLines = 2
+                                minLines = 2,
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.PHONE -> {
                             OutlinedTextField(
                                 value = phoneNumber,
                                 onValueChange = { phoneNumber = it },
-                                label = { Text("Phone Number") },
-                                modifier = Modifier.fillMaxWidth()
+                                label = { Text("Mobile Number") },
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.GEO -> {
@@ -367,103 +436,183 @@ fun QrGeneratorScreen(
                                     value = latitude,
                                     onValueChange = { latitude = it },
                                     label = { Text("Latitude") },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 OutlinedTextField(
                                     value = longitude,
                                     onValueChange = { longitude = it },
                                     label = { Text("Longitude") },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                             }
-                        }
-                        QrType.EVENT -> {
-                            OutlinedTextField(
-                                value = eventTitle,
-                                onValueChange = { eventTitle = it },
-                                label = { Text("Event Summary") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = eventStart,
-                                onValueChange = { eventStart = it },
-                                label = { Text("Start Date (e.g. 20260522)") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = eventLocation,
-                                onValueChange = { eventLocation = it },
-                                label = { Text("Location") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = eventDesc,
-                                onValueChange = { eventDesc = it },
-                                label = { Text("Description") },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 2
-                            )
                         }
                         QrType.WHATSAPP -> {
                             OutlinedTextField(
                                 value = waPhone,
                                 onValueChange = { waPhone = it },
                                 label = { Text("Phone Number (with Country Code)") },
-                                placeholder = { Text("919999999999") },
-                                modifier = Modifier.fillMaxWidth()
+                                placeholder = { Text("e.g. 919999999999") },
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
                                 value = waMessage,
                                 onValueChange = { waMessage = it },
                                 label = { Text("Prefilled Message") },
                                 modifier = Modifier.fillMaxWidth(),
-                                minLines = 2
+                                minLines = 2,
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                         QrType.PLAY_STORE -> {
                             OutlinedTextField(
                                 value = playStorePackage,
                                 onValueChange = { playStorePackage = it },
-                                label = { Text("App Package ID") },
-                                placeholder = { Text("com.karnadigital.omnisuite") },
-                                modifier = Modifier.fillMaxWidth()
+                                label = { Text("Play Store Package ID") },
+                                placeholder = { Text("e.g. com.karnadigital.omnisuite") },
+                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. COLOR PALETTE PICKER
-            Text("Select QR Code Accent Color", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // 3. COLLAPSIBLE CUSTOMIZATION DRAWER PANEL
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                listOf(
-                    AndroidColor.BLACK to Color.Black,
-                    AndroidColor.rgb(16, 185, 129) to Color(0xFF10B981), // Emerald
-                    AndroidColor.rgb(59, 130, 246) to Color(0xFF3B82F6), // Royal Blue
-                    AndroidColor.rgb(99, 102, 241) to Color(0xFF6366F1), // Indigo
-                    AndroidColor.rgb(239, 68, 68) to Color(0xFFEF6868)    // Deep Red
-                ).forEach { (colorVal, composeColor) ->
-                    Box(
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Row(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(composeColor)
-                            .clickable { qrColor = colorVal }
-                            .padding(2.dp)
+                            .fillMaxWidth()
+                            .clickable { isCustomizationExpanded = !isCustomizationExpanded },
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (qrColor == colorVal) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.3f))
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Advanced Visual Customizations",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(onClick = { isCustomizationExpanded = !isCustomizationExpanded }) {
+                            Icon(
+                                imageVector = if (isCustomizationExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Expand details"
                             )
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isCustomizationExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // A. Color Accent Chips
+                            Column {
+                                Text("QR Code Modules Color", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    listOf(
+                                        AndroidColor.BLACK to Color.Black,
+                                        AndroidColor.rgb(16, 185, 129) to Color(0xFF10B981), // Emerald
+                                        AndroidColor.rgb(59, 130, 246) to Color(0xFF3B82F6), // Royal Blue
+                                        AndroidColor.rgb(245, 158, 11) to Color(0xFFF59E0B), // Orange/Amber
+                                        AndroidColor.rgb(239, 68, 68) to Color(0xFFEF4444)    // Red
+                                    ).forEach { (colorVal, composeColor) ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(composeColor)
+                                                .clickable { qrColor = colorVal }
+                                                .padding(2.dp)
+                                        ) {
+                                            if (qrColor == colorVal) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .clip(CircleShape)
+                                                        .background(Color.White.copy(alpha = 0.4f))
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // B. Error Correction Level
+                            Column {
+                                Text("Error Correction Tolerance Level", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    listOf(
+                                        "L" to "Low (7%)",
+                                        "M" to "Medium (15%)",
+                                        "Q" to "Quartile (25%)",
+                                        "H" to "High (30%)"
+                                    ).forEach { (level, name) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.clickable { errorCorrection = level }
+                                        ) {
+                                            RadioButton(
+                                                selected = errorCorrection == level,
+                                                onClick = { errorCorrection = level },
+                                                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                                            )
+                                            Text(name, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // C. Embed Center Logo overlay
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Embed Center Brand Badge", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Overlays a small premium white-backed OmniSuite logo in the center.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = embedLogo,
+                                    onCheckedChange = { embedLogo = it },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary)
+                                )
+                            }
+
+                            // D. Resolution Slider
+                            Column {
+                                Text("QR Output Resolution: ${qrSize.toInt()}x${qrSize.toInt()}px", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Slider(
+                                    value = qrSize,
+                                    onValueChange = { qrSize = it },
+                                    valueRange = 256f..1024f,
+                                    colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary)
+                                )
+                            }
                         }
                     }
                 }
@@ -471,29 +620,28 @@ fun QrGeneratorScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 4. LIVE QR PREVIEW CARD
+            // 4. DYNAMIC HIGH PREMIUMN QR PREVIEW CARD (300dp+)
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 modifier = Modifier
-                    .size(260.dp)
+                    .size(310.dp)
                     .clip(RoundedCornerShape(24.dp))
+                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.White)
-                        .padding(16.dp),
+                        .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     val bitmap = qrBitmap
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "Generated QR Code bitmap",
+                            contentDescription = "Live custom QR Code",
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -504,10 +652,15 @@ fun QrGeneratorScreen(
                             Text("🧬", fontSize = 48.sp)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Awaiting Payload Input...",
+                                text = "Awaiting Form Inputs...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.Gray,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "QR code will render live here",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
                             )
                         }
                     }
@@ -516,7 +669,7 @@ fun QrGeneratorScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 5. SAVE & EXPORT ACTION BUTTONS
+            // 5. EXPORT ROW BUTTONS
             if (qrBitmap != null) {
                 Row(
                     modifier = Modifier
@@ -526,25 +679,38 @@ fun QrGeneratorScreen(
                 ) {
                     Button(
                         onClick = {
-                            val ok = saveQrCodeToGallery(context, qrBitmap!!, "OmniSuite_QR_${System.currentTimeMillis()}.png")
-                            if (ok) {
+                            // Direct save to default Documents/OmniSuite/QR/ PNG folder
+                            val resolver = context.contentResolver
+                            val outName = "QR_${System.currentTimeMillis()}.png"
+                            
+                            val stream = java.io.ByteArrayOutputStream()
+                            qrBitmap!!.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                            val bytes = stream.toByteArray()
+
+                            val savedUri = FileOutputManager.saveToDefault(
+                                context = context,
+                                bytes = bytes,
+                                filename = outName,
+                                mimeType = "image/png",
+                                subfolder = "QR"
+                            )
+
+                            if (savedUri != null) {
                                 viewModel.logQrCodeGeneration(compiledPayload)
-                                Toast.makeText(context, "QR saved to gallery successfully!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "QR saved successfully in OmniSuite/QR folder!", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Failed to save QR to storage.", Toast.LENGTH_SHORT).show()
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        ),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
                             .height(50.dp)
                     ) {
                         Icon(Icons.Default.Download, contentDescription = "Download")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save PNG", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Save QR", fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
@@ -558,8 +724,8 @@ fun QrGeneratorScreen(
                             .height(50.dp)
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Copy Raw", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy Payload", fontWeight = FontWeight.Bold)
                     }
                 }
             } else {
@@ -569,37 +735,89 @@ fun QrGeneratorScreen(
     }
 }
 
-private fun saveQrCodeToGallery(context: Context, bitmap: Bitmap, fileName: String): Boolean {
-    return try {
-        val resolver = context.contentResolver
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/OmniSuite_QR")
+@Composable
+fun QrCategoryBlock(
+    title: String,
+    types: List<QrType>,
+    selectedType: QrType,
+    onSelect: (QrType) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+
+            // Flow grid row of chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                types.forEach { type ->
+                    val isSelected = selectedType == type
+                    val bg = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                    val tc = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(bg)
+                            .clickable { onSelect(type) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(type.icon, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = type.displayName.substringBefore(" "),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = tc
+                            )
+                        }
+                    }
+                }
+            }
         }
-        val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-        if (imageUri != null) {
-            resolver.openOutputStream(imageUri)?.use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                true
-            } ?: false
-        } else {
-            false
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        false
     }
 }
 
-private fun generateQrCodeBitmap(content: String, qrColor: Int, size: Int = 512): Bitmap? {
+private fun generateQrCodeBitmap(
+    content: String,
+    qrColor: Int,
+    size: Int = 512,
+    errorCorrection: String = "M",
+    embedLogo: Boolean = false,
+    context: Context? = null
+): Bitmap? {
     if (content.isBlank()) return null
     return try {
+        val hints = HashMap<com.google.zxing.EncodeHintType, Any>()
+        val ecLevel = when (errorCorrection) {
+            "L" -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L
+            "Q" -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.Q
+            "H" -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
+            else -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M
+        }
+        hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = ecLevel
+        
         val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
+        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size, hints)
         val width = bitMatrix.width
         val height = bitMatrix.height
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        
         for (x in 0 until width) {
             for (y in 0 until height) {
                 bitmap.setPixel(
@@ -608,6 +826,39 @@ private fun generateQrCodeBitmap(content: String, qrColor: Int, size: Int = 512)
                 )
             }
         }
+        
+        if (embedLogo && context != null) {
+            val canvas = android.graphics.Canvas(bitmap)
+            val centerSize = size / 5
+            val start = (size - centerSize) / 2
+            
+            // Draw white background card for the logo
+            val paintBg = android.graphics.Paint().apply {
+                color = android.graphics.Color.WHITE
+                style = android.graphics.Paint.Style.FILL
+                isAntiAlias = true
+            }
+            val rect = android.graphics.RectF(
+                start.toFloat() - 4f,
+                start.toFloat() - 4f,
+                (start + centerSize).toFloat() + 4f,
+                (start + centerSize).toFloat() + 4f
+            )
+            canvas.drawRoundRect(rect, 10f, 10f, paintBg)
+            
+            // Draw a small red "O" (OmniSuite logo) inside the card
+            val paintText = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                textSize = centerSize.toFloat() * 0.7f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            val textX = size / 2f
+            val textY = size / 2f - (paintText.descent() + paintText.ascent()) / 2
+            canvas.drawText("O", textX, textY, paintText)
+        }
+        
         bitmap
     } catch (e: Exception) {
         e.printStackTrace()

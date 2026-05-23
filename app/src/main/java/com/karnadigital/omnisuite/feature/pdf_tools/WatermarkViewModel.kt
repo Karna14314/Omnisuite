@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -55,6 +56,13 @@ class WatermarkViewModel @Inject constructor(
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
+    var successUri by mutableStateOf<Uri?>(null)
+        private set
+    var successName by mutableStateOf<String?>(null)
+        private set
+    var lastOutputBytes by mutableStateOf<ByteArray?>(null)
+        private set
+
     var activeDocument: PDDocument? = null
         private set
 
@@ -62,9 +70,7 @@ class WatermarkViewModel @Inject constructor(
         selectedPdfUri = uri
         selectedPdfName = getFileNameFromUri(uri)
         resetStatus()
-    }
-
-    fun applyWatermark(outputUri: Uri) {
+    }    fun applyWatermark(customFilename: String? = null) {
         val pdfUri = selectedPdfUri
         if (pdfUri == null) {
             errorMessage = "Please select a source PDF document first."
@@ -77,6 +83,9 @@ class WatermarkViewModel @Inject constructor(
 
         isProcessing = true
         resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -144,17 +153,19 @@ class WatermarkViewModel @Inject constructor(
                     doc.close()
                     doc = null
 
-                    // Copy to SAF Uri destination
-                    context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
-                        tempOutputFile!!.inputStream().use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    } ?: throw Exception("Failed to open output stream for saved document.")
+                    val outName = customFilename ?: "watermarked_${System.currentTimeMillis()}.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "Watermarked"
+                    ) ?: throw Exception("Failed to save watermarked PDF to OmniSuite folder.")
 
                     // Register in RecentFiles DB log
-                    val outName = getFileNameFromUri(outputUri) ?: "Watermarked_Document.pdf"
                     val recent = RecentFile(
-                        fileUri = outputUri.toString(),
+                        fileUri = savedUri.toString(),
                         fileName = outName,
                         mimeType = "application/pdf",
                         fileSize = tempOutputFile!!.length(),
@@ -162,6 +173,9 @@ class WatermarkViewModel @Inject constructor(
                     )
                     recentFileRepository.insertRecentFile(recent)
 
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
                     successMessage = "Watermark applied successfully!"
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -182,6 +196,18 @@ class WatermarkViewModel @Inject constructor(
         }
     }
 
+    fun saveToCustomLocation(targetUri: Uri) {
+        val bytes = lastOutputBytes ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(targetUri)?.use { out ->
+                    out.write(bytes)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     fun resetStatus() {
         successMessage = null
         errorMessage = null

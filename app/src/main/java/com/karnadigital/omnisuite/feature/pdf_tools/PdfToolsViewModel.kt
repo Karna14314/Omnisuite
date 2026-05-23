@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
@@ -48,11 +49,27 @@ class PdfToolsViewModel @Inject constructor(
     var lockInputUri by mutableStateOf<Uri?>(null)
     var lockPassword by mutableStateOf("")
 
+    var pptInputUri by mutableStateOf<Uri?>(null)
+    var pptRenderMode by mutableStateOf("image") // "image" or "text"
+
+    var docInputUri by mutableStateOf<Uri?>(null)
+
+    var scanInputUri by mutableStateOf<Uri?>(null)
+
+    var pdfToImagesInputUri by mutableStateOf<Uri?>(null)
+
     var isProcessing by mutableStateOf(false)
         private set
     var successMessage by mutableStateOf<String?>(null)
         private set
     var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    var successUri by mutableStateOf<Uri?>(null)
+        private set
+    var successName by mutableStateOf<String?>(null)
+        private set
+    var lastOutputBytes by mutableStateOf<ByteArray?>(null)
         private set
 
     fun addMergeUri(uri: Uri) {
@@ -87,13 +104,16 @@ class PdfToolsViewModel @Inject constructor(
      * Combines all selected document Uris sequentially using PDFMergerUtility
      * and streams the output directly to the destination SAF Uri.
      */
-    fun mergePdfs(targetUri: Uri) {
+    fun mergePdfs(customFilename: String? = null) {
         if (selectedMergeUris.size < 2) {
             errorMessage = "Please select at least 2 PDF documents to merge."
             return
         }
         isProcessing = true
         resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
 
         viewModelScope.launch {
             val tempFiles = mutableListOf<File>()
@@ -124,23 +144,29 @@ class PdfToolsViewModel @Inject constructor(
                         merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly())
                     }
 
-                    // Write output sandbox bytes back to SAF target URI stream
-                    context.contentResolver.openOutputStream(targetUri)?.use { outStream ->
-                        tempOutputFile!!.inputStream().use { inpStream ->
-                            inpStream.copyTo(outStream)
-                        }
-                    } ?: throw Exception("Failed to write to selected output stream.")
+                    val outName = customFilename ?: "merged_${System.currentTimeMillis()}.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save merged PDF to OmniSuite/PDF folder.")
 
                     // Register to Room RecentFiles cache
-                    val outName = getFileNameFromUri(targetUri) ?: "Merged_Document.pdf"
                     val recent = RecentFile(
-                        fileUri = targetUri.toString(),
+                        fileUri = savedUri.toString(),
                         fileName = outName,
                         mimeType = "application/pdf",
                         fileSize = tempOutputFile!!.length(),
                         lastOpened = System.currentTimeMillis()
                     )
                     recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
                 }
 
                 successMessage = "PDF documents merged successfully!"
@@ -162,7 +188,7 @@ class PdfToolsViewModel @Inject constructor(
     /**
      * Splits an incoming PDF Uri into distinct standalone page ranges saved to an SAF Directory.
      */
-    fun splitPdf(targetDirectoryUri: Uri) {
+    fun splitPdf() {
         val inputUri = splitInputUri
         if (inputUri == null) {
             errorMessage = "Please select a source PDF document first."
@@ -174,6 +200,9 @@ class PdfToolsViewModel @Inject constructor(
         }
         isProcessing = true
         resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
 
         viewModelScope.launch {
             var tempInputFile: File? = null
@@ -193,9 +222,6 @@ class PdfToolsViewModel @Inject constructor(
 
                     PDDocument.load(tempInputFile).use { mainDocument ->
                         val totalPages = mainDocument.numberOfPages
-
-                        val dirFile = DocumentFile.fromTreeUri(context, targetDirectoryUri)
-                            ?: throw Exception("Failed to access selected destination directory.")
 
                         val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
 
@@ -220,25 +246,30 @@ class PdfToolsViewModel @Inject constructor(
                                     subDoc.save(out)
                                 }
 
-                                // Create SAF file in target directory
-                                val newFile = dirFile.createFile("application/pdf", subFileName)
-                                    ?: throw Exception("Failed to create file '$subFileName' in target directory.")
-
-                                context.contentResolver.openOutputStream(newFile.uri)?.use { out ->
-                                    tempSubFile.inputStream().use { inp ->
-                                        inp.copyTo(out)
-                                    }
-                                } ?: throw Exception("Failed to write to file: $subFileName")
+                                val bytes = tempSubFile.readBytes()
+                                val savedUri = FileOutputManager.saveToDefault(
+                                    context = context,
+                                    bytes = bytes,
+                                    filename = subFileName,
+                                    mimeType = "application/pdf",
+                                    subfolder = "PDF"
+                                ) ?: throw Exception("Failed to save split file to OmniSuite folder.")
 
                                 // Register to recent files
                                 val recent = RecentFile(
-                                    fileUri = newFile.uri.toString(),
+                                    fileUri = savedUri.toString(),
                                     fileName = subFileName,
                                     mimeType = "application/pdf",
                                     fileSize = tempSubFile.length(),
                                     lastOpened = System.currentTimeMillis()
                                 )
                                 recentFileRepository.insertRecentFile(recent)
+
+                                if (index == 0) {
+                                    successUri = savedUri
+                                    successName = subFileName
+                                    lastOutputBytes = bytes
+                                }
                             }
                         }
                     }
@@ -258,11 +289,7 @@ class PdfToolsViewModel @Inject constructor(
             }
         }
     }
-
-    /**
-     * Applies StandardProtectionPolicy password security locks on an open PDF file.
-     */
-    fun encryptPdf(targetUri: Uri) {
+    fun encryptPdf(customFilename: String? = null) {
         val inputUri = lockInputUri
         if (inputUri == null) {
             errorMessage = "Please select a source PDF document first."
@@ -274,6 +301,9 @@ class PdfToolsViewModel @Inject constructor(
         }
         isProcessing = true
         resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
 
         viewModelScope.launch {
             var tempInputFile: File? = null
@@ -300,26 +330,32 @@ class PdfToolsViewModel @Inject constructor(
                         }
                     }
 
-                    // Save output bytes to target SAF URI
-                    context.contentResolver.openOutputStream(targetUri)?.use { out ->
-                        tempOutputFile!!.inputStream().use { inp ->
-                            inp.copyTo(out)
-                        }
-                    } ?: throw Exception("Failed to write encrypted file to storage.")
+                    val outName = customFilename ?: "secured_${System.currentTimeMillis()}.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save encrypted PDF to OmniSuite/PDF folder.")
 
                     // Register to Room RecentFiles cache
-                    val outName = getFileNameFromUri(targetUri) ?: "Secured_Document.pdf"
                     val recent = RecentFile(
-                        fileUri = targetUri.toString(),
+                        fileUri = savedUri.toString(),
                         fileName = outName,
                         mimeType = "application/pdf",
                         fileSize = tempOutputFile!!.length(),
                         lastOpened = System.currentTimeMillis()
                     )
                     recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
                 }
 
-                successMessage = "Password Lock applied and saved successfully!"
+                successMessage = "Password Lock applied successfully!"
                 lockInputUri = null
                 lockPassword = ""
             } catch (e: Exception) {
@@ -331,6 +367,19 @@ class PdfToolsViewModel @Inject constructor(
                     tempOutputFile?.let { if (it.exists()) it.delete() }
                 }
                 isProcessing = false
+            }
+        }
+    }
+
+    fun saveToCustomLocation(targetUri: Uri) {
+        val bytes = lastOutputBytes ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(targetUri)?.use { out ->
+                    out.write(bytes)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -361,6 +410,315 @@ class PdfToolsViewModel @Inject constructor(
             return emptyList()
         }
         return result
+    }
+
+    /**
+     * Converts Word DOCX/DOC Uri to PDF
+     */
+    fun convertDocToPdf() {
+        val inputUri = docInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select a Word document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+            var tempOutputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open Word document.")
+
+                    tempOutputFile = File(context.cacheDir, "docx_converted_${System.currentTimeMillis()}.pdf")
+
+                    // Call the engine
+                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertDocxToPdf(
+                        context,
+                        tempInputFile!!,
+                        tempOutputFile!!
+                    )
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".docx").removeSuffix(".doc")
+                    val outName = "${originalName}_converted.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save PDF to OmniSuite folder.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = tempOutputFile!!.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "Word document converted to PDF successfully!"
+                docInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error during Word to PDF conversion: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                    tempOutputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
+    }
+
+    /**
+     * Converts PPTX Uri to PDF
+     */
+    fun convertPptToPdf() {
+        val inputUri = pptInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select a PowerPoint document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+            var tempOutputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open PowerPoint document.")
+
+                    tempOutputFile = File(context.cacheDir, "pptx_converted_${System.currentTimeMillis()}.pdf")
+
+                    // Call the engine
+                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(
+                        context,
+                        tempInputFile!!,
+                        tempOutputFile!!,
+                        pptRenderMode
+                    )
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "presentation").removeSuffix(".pptx").removeSuffix(".ppt")
+                    val outName = "${originalName}_converted.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save PDF to OmniSuite folder.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = tempOutputFile!!.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "PowerPoint converted to PDF successfully!"
+                pptInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error during PowerPoint to PDF conversion: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                    tempOutputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
+    }
+
+    /**
+     * Saves a scanned PDF file generated by the camera scanner
+     */
+    fun saveScannedPdf(scannedFile: File) {
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val bytes = scannedFile.readBytes()
+                    val outName = "Scan_${System.currentTimeMillis()}.pdf"
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save scanned document.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = scannedFile.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "Scanned document saved and indexed successfully!"
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Failed to save scan: ${e.localizedMessage}"
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    /**
+     * Extracts PDF pages to individual PNG images
+     */
+    fun convertPdfToImages() {
+        val inputUri = pdfToImagesInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open source PDF document.")
+
+                    val parcelFileDescriptor = android.os.ParcelFileDescriptor.open(
+                        tempInputFile!!,
+                        android.os.ParcelFileDescriptor.MODE_READ_ONLY
+                    )
+                    val pdfRenderer = android.graphics.pdf.PdfRenderer(parcelFileDescriptor)
+                    val pageCount = pdfRenderer.pageCount
+
+                    if (pageCount == 0) {
+                        pdfRenderer.close()
+                        parcelFileDescriptor.close()
+                        throw Exception("PDF has no pages to extract.")
+                    }
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+                    var sampleSavedUri: Uri? = null
+                    var sampleBytes: ByteArray? = null
+                    var sampleName: String? = null
+
+                    for (i in 0 until pageCount) {
+                        val page = pdfRenderer.openPage(i)
+                        // Create high-res bitmap
+                        val bitmap = android.graphics.Bitmap.createBitmap(
+                            page.width * 2,
+                            page.height * 2,
+                            android.graphics.Bitmap.Config.ARGB_8888
+                        )
+                        page.render(
+                            bitmap,
+                            null,
+                            null,
+                            android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                        )
+                        page.close()
+
+                        // Compress to PNG
+                        val stream = java.io.ByteArrayOutputStream()
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                        val bytes = stream.toByteArray()
+                        bitmap.recycle()
+
+                        val imageName = "${originalName}_page_${i + 1}.png"
+
+                        val savedUri = FileOutputManager.saveToDefault(
+                            context = context,
+                            bytes = bytes,
+                            filename = imageName,
+                            mimeType = "image/png",
+                            subfolder = "Images"
+                        ) ?: throw Exception("Failed to save page ${i + 1} image.")
+
+                        // Register to recent files
+                        val recent = RecentFile(
+                            fileUri = savedUri.toString(),
+                            fileName = imageName,
+                            mimeType = "image/png",
+                            fileSize = bytes.size.toLong(),
+                            lastOpened = System.currentTimeMillis()
+                        )
+                        recentFileRepository.insertRecentFile(recent)
+
+                        if (i == 0) {
+                            sampleSavedUri = savedUri
+                            sampleBytes = bytes
+                            sampleName = imageName
+                        }
+                    }
+
+                    pdfRenderer.close()
+                    parcelFileDescriptor.close()
+
+                    successUri = sampleSavedUri
+                    lastOutputBytes = sampleBytes
+                    successName = sampleName
+                }
+
+                successMessage = "PDF pages successfully converted to images under Documents/OmniSuite/Images/!"
+                pdfToImagesInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error during PDF to Image extraction: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
     }
 
     private fun getFileNameFromUri(uri: Uri): String? {

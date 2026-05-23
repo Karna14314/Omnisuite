@@ -55,21 +55,7 @@ fun ImageToolsScreen(
         }
     }
 
-    // Determine output file MIME type for SAF CreateDocument launcher
-    val mimeType = when (uiState.outputFormat) {
-        OutputFormat.PNG -> "image/png"
-        OutputFormat.JPEG -> "image/jpeg"
-        OutputFormat.WEBP -> "image/webp"
-    }
 
-    // Launcher for specifying save location
-    val saveLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument(mimeType)
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.processAndSaveImage(uri)
-        }
-    }
 
     // React to processing messages or success notifications via Snackbar
     LaunchedEffect(uiState.processingMessage) {
@@ -479,7 +465,7 @@ fun ImageToolsScreen(
                     // 4. Large Action Trigger (Process and Save via SAF)
                     val defaultFileName = "processed_${System.currentTimeMillis()}.${uiState.outputFormat.name.lowercase()}"
                     Button(
-                        onClick = { saveLauncher.launch(defaultFileName) },
+                        onClick = { viewModel.processAndSaveImage() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),

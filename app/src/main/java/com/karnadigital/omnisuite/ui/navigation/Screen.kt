@@ -56,6 +56,41 @@ sealed class Screen(val route: String) {
     object PdfTools : Screen("pdf_tools")
 
     /**
+     * Standalone PDF Merger Screen
+     */
+    object PdfMerge : Screen("pdf_merge")
+
+    /**
+     * Standalone PDF Splitter Screen
+     */
+    object PdfSplit : Screen("pdf_split")
+
+    /**
+     * Standalone PDF Password Lock Screen
+     */
+    object PdfLock : Screen("pdf_lock")
+
+    /**
+     * Standalone Word to PDF Converter Screen
+     */
+    object DocToPdf : Screen("doc_to_pdf")
+
+    /**
+     * Standalone PowerPoint to PDF Converter Screen
+     */
+    object PptToPdf : Screen("ppt_to_pdf")
+
+    /**
+     * Standalone Scanner to PDF Screen
+     */
+    object ScanToPdf : Screen("scan_to_pdf")
+
+    /**
+     * Standalone PDF to Images Extractor Screen
+     */
+    object PdfToImages : Screen("pdf_to_images")
+
+    /**
      * On-Demand Text Recognition (OCR) vision screen.
      */
     object Ocr : Screen("ocr")

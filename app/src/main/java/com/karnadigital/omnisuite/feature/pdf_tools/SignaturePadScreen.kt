@@ -79,23 +79,6 @@ fun SignaturePadScreen(
         }
     )
 
-    val savePdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf"),
-        onResult = { uri ->
-            uri?.let { outputUri ->
-                tapOffset?.let { tap ->
-                    viewModel.stampSignature(
-                        tapX = tap.x,
-                        tapY = tap.y,
-                        viewWidth = imageContainerWidth,
-                        viewHeight = imageContainerHeight,
-                        outputUri = outputUri
-                    )
-                }
-            }
-        }
-    )
-
     // Watch status messages
     LaunchedEffect(viewModel.successMessage) {
         viewModel.successMessage?.let {
@@ -476,12 +459,17 @@ fun SignaturePadScreen(
                             // Dynamic Stamp Action Controller
                             Button(
                                 onClick = {
-                                    if (tapOffset == null) {
+                                    val tap = tapOffset
+                                    if (tap == null) {
                                         Toast.makeText(context, "Please tap on the page first to position the signature.", Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
-                                    val defaultSignedName = "Signed_${System.currentTimeMillis()}.pdf"
-                                    savePdfLauncher.launch(defaultSignedName)
+                                    viewModel.stampSignature(
+                                        tapX = tap.x,
+                                        tapY = tap.y,
+                                        viewWidth = imageContainerWidth,
+                                        viewHeight = imageContainerHeight
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
                                 shape = RoundedCornerShape(8.dp),

@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -62,6 +63,13 @@ class SignatureViewModel @Inject constructor(
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    var successUri by mutableStateOf<Uri?>(null)
+        private set
+    var successName by mutableStateOf<String?>(null)
+        private set
+    var lastOutputBytes by mutableStateOf<ByteArray?>(null)
         private set
 
     var activeDocument: PDDocument? = null
@@ -173,7 +181,7 @@ class SignatureViewModel @Inject constructor(
         viewHeight: Float,
         targetWidthPoints: Float = 120f,
         targetHeightPoints: Float = 60f,
-        outputUri: Uri
+        customFilename: String? = null
     ) {
         val pdfFile = cachedPdfFile
         val sigFile = cachedSignatureFile
@@ -184,6 +192,9 @@ class SignatureViewModel @Inject constructor(
 
         isProcessing = true
         resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -221,17 +232,19 @@ class SignatureViewModel @Inject constructor(
                     doc.close()
                     doc = null
 
-                    // Copy to selected output destination Uri
-                    context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
-                        tempOutputFile!!.inputStream().use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    } ?: throw Exception("Failed to open output stream.")
+                    val outName = customFilename ?: "signed_${System.currentTimeMillis()}.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "Signed"
+                    ) ?: throw Exception("Failed to save signed PDF to OmniSuite folder.")
 
                     // Register to recent files database
-                    val outName = getFileNameFromUri(outputUri) ?: "Signed_Document.pdf"
                     val recent = RecentFile(
-                        fileUri = outputUri.toString(),
+                        fileUri = savedUri.toString(),
                         fileName = outName,
                         mimeType = "application/pdf",
                         fileSize = tempOutputFile!!.length(),
@@ -242,7 +255,7 @@ class SignatureViewModel @Inject constructor(
                     // Reload the cache representation with new signed document to allow progressive stamps
                     closeRenderer()
                     
-                    val newCachedFile = UriCacheUtils.cacheUriToFile(context, outputUri)
+                    val newCachedFile = UriCacheUtils.cacheUriToFile(context, savedUri)
                     if (newCachedFile != null) {
                         cachedPdfFile = newCachedFile
                         fileDescriptor = ParcelFileDescriptor.open(newCachedFile, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -253,6 +266,9 @@ class SignatureViewModel @Inject constructor(
                         }
                     }
 
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
                     successMessage = "Signature stamped successfully!"
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -268,6 +284,19 @@ class SignatureViewModel @Inject constructor(
                         isProcessing = false
                     }
                 }
+            }
+        }
+    }
+
+    fun saveToCustomLocation(targetUri: Uri) {
+        val bytes = lastOutputBytes ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(targetUri)?.use { out ->
+                    out.write(bytes)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

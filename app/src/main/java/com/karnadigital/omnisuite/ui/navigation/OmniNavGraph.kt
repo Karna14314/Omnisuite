@@ -12,7 +12,13 @@ import com.karnadigital.omnisuite.feature.utility.BarcodeScannerScreen
 import com.karnadigital.omnisuite.feature.settings.SettingsScreen
 import com.karnadigital.omnisuite.feature.viewer.ViewerDispatcherScreen
 import com.karnadigital.omnisuite.feature.tools.ImageToolsScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToolsScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfMergeScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfSplitScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfLockScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.DocToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PptToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.ScanToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfToImagesScreen
 import com.karnadigital.omnisuite.feature.utility.OcrScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
@@ -47,8 +53,26 @@ fun OmniNavGraph(
                 onNavigateToImageTools = {
                     navController.navigate(Screen.ImageTools.route)
                 },
-                onNavigateToPdfTools = {
-                    navController.navigate(Screen.PdfTools.route)
+                onNavigateToPdfMerge = {
+                    navController.navigate(Screen.PdfMerge.route)
+                },
+                onNavigateToPdfSplit = {
+                    navController.navigate(Screen.PdfSplit.route)
+                },
+                onNavigateToPdfLock = {
+                    navController.navigate(Screen.PdfLock.route)
+                },
+                onNavigateToDocToPdf = {
+                    navController.navigate(Screen.DocToPdf.route)
+                },
+                onNavigateToPptToPdf = {
+                    navController.navigate(Screen.PptToPdf.route)
+                },
+                onNavigateToScanToPdf = {
+                    navController.navigate(Screen.ScanToPdf.route)
+                },
+                onNavigateToPdfToImages = {
+                    navController.navigate(Screen.PdfToImages.route)
                 },
                 onNavigateToOcr = {
                     navController.navigate(Screen.Ocr.route)
@@ -125,11 +149,86 @@ fun OmniNavGraph(
             )
         }
 
-        // 7. PDF Modification Toolkit (Merge, Split, Password Lock)
-        composable(route = Screen.PdfTools.route) {
-            PdfToolsScreen(
+        // 7a. Standalone PDF Merger Screen
+        composable(route = Screen.PdfMerge.route) {
+            PdfMergeScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7b. Standalone PDF Splitter Screen
+        composable(route = Screen.PdfSplit.route) {
+            PdfSplitScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7c. Standalone PDF Password Lock Screen
+        composable(route = Screen.PdfLock.route) {
+            PdfLockScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7d. Standalone Word to PDF Converter Screen
+        composable(route = Screen.DocToPdf.route) {
+            DocToPdfScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7e. Standalone PowerPoint to PDF Converter Screen
+        composable(route = Screen.PptToPdf.route) {
+            PptToPdfScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7f. Standalone Scanner to PDF Screen
+        composable(route = Screen.ScanToPdf.route) {
+            ScanToPdfScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7g. Standalone PDF to Images Screen
+        composable(route = Screen.PdfToImages.route) {
+            PdfToImagesScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
