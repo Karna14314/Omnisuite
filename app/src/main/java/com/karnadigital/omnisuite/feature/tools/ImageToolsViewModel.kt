@@ -25,6 +25,8 @@ import javax.inject.Inject
 /**
  * State representation for the offline Image Utilities UI.
  */
+import com.karnadigital.omnisuite.core.engine.image.ImageLabExtensions
+
 data class ImageToolsUiState(
     val selectedUri: Uri? = null,
     val originalWidth: Int = 0,
@@ -39,7 +41,17 @@ data class ImageToolsUiState(
     val isSuccess: Boolean = false,
     val successUri: Uri? = null,
     val successName: String? = null,
-    val lastOutputBytes: ByteArray? = null
+    val lastOutputBytes: ByteArray? = null,
+    
+    // Premium Image Lab Extensions States
+    val selectedStitchUris: List<Uri> = emptyList(),
+    val extractedMediaUris: List<Uri> = emptyList(),
+    val idFrontUri: Uri? = null,
+    val idBackUri: Uri? = null,
+    val watermarkText: String = "CONFIDENTIAL",
+    val watermarkSize: Float = 60f,
+    val watermarkAlpha: Int = 128,
+    val watermarkRotation: Float = 45f
 )
 
 /**
@@ -48,7 +60,8 @@ data class ImageToolsUiState(
 @HiltViewModel
 class ImageToolsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recentFileRepository: RecentFileRepository
+    private val recentFileRepository: RecentFileRepository,
+    private val imageLabExtensions: ImageLabExtensions
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ImageToolsUiState())
@@ -320,6 +333,183 @@ class ImageToolsViewModel @Inject constructor(
             }
         }
         return inSampleSize
+    }
+
+    fun selectStitchImages(uris: List<Uri>) {
+        _uiState.value = _uiState.value.copy(selectedStitchUris = uris, isSuccess = false)
+    }
+
+    fun selectIdFrontImage(uri: Uri?) {
+        _uiState.value = _uiState.value.copy(idFrontUri = uri, isSuccess = false)
+    }
+
+    fun selectIdBackImage(uri: Uri?) {
+        _uiState.value = _uiState.value.copy(idBackUri = uri, isSuccess = false)
+    }
+
+    fun updateWatermarkText(text: String) {
+        _uiState.value = _uiState.value.copy(watermarkText = text, isSuccess = false)
+    }
+
+    fun updateWatermarkSize(size: Float) {
+        _uiState.value = _uiState.value.copy(watermarkSize = size, isSuccess = false)
+    }
+
+    fun updateWatermarkAlpha(alpha: Int) {
+        _uiState.value = _uiState.value.copy(watermarkAlpha = alpha, isSuccess = false)
+    }
+
+    fun updateWatermarkRotation(rotation: Float) {
+        _uiState.value = _uiState.value.copy(watermarkRotation = rotation, isSuccess = false)
+    }
+
+    fun stitchImages() {
+        val uris = _uiState.value.selectedStitchUris
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Stitching images vertically..."
+            )
+            val resultUri = imageLabExtensions.stitchImagesVertically(uris)
+            if (resultUri != null) {
+                val outName = "stitched_${System.currentTimeMillis()}.jpg"
+                val recentFile = RecentFile(
+                    fileUri = resultUri.toString(),
+                    fileName = outName,
+                    mimeType = "image/jpeg",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+                recentFileRepository.insertRecentFile(recentFile)
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Images stitched successfully!",
+                    isSuccess = true,
+                    successUri = resultUri,
+                    successName = outName,
+                    lastOutputBytes = null
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Stitching failed."
+                )
+            }
+        }
+    }
+
+    fun extractMedia(docUri: Uri) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Extracting document media..."
+            )
+            val resultUris = imageLabExtensions.extractMediaFromDocument(docUri)
+            if (resultUris.isNotEmpty()) {
+                resultUris.forEachIndexed { idx, uri ->
+                    val outName = "extracted_${System.currentTimeMillis()}_$idx.jpg"
+                    recentFileRepository.insertRecentFile(
+                        RecentFile(
+                            fileUri = uri.toString(),
+                            fileName = outName,
+                            mimeType = "image/jpeg",
+                            fileSize = 0L,
+                            lastOpened = System.currentTimeMillis()
+                        )
+                    )
+                }
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Extracted ${resultUris.size} media files successfully!",
+                    isSuccess = true,
+                    extractedMediaUris = resultUris,
+                    successUri = resultUris.firstOrNull(),
+                    successName = "Extracted Media files",
+                    lastOutputBytes = null
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "No media files extracted."
+                )
+            }
+        }
+    }
+
+    fun makeIdCard() {
+        val front = _uiState.value.idFrontUri ?: return
+        val back = _uiState.value.idBackUri ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Creating ID card print template..."
+            )
+            val resultUri = imageLabExtensions.createIdCardPrintTemplate(front, back)
+            if (resultUri != null) {
+                val outName = "id_template_${System.currentTimeMillis()}.jpg"
+                val recentFile = RecentFile(
+                    fileUri = resultUri.toString(),
+                    fileName = outName,
+                    mimeType = "image/jpeg",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+                recentFileRepository.insertRecentFile(recentFile)
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "ID Card Print Template saved!",
+                    isSuccess = true,
+                    successUri = resultUri,
+                    successName = outName,
+                    lastOutputBytes = null
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Failed to generate print template."
+                )
+            }
+        }
+    }
+
+    fun applyCustomWatermark() {
+        val uri = _uiState.value.selectedUri ?: return
+        val text = _uiState.value.watermarkText
+        val size = _uiState.value.watermarkSize
+        val alpha = _uiState.value.watermarkAlpha
+        val rotation = _uiState.value.watermarkRotation
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Applying watermark..."
+            )
+            val resultUri = imageLabExtensions.addCustomWatermark(uri, text, size, alpha, rotation)
+            if (resultUri != null) {
+                val outName = "watermarked_${System.currentTimeMillis()}.jpg"
+                val recentFile = RecentFile(
+                    fileUri = resultUri.toString(),
+                    fileName = outName,
+                    mimeType = "image/jpeg",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+                recentFileRepository.insertRecentFile(recentFile)
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Watermark applied successfully!",
+                    isSuccess = true,
+                    successUri = resultUri,
+                    successName = outName,
+                    lastOutputBytes = null
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    processingMessage = "Watermark operation failed."
+                )
+            }
+        }
     }
 
     override fun onCleared() {

@@ -74,6 +74,10 @@ fun HomeScreen(
     onNavigateToOcr: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit,
+    onNavigateToPdfToWord: () -> Unit,
+    onNavigateToPdfToPpt: () -> Unit,
+    onNavigateToPdfToExcel: () -> Unit,
+    onNavigateToPdfFormFiller: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onOpenFile: (String) -> Unit
 ) {
@@ -449,6 +453,10 @@ fun HomeScreen(
                         onNavigateToPdfToImages = onNavigateToPdfToImages,
                         onNavigateToSignaturePad = onNavigateToSignaturePad,
                         onNavigateToWatermark = onNavigateToWatermark,
+                        onNavigateToPdfToWord = onNavigateToPdfToWord,
+                        onNavigateToPdfToPpt = onNavigateToPdfToPpt,
+                        onNavigateToPdfToExcel = onNavigateToPdfToExcel,
+                        onNavigateToPdfFormFiller = onNavigateToPdfFormFiller,
                         onNavigateToImageTools = onNavigateToImageTools,
                         onNavigateToQrGenerator = onNavigateToQrGenerator,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,

@@ -18,8 +18,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ImageLabExtensions @Inject constructor(
-    private val context: Context,
-    private val fileOutputManager: FileOutputManager
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) {
 
     suspend fun stitchImagesVertically(uris: List<Uri>): Uri? = withContext(Dispatchers.IO) {
@@ -44,7 +43,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            fileOutputManager.saveToDefault(
+            FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "stitched_${System.currentTimeMillis()}.jpg",
@@ -70,7 +69,7 @@ class ImageLabExtensions @Inject constructor(
                         val ext = if (entry.name.endsWith(".png")) "png" else "jpg"
                         val mime = if (ext == "png") "image/png" else "image/jpeg"
 
-                        fileOutputManager.saveToDefault(
+                        FileOutputManager.saveToDefault(
                             context = context,
                             bytes = outStream.toByteArray(),
                             filename = "extracted_${System.currentTimeMillis()}.$ext",
@@ -118,7 +117,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            fileOutputManager.saveToDefault(
+            FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "id_template_${System.currentTimeMillis()}.jpg",
@@ -152,7 +151,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            fileOutputManager.saveToDefault(
+            FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "watermarked_${System.currentTimeMillis()}.jpg",

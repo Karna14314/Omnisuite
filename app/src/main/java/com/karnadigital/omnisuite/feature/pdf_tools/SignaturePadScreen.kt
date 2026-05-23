@@ -62,6 +62,13 @@ fun SignaturePadScreen(
         }
     )
 
+    val pickPdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            uri?.let { viewModel.selectPdf(it) }
+        }
+    )
+
 
     // Navigation and screen sub-states
     var signatureSaved by remember { mutableStateOf(false) }
@@ -345,7 +352,7 @@ fun SignaturePadScreen(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                    .clickable { /* removed saf savePdfLauncher */ },
+                                    .clickable { pickPdfLauncher.launch("application/pdf") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(

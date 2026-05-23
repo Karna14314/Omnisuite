@@ -12,6 +12,7 @@ import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.core.engine.document.ReverseOfficeConverter
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
@@ -31,7 +32,8 @@ import javax.inject.Inject
 @HiltViewModel
 class PdfToolsViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val reverseOfficeConverter: ReverseOfficeConverter
 ) : ViewModel() {
 
     init {
@@ -42,6 +44,11 @@ class PdfToolsViewModel @Inject constructor(
     // State Variables
     var selectedMergeUris by mutableStateOf<List<Uri>>(emptyList())
         private set
+
+    var pdfToWordInputUri by mutableStateOf<Uri?>(null)
+    var pdfToPptInputUri by mutableStateOf<Uri?>(null)
+    var pdfToExcelInputUri by mutableStateOf<Uri?>(null)
+    var pdfFormInputUri by mutableStateOf<Uri?>(null)
 
     var splitInputUri by mutableStateOf<Uri?>(null)
     var splitRanges by mutableStateOf("1-3, 4-6")
@@ -716,6 +723,146 @@ class PdfToolsViewModel @Inject constructor(
                 withContext(Dispatchers.IO) {
                     tempInputFile?.let { if (it.exists()) it.delete() }
                 }
+                isProcessing = false
+            }
+        }
+    }
+
+    fun convertPdfToDocx() {
+        val uri = pdfToWordInputUri ?: return
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            try {
+                val outputUri = reverseOfficeConverter.convertPdfToDocx(uri)
+                if (outputUri != null) {
+                    successUri = outputUri
+                    val originalName = (getFileNameFromUri(uri) ?: "document").removeSuffix(".pdf")
+                    successName = "${originalName}_converted.docx"
+                    
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(outputUri)?.use { stream ->
+                            lastOutputBytes = stream.readBytes()
+                        }
+                    }
+                    successMessage = "PDF converted to DOCX successfully!"
+                    pdfToWordInputUri = null
+                } else {
+                    errorMessage = "Failed to convert PDF to DOCX."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error: ${e.localizedMessage}"
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    fun convertPdfToPptx() {
+        val uri = pdfToPptInputUri ?: return
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            try {
+                val outputUri = reverseOfficeConverter.convertPdfToPptx(uri)
+                if (outputUri != null) {
+                    successUri = outputUri
+                    val originalName = (getFileNameFromUri(uri) ?: "document").removeSuffix(".pdf")
+                    successName = "${originalName}_converted.pptx"
+                    
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(outputUri)?.use { stream ->
+                            lastOutputBytes = stream.readBytes()
+                        }
+                    }
+                    successMessage = "PDF converted to PPTX successfully!"
+                    pdfToPptInputUri = null
+                } else {
+                    errorMessage = "Failed to convert PDF to PPTX."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error: ${e.localizedMessage}"
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    fun convertPdfToXlsx() {
+        val uri = pdfToExcelInputUri ?: return
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            try {
+                val outputUri = reverseOfficeConverter.convertPdfToXlsx(uri)
+                if (outputUri != null) {
+                    successUri = outputUri
+                    val originalName = (getFileNameFromUri(uri) ?: "document").removeSuffix(".pdf")
+                    successName = "${originalName}_converted.xlsx"
+                    
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(outputUri)?.use { stream ->
+                            lastOutputBytes = stream.readBytes()
+                        }
+                    }
+                    successMessage = "PDF converted to XLSX successfully!"
+                    pdfToExcelInputUri = null
+                } else {
+                    errorMessage = "Failed to convert PDF to XLSX."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error: ${e.localizedMessage}"
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    fun fillPdfForm(formData: Map<String, String>) {
+        val uri = pdfFormInputUri ?: return
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            try {
+                val outputUri = reverseOfficeConverter.fillInteractiveForm(uri, formData)
+                if (outputUri != null) {
+                    successUri = outputUri
+                    val originalName = (getFileNameFromUri(uri) ?: "document").removeSuffix(".pdf")
+                    successName = "${originalName}_filled.pdf"
+                    
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(outputUri)?.use { stream ->
+                            lastOutputBytes = stream.readBytes()
+                        }
+                    }
+                    successMessage = "Interactive PDF Form filled successfully!"
+                    pdfFormInputUri = null
+                } else {
+                    errorMessage = "Failed to fill interactive PDF form."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error: ${e.localizedMessage}"
+            } finally {
                 isProcessing = false
             }
         }

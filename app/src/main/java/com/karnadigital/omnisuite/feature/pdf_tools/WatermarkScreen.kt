@@ -48,6 +48,13 @@ fun WatermarkScreen(
         }
     )
 
+    val pickPdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            uri?.let { viewModel.selectPdf(it) }
+        }
+    )
+
     val scrollState = rememberScrollState()
 
 
@@ -113,7 +120,7 @@ fun WatermarkScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                            .clickable { /* removed saf savePdfLauncher */ },
+                            .clickable { pickPdfLauncher.launch("application/pdf") },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -172,7 +179,7 @@ fun WatermarkScreen(
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                                 )
                             }
-                            IconButton(onClick = { /* removed saf savePdfLauncher */ }) {
+                            IconButton(onClick = { pickPdfLauncher.launch("application/pdf") }) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Edit selection",

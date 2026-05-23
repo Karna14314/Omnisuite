@@ -19,6 +19,10 @@ import com.karnadigital.omnisuite.feature.pdf_tools.DocToPdfScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.PptToPdfScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.ScanToPdfScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.PdfToImagesScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfToWordScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfToPptScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfToExcelScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfFormFillerScreen
 import com.karnadigital.omnisuite.feature.utility.OcrScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
@@ -82,6 +86,18 @@ fun OmniNavGraph(
                 },
                 onNavigateToWatermark = {
                     navController.navigate(Screen.Watermark.route)
+                },
+                onNavigateToPdfToWord = {
+                    navController.navigate(Screen.PdfToWord.route)
+                },
+                onNavigateToPdfToPpt = {
+                    navController.navigate(Screen.PdfToPpt.route)
+                },
+                onNavigateToPdfToExcel = {
+                    navController.navigate(Screen.PdfToExcel.route)
+                },
+                onNavigateToPdfFormFiller = {
+                    navController.navigate(Screen.PdfFormFiller.route)
                 },
                 onNavigateToBatchTools = {
                     navController.navigate(Screen.BatchTools.route)
@@ -224,6 +240,54 @@ fun OmniNavGraph(
         // 7g. Standalone PDF to Images Screen
         composable(route = Screen.PdfToImages.route) {
             PdfToImagesScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7h. Standalone PDF to Word Screen
+        composable(route = Screen.PdfToWord.route) {
+            PdfToWordScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7i. Standalone PDF to PPT Screen
+        composable(route = Screen.PdfToPpt.route) {
+            PdfToPptScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7j. Standalone PDF to Excel Screen
+        composable(route = Screen.PdfToExcel.route) {
+            PdfToExcelScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 7k. Standalone PDF Form Filler Screen
+        composable(route = Screen.PdfFormFiller.route) {
+            PdfFormFillerScreen(
                 onNavigateBack = {
                     navController.popBackStack()
                 },

@@ -139,7 +139,6 @@ fun TxtViewerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(currentTheme.first)
-                .background(MaterialTheme.colorScheme.background)
         ) {
             when (currentState) {
                 is TxtLoadState.Loading -> {
@@ -157,7 +156,7 @@ fun TxtViewerScreen(
                         Text(
                             text = "Reading stream safely...",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                            color = currentTheme.second.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -177,15 +176,16 @@ fun TxtViewerScreen(
                                 .minimumInteractiveComponentSize(),
                             textStyle = TextStyle(
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                lineHeight = 20.sp
+                                fontSize = fontSize.sp,
+                                color = currentTheme.second,
+                                lineHeight = (fontSize + 6).sp
                             ),
                             placeholder = {
                                 Text(
                                     text = "Start typing documents...",
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    fontSize = fontSize.sp,
+                                    color = currentTheme.second.copy(alpha = 0.4f)
                                 )
                             },
                             colors = TextFieldDefaults.colors(
@@ -227,6 +227,170 @@ fun TxtViewerScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+                }
+            }
+        }
+
+        // Formatting & Word Count Analyser Drawer
+        if (showFormatting) {
+            ModalBottomSheet(
+                onDismissRequest = { showFormatting = false },
+                sheetState = rememberModalBottomSheetState()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Text(
+                        text = "Reader View & Formatting",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    
+                    // Reader Theme Presets
+                    Column {
+                        Text(
+                            text = "Reader Theme Preset",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            listOf("Paper", "Sepia", "Dark", "Grey").forEachIndexed { idx, name ->
+                                val isSelected = themeIndex == idx
+                                val swatchColors = themes[idx]
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(swatchColors.first)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.3f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { themeIndex = idx },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = name,
+                                        color = swatchColors.second,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Font Size Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Font Scale Size",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${fontSize.toInt()} sp",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Slider(
+                            value = fontSize,
+                            onValueChange = { fontSize = it },
+                            valueRange = 12f..32f,
+                            steps = 9
+                        )
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Word Count & Estimated Reading Time Metrics
+                    Text(
+                        text = "Word Count Analyser",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    // Calculate metrics dynamically
+                    val paragraphs = if (textContent.isBlank()) 0 else textContent.split(Regex("\n+")).filter { it.isNotBlank() }.size
+                    val words = if (textContent.isBlank()) 0 else textContent.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    val charsWithSpaces = textContent.length
+                    val charsWithoutSpaces = textContent.filter { !it.isWhitespace() }.length
+                    val readingTimeMin = (words / 200.0).let { if (it > 0 && it < 1.0) 1 else it.toInt() }
+
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Paragraphs Count", fontSize = 13.sp)
+                                Text("$paragraphs", fontWeight = FontWeight.Bold)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Words Count", fontSize = 13.sp)
+                                Text("$words", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Characters (with spaces)", fontSize = 13.sp)
+                                Text("$charsWithSpaces", fontWeight = FontWeight.Bold)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Characters (no spaces)", fontSize = 13.sp)
+                                Text("$charsWithoutSpaces", fontWeight = FontWeight.Bold)
+                            }
+                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⏱️", fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Estimated Reading Time", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Text(
+                                    text = if (words == 0) "0 min" else "$readingTimeMin min",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }

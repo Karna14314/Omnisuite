@@ -38,6 +38,10 @@ fun AllToolsScreen(
     onNavigateToPdfToImages: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
     onNavigateToWatermark: () -> Unit,
+    onNavigateToPdfToWord: () -> Unit,
+    onNavigateToPdfToPpt: () -> Unit,
+    onNavigateToPdfToExcel: () -> Unit,
+    onNavigateToPdfFormFiller: () -> Unit,
     onNavigateToImageTools: () -> Unit,
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
@@ -126,7 +130,11 @@ fun AllToolsScreen(
                         onNavigateToScanToPdf = onNavigateToScanToPdf,
                         onNavigateToPdfToImages = onNavigateToPdfToImages,
                         onNavigateToSignaturePad = onNavigateToSignaturePad,
-                        onNavigateToWatermark = onNavigateToWatermark
+                        onNavigateToWatermark = onNavigateToWatermark,
+                        onNavigateToPdfToWord = onNavigateToPdfToWord,
+                        onNavigateToPdfToPpt = onNavigateToPdfToPpt,
+                        onNavigateToPdfToExcel = onNavigateToPdfToExcel,
+                        onNavigateToPdfFormFiller = onNavigateToPdfFormFiller
                     )
                     1 -> DocumentsToolsGrid(
                         onSelectFileForType = onSelectFileForType
@@ -157,7 +165,11 @@ fun PdfToolsGrid(
     onNavigateToScanToPdf: () -> Unit,
     onNavigateToPdfToImages: () -> Unit,
     onNavigateToSignaturePad: () -> Unit,
-    onNavigateToWatermark: () -> Unit
+    onNavigateToWatermark: () -> Unit,
+    onNavigateToPdfToWord: () -> Unit,
+    onNavigateToPdfToPpt: () -> Unit,
+    onNavigateToPdfToExcel: () -> Unit,
+    onNavigateToPdfFormFiller: () -> Unit
 ) {
     val items = listOf(
         ToolItem("Merge PDFs", "Combine multiple files", "🥞", Color(0xFFEF4444), onNavigateToPdfMerge),
@@ -168,7 +180,11 @@ fun PdfToolsGrid(
         ToolItem("Doc to PDF", "Transcode Word files to PDF", "💾", Color(0xFFEF4444), onNavigateToDocToPdf),
         ToolItem("Slides to PDF", "Transcode PPTX files to PDF", "🖼️", Color(0xFFEF4444), onNavigateToPptToPdf),
         ToolItem("Scan to PDF", "Compile camera scans to PDF", "📷", Color(0xFFEF4444), onNavigateToScanToPdf),
-        ToolItem("PDF to Images", "Extract PDF pages to PNGs", "📸", Color(0xFFEF4444), onNavigateToPdfToImages)
+        ToolItem("PDF to Images", "Extract PDF pages to PNGs", "📸", Color(0xFFEF4444), onNavigateToPdfToImages),
+        ToolItem("PDF to Word", "Convert PDF to Word offline", "📝", Color(0xFFEF4444), onNavigateToPdfToWord),
+        ToolItem("PDF to PPT", "Convert PDF to Slides offline", "🖼️", Color(0xFFEF4444), onNavigateToPdfToPpt),
+        ToolItem("PDF to Excel", "Convert PDF to Sheets offline", "📊", Color(0xFFEF4444), onNavigateToPdfToExcel),
+        ToolItem("Fill Form", "Fill PDF interactive form fields", "✍️", Color(0xFFEF4444), onNavigateToPdfFormFiller)
     )
 
     ToolsLazyGrid(items)

@@ -91,6 +91,26 @@ sealed class Screen(val route: String) {
     object PdfToImages : Screen("pdf_to_images")
 
     /**
+     * Standalone PDF to Word Converter Screen
+     */
+    object PdfToWord : Screen("pdf_to_word")
+
+    /**
+     * Standalone PDF to PowerPoint Converter Screen
+     */
+    object PdfToPpt : Screen("pdf_to_ppt")
+
+    /**
+     * Standalone PDF to Excel Converter Screen
+     */
+    object PdfToExcel : Screen("pdf_to_excel")
+
+    /**
+     * Standalone PDF Form Filler Screen
+     */
+    object PdfFormFiller : Screen("pdf_form_filler")
+
+    /**
      * On-Demand Text Recognition (OCR) vision screen.
      */
     object Ocr : Screen("ocr")
