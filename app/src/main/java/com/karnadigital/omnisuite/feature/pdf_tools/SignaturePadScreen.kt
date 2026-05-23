@@ -55,6 +55,13 @@ fun SignaturePadScreen(
     viewModel: SignatureViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf"),
+        onResult = { uri ->
+            uri?.let { viewModel.saveToCustomLocation(it) }
+        }
+    )
+
 
     // Navigation and screen sub-states
     var signatureSaved by remember { mutableStateOf(false) }
@@ -72,12 +79,6 @@ fun SignaturePadScreen(
     var imageContainerWidth by remember { mutableStateOf(0f) }
     var imageContainerHeight by remember { mutableStateOf(0f) }
 
-    val pdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri ->
-            uri?.let { viewModel.selectPdf(it) }
-        }
-    )
 
     // Watch status messages
     LaunchedEffect(viewModel.successMessage) {
@@ -344,7 +345,7 @@ fun SignaturePadScreen(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                    .clickable { pdfLauncher.launch("application/pdf") },
+                                    .clickable { /* removed saf savePdfLauncher */ },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(
@@ -482,6 +483,19 @@ fun SignaturePadScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Stamp Signature & Save PDF")
                             }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { exportLauncher.launch("signed_document.pdf") },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                enabled = viewModel.lastOutputBytes != null
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Export")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Export copy...")
+                            }
+
                         }
                     }
                 }

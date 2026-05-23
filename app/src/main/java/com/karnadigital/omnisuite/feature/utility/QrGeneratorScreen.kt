@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.MultiFormatWriter
 import com.karnadigital.omnisuite.core.util.FileOutputManager
 
 enum class QrCategory {
@@ -58,6 +58,21 @@ enum class QrType(val category: QrCategory, val displayName: String, val icon: S
     
     GEO(QrCategory.LOCATION, "Coordinates", "📍")
 }
+
+
+fun Modifier.glassmorphic(): Modifier = this.then(
+    Modifier
+        .clip(RoundedCornerShape(16.dp))
+        .background(
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.2f),
+                    Color.White.copy(alpha = 0.05f)
+                )
+            )
+        )
+        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -799,7 +814,8 @@ private fun generateQrCodeBitmap(
     size: Int = 512,
     errorCorrection: String = "M",
     embedLogo: Boolean = false,
-    context: Context? = null
+    context: Context? = null,
+    format: BarcodeFormat = BarcodeFormat.QR_CODE
 ): Bitmap? {
     if (content.isBlank()) return null
     return try {
@@ -812,8 +828,8 @@ private fun generateQrCodeBitmap(
         }
         hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = ecLevel
         
-        val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size, hints)
+        val writer = MultiFormatWriter()
+        val bitMatrix = writer.encode(content, format, size, size, hints)
         val width = bitMatrix.width
         val height = bitMatrix.height
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
