@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Build
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,7 +70,20 @@ fun TxtViewerScreen(
         }
     }
 
+
+    var showFormatting by remember { mutableStateOf(false) }
+    var fontSize by remember { mutableFloatStateOf(16f) }
+    var themeIndex by remember { mutableIntStateOf(0) }
+    val themes = listOf(
+        Color.White to Color.Black, // Light
+        Color(0xFFF4ECD8) to Color(0xFF5B4636), // Sepia
+        Color(0xFF2D2D2D) to Color(0xFFE0E0E0), // Cinematic Dark
+        Color(0xFF1E1E1E) to Color(0xFFA0A0A0) // Grey
+    )
+    val currentTheme = themes[themeIndex]
+
     Scaffold(
+
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -93,6 +108,11 @@ fun TxtViewerScreen(
                     }
                 },
                 actions = {
+
+                        IconButton(onClick = { showFormatting = !showFormatting }) {
+                            Icon(Icons.Default.Build, contentDescription = "Format")
+                        }
+
                     if (state is TxtLoadState.Success) {
                         IconButton(
                             onClick = {
@@ -118,6 +138,7 @@ fun TxtViewerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .background(currentTheme.first)
                 .background(MaterialTheme.colorScheme.background)
         ) {
             when (currentState) {

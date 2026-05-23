@@ -41,14 +41,15 @@ fun WatermarkScreen(
     viewModel: WatermarkViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
-
-    val pdfLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf"),
         onResult = { uri ->
-            uri?.let { viewModel.selectPdf(it) }
+            uri?.let { viewModel.saveToCustomLocation(it) }
         }
     )
+
+    val scrollState = rememberScrollState()
+
 
     LaunchedEffect(viewModel.successMessage) {
         viewModel.successMessage?.let {
@@ -112,7 +113,7 @@ fun WatermarkScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                            .clickable { pdfLauncher.launch("application/pdf") },
+                            .clickable { /* removed saf savePdfLauncher */ },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -171,7 +172,7 @@ fun WatermarkScreen(
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                                 )
                             }
-                            IconButton(onClick = { pdfLauncher.launch("application/pdf") }) {
+                            IconButton(onClick = { /* removed saf savePdfLauncher */ }) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Edit selection",
@@ -357,6 +358,19 @@ fun WatermarkScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Apply Watermark & Save PDF")
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { exportLauncher.launch("watermarked_document.pdf") },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = viewModel.lastOutputBytes != null
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "Export")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export copy...")
+                }
+
             }
 
             // Processing overlay dialog spinner
