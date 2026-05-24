@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +29,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,6 +48,7 @@ fun ImageToolsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val selectedUri = uiState.selectedUri
 
     var activeTab by remember { mutableStateOf(0) }
     val toolTabs = listOf("Editor", "Long Stitcher", "Extractor", "ID Card Maker", "Watermarker")
@@ -182,7 +186,7 @@ fun ImageToolsScreen(
                 ) {
                     when (activeTab) {
                         0 -> { // --- STANDARD EDITOR ---
-                            if (uiState.selectedUri == null) {
+                            if (selectedUri == null) {
                                 Spacer(modifier = Modifier.height(20.dp))
                                 DropZoneBox(
                                     title = "Select Image to Edit",
@@ -191,7 +195,7 @@ fun ImageToolsScreen(
                                     onClick = { imagePickerLauncher.launch("image/*") }
                                 )
                             } else {
-                                AsyncImageCard(uri = uiState.selectedUri, rotation = uiState.rotationDegrees)
+                                AsyncImageCard(uri = selectedUri, rotation = uiState.rotationDegrees)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 MetadataBanner(uiState = uiState)
                                 Spacer(modifier = Modifier.height(20.dp))
@@ -454,7 +458,7 @@ fun ImageToolsScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (uiState.idFrontUri == null) {
-                                        Column(horizontalAlignment = Alignment.CenterVertically) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("📸", fontSize = 28.sp)
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Text("Upload Front", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -480,7 +484,7 @@ fun ImageToolsScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (uiState.idBackUri == null) {
-                                        Column(horizontalAlignment = Alignment.CenterVertically) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("📸", fontSize = 28.sp)
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Text("Upload Back", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -515,7 +519,7 @@ fun ImageToolsScreen(
                         }
 
                         4 -> { // --- WATERMARKER ---
-                            if (uiState.selectedUri == null) {
+                            if (selectedUri == null) {
                                 Spacer(modifier = Modifier.height(20.dp))
                                 DropZoneBox(
                                     title = "Select Base Image",
@@ -524,7 +528,7 @@ fun ImageToolsScreen(
                                     onClick = { imagePickerLauncher.launch("image/*") }
                                 )
                             } else {
-                                AsyncImageCard(uri = uiState.selectedUri, rotation = 0f)
+                                AsyncImageCard(uri = selectedUri, rotation = 0f)
                                 Spacer(modifier = Modifier.height(20.dp))
 
                                 EditingControlCard(title = "Watermark Custom Text") {

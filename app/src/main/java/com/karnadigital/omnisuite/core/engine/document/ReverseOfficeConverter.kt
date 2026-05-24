@@ -22,8 +22,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ReverseOfficeConverter @Inject constructor(
-    private val context: Context,
-    private val fileOutputManager: FileOutputManager
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) {
 
     suspend fun convertPdfToDocx(uri: Uri): Uri? = withContext(Dispatchers.IO) {
@@ -46,7 +45,7 @@ class ReverseOfficeConverter @Inject constructor(
             docx.write(outStream)
             docx.close()
 
-            val outputFileUri = fileOutputManager.saveToDefault(
+            val outputFileUri = FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.docx",
@@ -85,7 +84,7 @@ class ReverseOfficeConverter @Inject constructor(
             pptx.write(outStream)
             pptx.close()
 
-            val outputFileUri = fileOutputManager.saveToDefault(
+            val outputFileUri = FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.pptx",
@@ -125,7 +124,7 @@ class ReverseOfficeConverter @Inject constructor(
             xlsx.write(outStream)
             xlsx.close()
 
-            val outputFileUri = fileOutputManager.saveToDefault(
+            val outputFileUri = FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.xlsx",
@@ -157,7 +156,7 @@ class ReverseOfficeConverter @Inject constructor(
             doc.save(outStream)
             doc.close()
 
-            val outputFileUri = fileOutputManager.saveToDefault(
+            val outputFileUri = FileOutputManager.saveToDefault(
                 context = context,
                 bytes = outStream.toByteArray(),
                 filename = "filled_form_${System.currentTimeMillis()}.pdf",
