@@ -35,6 +35,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,6 +70,7 @@ fun PptxViewerScreen(
     }
 
     val state by viewModel.loadState.collectAsState()
+    var isEditMode by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -89,6 +93,17 @@ fun PptxViewerScreen(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Navigate back"
                         )
+                    }
+                },
+                actions = {
+                    if (state is PptxLoadState.Success) {
+                        IconButton(onClick = { isEditMode = !isEditMode }) {
+                            Icon(
+                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Build,
+                                contentDescription = "Toggle Edit Mode",
+                                tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -283,7 +298,7 @@ fun PptxViewerScreen(
                                 pageSpacing = 16.dp
                             ) { pageIndex ->
                                 val slide = presentation.slides[pageIndex]
-                                SlideCardItem(slide = slide)
+                                SlideCardItem(slide = slide, isEditMode = isEditMode, onTitleUpdate = { newTitle -> viewModel.updateSlideText(pageIndex, newTitle) })
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -356,7 +371,37 @@ fun PptxViewerScreen(
 }
 
 @Composable
-fun SlideCardItem(slide: PptxSlide) {
+fun SlideCardItem(
+    slide: PptxSlide,
+    isEditMode: Boolean = false,
+    onTitleUpdate: (String) -> Unit = {}
+) {
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editTitleText by remember { mutableStateOf(slide.title) }
+
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Edit Slide Title") },
+            text = {
+                OutlinedTextField(
+                    value = editTitleText,
+                    onValueChange = { editTitleText = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onTitleUpdate(editTitleText)
+                    showEditDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -386,6 +431,11 @@ fun SlideCardItem(slide: PptxSlide) {
                 ),
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth()
+                    .clickable(enabled = isEditMode) {
+                        editTitleText = slide.title
+                        showEditDialog = true
+                    }
+                    .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha=0.1f) else Color.Transparent)
             )
 
             Spacer(modifier = Modifier.height(16.dp))

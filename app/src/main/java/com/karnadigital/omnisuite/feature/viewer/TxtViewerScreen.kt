@@ -75,9 +75,12 @@ fun TxtViewerScreen(
     }
 
 
-    var showFormatting by remember { mutableStateOf(false) }
+        var showFormatting by remember { mutableStateOf(false) }
     var fontSize by remember { mutableFloatStateOf(16f) }
     var themeIndex by remember { mutableIntStateOf(0) }
+    var fontIndex by remember { mutableIntStateOf(0) }
+    val fonts = listOf(FontFamily.Monospace, FontFamily.Default, FontFamily.Serif, FontFamily.SansSerif)
+    val fontNames = listOf("Monospace", "Default", "Serif", "SansSerif")
     val themes = listOf(
         Color.White to Color.Black, // Light
         Color(0xFFF4ECD8) to Color(0xFF5B4636), // Sepia
@@ -179,7 +182,7 @@ fun TxtViewerScreen(
                                 .weight(1f, fill = false)
                                 .minimumInteractiveComponentSize(),
                             textStyle = TextStyle(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = fonts[fontIndex],
                                 fontSize = fontSize.sp,
                                 color = currentTheme.second,
                                 lineHeight = (fontSize + 6).sp
@@ -187,7 +190,7 @@ fun TxtViewerScreen(
                             placeholder = {
                                 Text(
                                     text = "Start typing documents...",
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = fonts[fontIndex],
                                     fontSize = fontSize.sp,
                                     color = currentTheme.second.copy(alpha = 0.4f)
                                 )
@@ -287,6 +290,40 @@ fun TxtViewerScreen(
                                         color = swatchColors.second,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                                        // Font Family Selector
+                    Column {
+                        Text(
+                            text = "Font Family",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            fontNames.forEachIndexed { idx, name ->
+                                val isSelected = fontIndex == idx
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { fontIndex = idx },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = name,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
                                 }
                             }

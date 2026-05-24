@@ -476,7 +476,7 @@ fun FileItemRow(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (isSupported) 1.0f else 0.45f)
+            .alpha(if (isSupported) 1.0f else 0.5f)
             .clickable {
                 if (isSupported) {
                     onOpenFile(fileUri)
@@ -586,7 +586,10 @@ private fun isFormatSupported(ext: String, mime: String): Boolean {
     val e = ext.lowercase()
     if (e == "pdf" || e == "docx" || e == "doc" || e == "xlsx" || e == "xls" || 
         e == "pptx" || e == "ppt" || e == "zip" || e == "txt" || e == "csv" || 
-        e == "png" || e == "jpg" || e == "jpeg" || e == "webp" || e == "gif" || e == "bmp") return true
+        e == "png" || e == "jpg" || e == "jpeg" || e == "webp" || e == "gif" || e == "bmp" ||
+        e == "py" || e == "kt" || e == "java" || e == "json" || e == "xml" || e == "html" ||
+        e == "css" || e == "js" || e == "gradle" || e == "sh" || e == "bat" || e == "cpp" ||
+        e == "c" || e == "h" || e == "md" || e == "properties") return true
     
     val m = mime.lowercase()
     if (m.contains("pdf") || m.contains("word") || m.contains("msword") || 
@@ -598,14 +601,23 @@ private fun isFormatSupported(ext: String, mime: String): Boolean {
 }
 
 private fun showUnsupportedDialog(context: Context, name: String, fileUri: String, mimeType: String) {
-    android.app.AlertDialog.Builder(context)
-        .setTitle("Unsupported Document")
-        .setMessage("OmniSuite's offline viewers do not natively support this file format ($name). Would you like to share it to another app on your device?")
-        .setPositiveButton("Share Externally") { _, _ ->
-            shareContentUri(context, Uri.parse(fileUri), mimeType)
+    try {
+        val uri = Uri.parse(fileUri)
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        .setNegativeButton("Cancel", null)
-        .show()
+        context.startActivity(Intent.createChooser(viewIntent, "Open Unknown Format"))
+    } catch (e: Exception) {
+        android.app.AlertDialog.Builder(context)
+            .setTitle("Unsupported Document")
+            .setMessage("OmniSuite's offline viewers do not natively support this file format ($name). Would you like to share it to another app on your device?")
+            .setPositiveButton("Share Externally") { _, _ ->
+                shareContentUri(context, Uri.parse(fileUri), mimeType)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 }
 
 private fun shareLocalFile(context: Context, file: File) {

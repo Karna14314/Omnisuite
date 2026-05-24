@@ -26,20 +26,31 @@ class HomeScreenNavigationUiTest {
                     onNavigateToQrGenerator = {},
                     onNavigateToBarcodeScanner = {},
                     onNavigateToImageTools = {},
-                    onNavigateToPdfTools = {},
+                    onNavigateToPdfMerge = {},
+                    onNavigateToPdfSplit = {},
+                    onNavigateToPdfLock = {},
+                    onNavigateToDocToPdf = {},
+                    onNavigateToPptToPdf = {},
+                    onNavigateToScanToPdf = {},
+                    onNavigateToPdfToImages = {},
                     onNavigateToOcr = {},
                     onNavigateToSignaturePad = {},
                     onNavigateToWatermark = {},
+                    onNavigateToPdfToWord = {},
+                    onNavigateToPdfToPpt = {},
+                    onNavigateToPdfToExcel = {},
+                    onNavigateToPdfFormFiller = {},
                     onNavigateToBatchTools = {},
+                    onNavigateToZipMaker = {},
                     onOpenFile = {}
                 )
             }
         }
 
-        // Verify that all 4 navigation tabs are displayed and interactive
+        // Verify the two-tab system structure
         composeTestRule.onNodeWithContentDescription("Dedicated Tools Hub").assertExists().performClick()
-        composeTestRule.onNodeWithContentDescription("Storage Browser").assertExists().performClick()
-        composeTestRule.onNodeWithContentDescription("Recent Files History").assertExists().performClick()
-        composeTestRule.onNodeWithContentDescription("Home Workspace Dashboard").assertExists().performClick()
+        composeTestRule.onNodeWithContentDescription("Home Cockpit").assertExists().performClick()
+        // Storage Browser is now nested inside the home view, verify it exists after clicking Home Cockpit
+        composeTestRule.onNodeWithContentDescription("Search files...").assertExists()
     }
 }

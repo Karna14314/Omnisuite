@@ -26,7 +26,8 @@ import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
 
-data class ExcelSheet(val name: String, val rows: List<List<String>>)
+data class CellData(val text: String, val colorHex: String? = null)
+data class ExcelSheet(val name: String, val rows: List<List<CellData>>)
 data class ExcelWorkbook(val sheets: List<ExcelSheet>)
 
 sealed class XlsxLoadState {
@@ -198,7 +199,7 @@ class XlsxViewerViewModel @Inject constructor(
         for (s in 0 until numberOfSheets) {
             val sheet = wb.getSheetAt(s)
             val sheetName = sheet.sheetName ?: "Sheet ${s + 1}"
-            val rowList = mutableListOf<List<String>>()
+            val rowList = mutableListOf<List<CellData>>()
 
             // Track maximum columns to normalize grid headers
             var maxCols = 0
@@ -221,13 +222,24 @@ class XlsxViewerViewModel @Inject constructor(
 
             // Normalize grid rows to equal length
             for (row in rawRows) {
-                val rowCells = mutableListOf<String>()
+                val rowCells = mutableListOf<CellData>()
                 for (c in 0 until maxCols) {
                     val cell = row.getCell(c)
                     if (cell == null) {
-                        rowCells.add("")
+                        rowCells.add(CellData(""))
                     } else {
-                        rowCells.add(getFormattedCellValue(cell))
+                        var colorHex: String? = null
+                        val style = cell.cellStyle as? org.apache.poi.xssf.usermodel.XSSFCellStyle
+                        if (style != null) {
+                            val fgColor = style.fillForegroundXSSFColor
+                            if (fgColor != null) {
+                                val rgb = fgColor.argbHex
+                                if (rgb != null && rgb.length >= 6) {
+                                    colorHex = "#" + rgb.substring(rgb.length - 6)
+                                }
+                            }
+                        }
+                        rowCells.add(CellData(getFormattedCellValue(cell), colorHex))
                     }
                 }
                 rowList.add(rowCells)
@@ -242,7 +254,7 @@ class XlsxViewerViewModel @Inject constructor(
      * Updates an active Excel cell, converting double values safely, and
      * re-running formulas evaluations downstream instantly.
      */
-    fun updateCell(sheetIndex: Int, rowIndex: Int, colIndex: Int, valueString: String) {
+    fun updateCell(sheetIndex: Int, rowIndex: Int, colIndex: Int, valueString: String, colorHex: String? = null) {
         val wb = activeWorkbook ?: return
         val sheet = wb.getSheetAt(sheetIndex) ?: return
         var row = sheet.getRow(rowIndex)
@@ -254,11 +266,30 @@ class XlsxViewerViewModel @Inject constructor(
             cell = row.createCell(colIndex)
         }
 
-        val doubleValue = valueString.toDoubleOrNull()
+                val doubleValue = valueString.toDoubleOrNull()
         if (doubleValue != null) {
             cell.setCellValue(doubleValue)
         } else {
             cell.setCellValue(valueString)
+        }
+
+        // Handle Background Color Styling
+        if (colorHex != null) {
+            val style = wb.createCellStyle()
+            // In Apache POI, setting solid foreground needs pattern set
+            style.fillPattern = org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND
+
+            // XSSFColor parsing
+            val xssfColor = org.apache.poi.xssf.usermodel.XSSFColor(
+                byteArrayOf(
+                    Integer.parseInt(colorHex.substring(1, 3), 16).toByte(),
+                    Integer.parseInt(colorHex.substring(3, 5), 16).toByte(),
+                    Integer.parseInt(colorHex.substring(5, 7), 16).toByte()
+                ),
+                null
+            )
+            (style as org.apache.poi.xssf.usermodel.XSSFCellStyle).setFillForegroundColor(xssfColor)
+            cell.cellStyle = style
         }
 
         // Instantly force downstream formula recalculations
