@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,11 +31,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import java.util.Locale
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.model.RecentFile
+import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import com.karnadigital.omnisuite.feature.history.HistoryScreen
 import com.karnadigital.omnisuite.feature.tools.AllToolsScreen
 import com.karnadigital.omnisuite.feature.utility.rememberDocumentScannerLauncher
+import kotlinx.coroutines.launch
 
 /**
  * Bottom Navigation Primary Root Tabs.
@@ -79,52 +84,97 @@ fun HomeScreen(
     onNavigateToPdfToExcel: () -> Unit,
     onNavigateToPdfFormFiller: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
+    onNavigateToZipMaker: () -> Unit,
     onOpenFile: (String) -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableStateOf(HomeTab.Home) }
     var searchQuery by remember { mutableStateOf("") }
+    var lastRequestedType by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Reusable Storage Access Framework picker launcher
     val documentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            try {
-                // Grant persistable URI read/write permissions
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, takeFlags)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            coroutineScope.launch {
+                try {
+                    val fileName = getFileName(context, it) ?: "file"
+                    val fileExtension = fileName.substringAfterLast('.').lowercase(Locale.ROOT)
+                    
+                    // Validate file type based on tool request
+                    val type = lastRequestedType
+                    if (type != null) {
+                        val isValid = when (type) {
+                            "pdf" -> fileExtension == "pdf"
+                            "word" -> fileExtension in listOf("docx", "doc", "odt")
+                            "excel" -> fileExtension in listOf("xlsx", "xls", "ods", "csv")
+                            "slides" -> fileExtension in listOf("pptx", "ppt", "odp")
+                            "image" -> fileExtension in listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
+                            "text" -> fileExtension in listOf("txt", "py", "kt", "java", "json", "xml", "html", "css", "js", "gradle", "sh", "bat", "cpp", "c", "md", "properties")
+                            "csv" -> fileExtension == "csv"
+                            "zip" -> fileExtension == "zip"
+                            else -> true
+                        }
+                        
+                        if (!isValid) {
+                            val formatMessage = when (type) {
+                                "pdf" -> "PDF (.pdf)"
+                                "word" -> "Word Document (.docx, .doc)"
+                                "excel" -> "Excel Spreadsheet (.xlsx, .xls, .csv)"
+                                "slides" -> "PowerPoint Slides (.pptx, .ppt)"
+                                "image" -> "Image (.png, .jpg, .webp)"
+                                "text" -> "Text File (.txt, .json, .xml)"
+                                "csv" -> "CSV Sheet (.csv)"
+                                "zip" -> "ZIP Archive (.zip)"
+                                else -> "valid file"
+                            }
+                            Toast.makeText(context, "Invalid format! Please select a $formatMessage.", Toast.LENGTH_LONG).show()
+                            lastRequestedType = null
+                            return@launch
+                        }
+                    }
+                    
+                    lastRequestedType = null
+                    
+                    // Cache the file immediately to local sandbox!
+                    val cachedFile = UriCacheUtils.cacheUriToFile(context, it)
+                    if (cachedFile != null && cachedFile.exists()) {
+                        val fileSize = getFileSize(context, it)
+                        val mimeType = context.contentResolver.getType(it) ?: when {
+                            fileName.endsWith(".pdf") -> "application/pdf"
+                            fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                            fileName.endsWith(".txt") -> "text/plain"
+                            fileName.endsWith(".csv") -> "text/csv"
+                            fileName.endsWith(".zip") -> "application/zip"
+                            else -> "*/*"
+                        }
+                        
+                        viewModel.addRecentFile(
+                            fileUri = Uri.fromFile(cachedFile).toString(), // Save local cache file URI!
+                            fileName = fileName,
+                            mimeType = mimeType,
+                            fileSize = fileSize
+                        )
+                        onOpenFile(Uri.fromFile(cachedFile).toString())
+                    } else {
+                        Toast.makeText(context, "Failed to import file.", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(context, "Import error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
             }
-            val fileName = getFileName(context, it)
-            val fileSize = getFileSize(context, it)
-            val mimeType = context.contentResolver.getType(it) ?: when {
-                fileName.endsWith(".pdf") -> "application/pdf"
-                fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                fileName.endsWith(".txt") -> "text/plain"
-                fileName.endsWith(".csv") -> "text/csv"
-                fileName.endsWith(".zip") -> "application/zip"
-                else -> "*/*"
-            }
-            viewModel.addRecentFile(
-                fileUri = it.toString(),
-                fileName = fileName,
-                mimeType = mimeType,
-                fileSize = fileSize
-            )
-            onOpenFile(it.toString())
         }
     }
 
-    // Dynamic camera edge-crop smart scanner launcher
-    val scannerLauncher = rememberDocumentScannerLauncher(
+    // Direct system document scanning launcher
+    val documentScannerLauncher = rememberDocumentScannerLauncher(
         onScanSuccess = { tempUri, savedFile ->
-            Toast.makeText(context, "Document scanned successfully!", Toast.LENGTH_SHORT).show()
             viewModel.addRecentFile(
                 fileUri = Uri.fromFile(savedFile).toString(),
                 fileName = savedFile.name,
@@ -145,27 +195,13 @@ fun HomeScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
+                        Image(
+                            painter = androidx.compose.ui.res.painterResource(id = com.karnadigital.omnisuite.R.drawable.ic_launcher_foreground),
+                            contentDescription = "OmniSuite App Icon",
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.secondary
-                                        )
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "O",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                        }
+                        )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = "OmniSuite",
@@ -194,7 +230,7 @@ fun HomeScreen(
                 tonalElevation = 8.dp
             ) {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home Workspace Dashboard") },
+                    icon = { Icon(Icons.Default.Home, contentDescription = "Home Cockpit") },
                     label = { Text("Home") },
                     selected = selectedTab == HomeTab.Home,
                     onClick = { selectedTab = HomeTab.Home }
@@ -206,13 +242,13 @@ fun HomeScreen(
                     onClick = { selectedTab = HomeTab.Tools }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Folder, contentDescription = "Storage Browser") },
+                    icon = { Icon(Icons.Default.FolderOpen, contentDescription = "In-App File Explorer") },
                     label = { Text("Files") },
                     selected = selectedTab == HomeTab.Files,
                     onClick = { selectedTab = HomeTab.Files }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.List, contentDescription = "Recent Files History") },
+                    icon = { Icon(Icons.Default.History, contentDescription = "Activity Logs") },
                     label = { Text("History") },
                     selected = selectedTab == HomeTab.History,
                     onClick = { selectedTab = HomeTab.History }
@@ -238,7 +274,7 @@ fun HomeScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search files or tools...") },
+                            placeholder = { Text("Search files...") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -251,7 +287,56 @@ fun HomeScreen(
                             singleLine = true
                         )
 
+                        // Quick Toolkits
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CategoryHeader("Quick Toolkits", "Direct access to local offline operations")
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ToolItemCard(
+                                title = "PDF Factory",
+                                description = "Merge, split & lock",
+                                iconText = "🥞",
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToPdfMerge
+                            )
+                            ToolItemCard(
+                                title = "Image Lab",
+                                description = "Compress & convert",
+                                iconText = "🖼️",
+                                color = Color(0xFF8B5CF6),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToImageTools
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ToolItemCard(
+                                title = "QR Generator",
+                                description = "vCard, WiFi forms",
+                                iconText = "🧬",
+                                color = Color(0xFF06B6D4),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToQrGenerator
+                            )
+                            ToolItemCard(
+                                title = "Text OCR",
+                                description = "Camera page extraction",
+                                iconText = "🔬",
+                                color = Color(0xFF10B981),
+                                modifier = Modifier.weight(1f),
+                                onClick = onNavigateToOcr
+                            )
+                        }
+
                         // Recent Files horizontal scroll
+                        Spacer(modifier = Modifier.height(24.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -336,107 +421,13 @@ fun HomeScreen(
                                         items(filteredFiles) { file ->
                                             RecentFileCard(
                                                 file = file,
-                                                onClick = { onOpenFile(file.fileUri) } // Fixed: Pass fileUri instead of fileName!
+                                                onClick = { onOpenFile(file.fileUri) }
                                             )
                                         }
                                     }
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // OPEN FILE grid cards (2x4 list)
-                        CategoryHeader("Open File", "Select and open any document offline")
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            val row1 = listOf(
-                                OpenFileItem("PDF", "📕", Color(0xFFEF4444)) { documentLauncher.launch(arrayOf("application/pdf")) },
-                                OpenFileItem("Word", "📝", Color(0xFF3B82F6)) { documentLauncher.launch(arrayOf("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }
-                            )
-                            val row2 = listOf(
-                                OpenFileItem("Excel", "📊", Color(0xFF10B981)) { documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv")) },
-                                OpenFileItem("Slides", "🖼️", Color(0xFFF59E0B)) { documentLauncher.launch(arrayOf("application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation")) }
-                            )
-                            val row3 = listOf(
-                                OpenFileItem("Image", "📷", Color(0xFF8B5CF6)) { documentLauncher.launch(arrayOf("image/*")) },
-                                OpenFileItem("Text", "📄", Color(0xFF64748B)) { documentLauncher.launch(arrayOf("text/plain")) }
-                            )
-                            val row4 = listOf(
-                                OpenFileItem("Archive", "🗜️", Color(0xFF06B6D4)) { documentLauncher.launch(arrayOf("application/zip", "application/x-tar", "application/x-rar-compressed", "application/x-7z-compressed")) },
-                                OpenFileItem("eBook", "📚", Color(0xFF14B8A6)) { documentLauncher.launch(arrayOf("application/epub+zip", "application/x-mobipocket-ebook")) }
-                            )
-
-                            listOf(row1, row2, row3, row4).forEach { rowItems ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    rowItems.forEach { item ->
-                                        OpenFileCard(
-                                            title = item.title,
-                                            iconText = item.iconText,
-                                            color = item.color,
-                                            onClick = item.onClick,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Quick toolkits
-                        Spacer(modifier = Modifier.height(24.dp))
-                        CategoryHeader("Quick Toolkits", "Direct access to local offline operations")
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            ToolItemCard(
-                                title = "PDF Factory",
-                                description = "Merge, split & lock",
-                                iconText = "🥞",
-                                color = Color(0xFFEF4444),
-                                modifier = Modifier.weight(1f),
-                                onClick = onNavigateToPdfMerge
-                            )
-                            ToolItemCard(
-                                title = "Image Lab",
-                                description = "Compress & convert",
-                                iconText = "🖼️",
-                                color = Color(0xFF8B5CF6),
-                                modifier = Modifier.weight(1f),
-                                onClick = onNavigateToImageTools
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            ToolItemCard(
-                                title = "QR Generator",
-                                description = "vCard, WiFi forms",
-                                iconText = "🧬",
-                                color = Color(0xFF06B6D4),
-                                modifier = Modifier.weight(1f),
-                                onClick = onNavigateToQrGenerator
-                            )
-                            ToolItemCard(
-                                title = "Text OCR",
-                                description = "Camera page extraction",
-                                iconText = "🔬",
-                                color = Color(0xFF10B981),
-                                modifier = Modifier.weight(1f),
-                                onClick = onNavigateToOcr
-                            )
-                        }
-
                         Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
@@ -462,15 +453,36 @@ fun HomeScreen(
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
                         onNavigateToOcr = onNavigateToOcr,
                         onNavigateToBatchTools = onNavigateToBatchTools,
+                        onNavigateToZipMaker = onNavigateToZipMaker,
                         onSelectFileForType = { type ->
+                            lastRequestedType = type
                             when (type) {
                                 "pdf" -> documentLauncher.launch(arrayOf("application/pdf"))
-                                "word" -> documentLauncher.launch(arrayOf("application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                                "excel" -> documentLauncher.launch(arrayOf("application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"))
-                                "slides" -> documentLauncher.launch(arrayOf("application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
+                                "word" -> documentLauncher.launch(arrayOf(
+                                    "application/msword",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/vnd.sun.xml.writer",
+                                    "application/vnd.oasis.opendocument.text"
+                                ))
+                                "excel" -> documentLauncher.launch(arrayOf(
+                                    "application/vnd.ms-excel",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    "text/comma-separated-values",
+                                    "text/csv"
+                                ))
+                                "slides" -> documentLauncher.launch(arrayOf(
+                                    "application/vnd.ms-powerpoint",
+                                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                    "application/vnd.oasis.opendocument.presentation"
+                                ))
                                 "image" -> documentLauncher.launch(arrayOf("image/*"))
                                 "text" -> documentLauncher.launch(arrayOf("text/plain"))
-                                "csv" -> documentLauncher.launch(arrayOf("text/csv"))
+                                "csv" -> documentLauncher.launch(arrayOf("text/csv", "text/comma-separated-values"))
+                                "zip" -> documentLauncher.launch(arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/x-zip"
+                                ))
                             }
                         }
                     )
@@ -481,7 +493,9 @@ fun HomeScreen(
                     )
                 }
                 HomeTab.History -> {
-                    HistoryScreen(onOpenFile = onOpenFile)
+                    HistoryScreen(
+                        onOpenFile = onOpenFile
+                    )
                 }
             }
         }

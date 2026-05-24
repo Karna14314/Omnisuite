@@ -129,6 +129,11 @@ sealed class Screen(val route: String) {
      * Offline Batch operations panel screen (Image Lab, PDF Lock).
      */
     object BatchTools : Screen("batch_tools")
+
+    /**
+     * Standalone ZIP File Maker Screen.
+     */
+    object ZipMaker : Screen("zip_maker")
 }
 
 

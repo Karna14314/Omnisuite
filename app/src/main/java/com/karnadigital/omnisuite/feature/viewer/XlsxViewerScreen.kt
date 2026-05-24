@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
+import com.karnadigital.omnisuite.core.util.ZoomableBox
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -426,53 +427,57 @@ fun XlsxViewerScreen(
                                     .weight(1f)
                                     .fillMaxWidth()
                              ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .horizontalScroll(horizontalScrollState)
+                                ZoomableBox(
+                                    modifier = Modifier.fillMaxSize()
                                 ) {
-                                    LazyColumn(
-                                        state = lazyListState,
-                                        modifier = Modifier.fillMaxHeight(),
-                                        contentPadding = PaddingValues(bottom = 16.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .horizontalScroll(horizontalScrollState)
                                     ) {
-                                        // 1. Column headers index (A, B, C...)
-                                        item {
-                                            Row(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
-                                                HeaderCell("", isIntersection = true)
-                                                val colCount = if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0
-                                                for (c in 0 until colCount) {
-                                                    HeaderCell(getColHeaderString(c))
+                                        LazyColumn(
+                                            state = lazyListState,
+                                            modifier = Modifier.fillMaxHeight(),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
+                                            // 1. Column headers index (A, B, C...)
+                                            item {
+                                                Row(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+                                                    HeaderCell("", isIntersection = true)
+                                                    val colCount = if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0
+                                                    for (c in 0 until colCount) {
+                                                        HeaderCell(getColHeaderString(c))
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        // 2. Row cells
-                                        items(activeSheet.rows.size) { rowIndex ->
-                                            val rowCells = activeSheet.rows[rowIndex]
-                                            Row {
-                                                // Row Number Header Index
-                                                HeaderCell((rowIndex + 1).toString(), isRowHeader = true)
-                                                
-                                                // Data Row Values
-                                                rowCells.forEachIndexed { colIndex, cellText ->
-                                                    val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
-                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                        match.pageIndex == activeSheetIndex &&
-                                                        match.extraData?.split(",")?.let { parts ->
-                                                            parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
+                                            // 2. Row cells
+                                            items(activeSheet.rows.size) { rowIndex ->
+                                                val rowCells = activeSheet.rows[rowIndex]
+                                                Row {
+                                                    // Row Number Header Index
+                                                    HeaderCell((rowIndex + 1).toString(), isRowHeader = true)
+                                                    
+                                                    // Data Row Values
+                                                    rowCells.forEachIndexed { colIndex, cellText ->
+                                                        val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
+                                                        val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                            match.pageIndex == activeSheetIndex &&
+                                                            match.extraData?.split(",")?.let { parts ->
+                                                                parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
+                                                            } ?: false
                                                         } ?: false
-                                                    } ?: false
-                                                    DataCell(
-                                                        text = cellText,
-                                                        isSelected = isSelected,
-                                                        isSearchResult = isSearchResult,
-                                                        onClick = {
-                                                            selectedCell = CellCoords(rowIndex, colIndex)
-                                                            bottomSheetValue = cellText
-                                                            showBottomSheet = true
-                                                        }
-                                                    )
+                                                        DataCell(
+                                                            text = cellText,
+                                                            isSelected = isSelected,
+                                                            isSearchResult = isSearchResult,
+                                                            onClick = {
+                                                                selectedCell = CellCoords(rowIndex, colIndex)
+                                                                bottomSheetValue = cellText
+                                                                showBottomSheet = true
+                                                            }
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }

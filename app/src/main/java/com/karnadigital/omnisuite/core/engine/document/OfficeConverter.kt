@@ -530,7 +530,7 @@ object OfficeConverter {
             val testLine = if (currentLine.isEmpty()) word else "${currentLine} $word"
             val cleanTestLine = sanitizeText(testLine)
             try {
-                val width = font.getStringWidth(cleanTestLine) / 1000f * fontSize
+                val width = (font.getStringWidth(cleanTestLine) / 1000f * fontSize) * 0.92f
                 if (width <= maxWidth) {
                     currentLine.append(if (currentLine.isEmpty()) word else " $word")
                 } else {

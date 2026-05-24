@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
 import java.io.File
 import androidx.compose.foundation.clickable
+import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,6 +25,7 @@ import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -77,6 +79,7 @@ fun DocxViewerScreen(
     val state by viewModel.loadState.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
     var showAppendDialog by remember { mutableStateOf(false) }
+    var isPrintLayout by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     
     val context = LocalContext.current
@@ -225,6 +228,14 @@ fun DocxViewerScreen(
                     actions = {
                         if (state is DocxLoadState.Success) {
                             var showMenu by remember { mutableStateOf(false) }
+
+                            IconButton(onClick = { isPrintLayout = !isPrintLayout }) {
+                                Icon(
+                                    imageVector = if (isPrintLayout) Icons.Default.Print else Icons.Default.PictureAsPdf,
+                                    contentDescription = "Toggle Print Layout",
+                                    tint = if (isPrintLayout) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
 
                             IconButton(onClick = { searchExpanded = true }) {
                                 Icon(
@@ -422,29 +433,107 @@ fun DocxViewerScreen(
                     if (document.paragraphs.isEmpty()) {
                         EmptyDocumentState()
                     } else {
-                        LazyColumn(
-                            state = lazyListState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surface),
-                            contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                        ZoomableBox(
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            itemsIndexed(document.paragraphs) { index, paragraph ->
-                                val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
-                                if (isEditMode) {
-                                    DocxParagraphEditorItem(
-                                        index = index,
-                                        paragraph = paragraph,
-                                        isHighlighted = isHighlighted,
-                                        onTextChange = { updatedText ->
-                                            viewModel.updateParagraph(index, updatedText)
+                            if (isPrintLayout) {
+                                val pages = remember(document.paragraphs) {
+                                    val result = mutableListOf<List<DocxParagraph>>()
+                                    var currentGroup = mutableListOf<DocxParagraph>()
+                                    var charCount = 0
+                                    
+                                    document.paragraphs.forEach { paragraph ->
+                                        val textLength = paragraph.runs.sumOf { it.text.length }
+                                        if (charCount + textLength > 1200 || currentGroup.size >= 8) {
+                                            if (currentGroup.isNotEmpty()) {
+                                                result.add(currentGroup)
+                                                currentGroup = mutableListOf()
+                                                charCount = 0
+                                            }
                                         }
-                                    )
-                                } else {
-                                    DocxParagraphItem(
-                                        paragraph = paragraph,
-                                        isHighlighted = isHighlighted
-                                    )
+                                        currentGroup.add(paragraph)
+                                        charCount += textLength
+                                    }
+                                    if (currentGroup.isNotEmpty()) {
+                                        result.add(currentGroup)
+                                    }
+                                    result
+                                }
+
+                                LazyColumn(
+                                    state = lazyListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                                ) {
+                                    itemsIndexed(pages) { pageIndex, pageParagraphs ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(1f / 1.4142f)
+                                                .padding(16.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(24.dp)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    pageParagraphs.forEach { paragraph ->
+                                                        DocxParagraphItem(
+                                                            paragraph = paragraph,
+                                                            isHighlighted = false,
+                                                            searchQuery = searchQuery
+                                                        )
+                                                    }
+                                                }
+                                                
+                                                Text(
+                                                    text = "Page ${pageIndex + 1} of ${pages.size}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray,
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(bottom = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    state = lazyListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surface),
+                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                                ) {
+                                    itemsIndexed(document.paragraphs) { index, paragraph ->
+                                        val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
+                                        if (isEditMode) {
+                                            DocxParagraphEditorItem(
+                                                index = index,
+                                                paragraph = paragraph,
+                                                isHighlighted = isHighlighted,
+                                                onTextChange = { updatedText ->
+                                                    viewModel.updateParagraph(index, updatedText)
+                                                }
+                                            )
+                                        } else {
+                                            DocxParagraphItem(
+                                                paragraph = paragraph,
+                                                isHighlighted = isHighlighted,
+                                                searchQuery = searchQuery
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -578,9 +667,10 @@ fun DocxParagraphEditorItem(
 @Composable
 fun DocxParagraphItem(
     paragraph: DocxParagraph,
-    isHighlighted: Boolean = false
+    isHighlighted: Boolean = false,
+    searchQuery: String = ""
 ) {
-    val annotatedString = remember(paragraph) {
+    val annotatedString = remember(paragraph, searchQuery) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
                 val start = length
@@ -598,6 +688,22 @@ fun DocxParagraphItem(
                     }
                 )
                 addStyle(spanStyle, start, end)
+            }
+
+            if (searchQuery.isNotEmpty()) {
+                val fullText = toString()
+                var idx = fullText.indexOf(searchQuery, ignoreCase = true)
+                while (idx != -1) {
+                    addStyle(
+                        style = SpanStyle(
+                            background = Color.Yellow,
+                            color = Color.Black
+                        ),
+                        start = idx,
+                        end = idx + searchQuery.length
+                    )
+                    idx = fullText.indexOf(searchQuery, idx + searchQuery.length, ignoreCase = true)
+                }
             }
         }
     }

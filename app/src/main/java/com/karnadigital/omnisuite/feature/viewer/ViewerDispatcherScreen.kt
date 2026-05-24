@@ -42,6 +42,7 @@ enum class FileType {
 @Composable
 fun ViewerDispatcherScreen(
     fileUri: String?,
+    onOpenFile: (String) -> Unit = {},
     onBack: () -> Unit
 ) {
     if (fileUri.isNullOrEmpty()) {
@@ -114,7 +115,11 @@ fun ViewerDispatcherScreen(
                     FileType.PPTX -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.IMAGE -> ImageViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
-                    FileType.ARCHIVE -> ArchiveViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.ARCHIVE -> ArchiveViewerScreen(
+                        fileUri = currentState.cachedPath,
+                        onOpenFile = onOpenFile,
+                        onBack = onBack
+                    )
                 }
             }
             is DispatcherState.Error -> {
@@ -133,6 +138,84 @@ fun ViewerDispatcherScreen(
 }
 
 private fun determineFileType(context: Context, originalUriString: String, cachedFile: File): FileType? {
+    // 1. Read first 8 bytes from cachedFile to perform deep magic-bytes signature check
+    try {
+        if (cachedFile.exists() && cachedFile.length() > 0) {
+            val bytes = ByteArray(8)
+            java.io.FileInputStream(cachedFile).use { fis ->
+                fis.read(bytes)
+            }
+            
+            val hex = bytes.joinToString("") { String.format("%02X", it) }
+            
+            // Check PDF: Starts with %PDF (25 50 44 46)
+            if (hex.startsWith("25504446")) {
+                return FileType.PDF
+            }
+            
+            // Check PNG: 89 50 4E 47
+            if (hex.startsWith("89504E47")) return FileType.IMAGE
+            // Check JPEG: FF D8 FF
+            if (hex.startsWith("FFD8FF")) return FileType.IMAGE
+            // Check GIF: 47 49 46 38
+            if (hex.startsWith("47494638")) return FileType.IMAGE
+            
+            // Check WEBP: "RIFF" (52 49 46 46) and "WEBP" at index 8
+            if (hex.startsWith("52494646")) {
+                val fullBytes = ByteArray(12)
+                java.io.FileInputStream(cachedFile).use { fis ->
+                    fis.read(fullBytes)
+                }
+                val fullHex = fullBytes.joinToString("") { String.format("%02X", it) }
+                if (fullHex.endsWith("57454250")) {
+                    return FileType.IMAGE
+                }
+            }
+            
+            // Check ZIP-based files (ZIP, DOCX, XLSX, PPTX): Starts with PK (50 4B 03 04)
+            if (hex.startsWith("504B0304")) {
+                try {
+                    java.util.zip.ZipFile(cachedFile).use { zip ->
+                        val entries = zip.entries()
+                        var isDocx = false
+                        var isPptx = false
+                        var isXlsx = false
+                        while (entries.hasMoreElements()) {
+                            val entry = entries.nextElement()
+                            val name = entry.name
+                            if (name.startsWith("word/")) isDocx = true
+                            if (name.startsWith("ppt/")) isPptx = true
+                            if (name.startsWith("xl/")) isXlsx = true
+                        }
+                        return when {
+                            isDocx -> FileType.DOCX
+                            isPptx -> FileType.PPTX
+                            isXlsx -> FileType.XLSX
+                            else -> FileType.ARCHIVE
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    return FileType.ARCHIVE
+                }
+            }
+            
+            // Check legacy binary OLE Office files (DOC, XLS, PPT): Starts with D0 CF 11 E0 A1 B1 1A E1
+            if (hex.startsWith("D0CF11E0A1B11AE1")) {
+                val originalName = getFileNameFromUri(context, Uri.parse(originalUriString))?.lowercase() ?: ""
+                return when {
+                    originalName.endsWith(".doc") -> FileType.DOCX
+                    originalName.endsWith(".xls") -> FileType.XLSX
+                    originalName.endsWith(".ppt") -> FileType.PPTX
+                    else -> FileType.DOCX
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    // 2. Content Resolver MIME-type check (as a backup)
     try {
         val parsedUri = Uri.parse(originalUriString)
         val mimeType = context.contentResolver.getType(parsedUri)?.lowercase()
@@ -146,27 +229,63 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> return FileType.PPTX
                 mimeType.startsWith("image/") -> return FileType.IMAGE
                 mimeType == "text/csv" || mimeType == "text/comma-separated-values" -> return FileType.CSV
-                mimeType == "application/zip" || mimeType == "application/x-zip-compressed" -> return FileType.ARCHIVE
+                mimeType == "application/zip" || mimeType == "application/x-zip-compressed" || mimeType == "application/x-zip" -> return FileType.ARCHIVE
             }
         }
     } catch (e: Exception) {
-        // Fallback to name-based extension matching if ContentResolver throws
         e.printStackTrace()
     }
 
-    // Name-based extension check (handles content queries with display name as well as direct paths)
+    // 3. Name-based extension check
     val nameToCheck = cachedFile.name.lowercase()
-    return when {
-        nameToCheck.endsWith(".pdf") -> FileType.PDF
-        nameToCheck.endsWith(".txt") -> FileType.TXT
-        nameToCheck.endsWith(".docx") || nameToCheck.endsWith(".doc") -> FileType.DOCX
-        nameToCheck.endsWith(".xlsx") || nameToCheck.endsWith(".xls") -> FileType.XLSX
-        nameToCheck.endsWith(".pptx") || nameToCheck.endsWith(".ppt") -> FileType.PPTX
-        nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> FileType.IMAGE
-        nameToCheck.endsWith(".csv") -> FileType.CSV
-        nameToCheck.endsWith(".zip") -> FileType.ARCHIVE
-        else -> null
+    when {
+        nameToCheck.endsWith(".pdf") -> return FileType.PDF
+        nameToCheck.endsWith(".txt") -> return FileType.TXT
+        nameToCheck.endsWith(".docx") || nameToCheck.endsWith(".doc") -> return FileType.DOCX
+        nameToCheck.endsWith(".xlsx") || nameToCheck.endsWith(".xls") -> return FileType.XLSX
+        nameToCheck.endsWith(".pptx") || nameToCheck.endsWith(".ppt") -> return FileType.PPTX
+        nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> return FileType.IMAGE
+        nameToCheck.endsWith(".csv") -> return FileType.CSV
+        nameToCheck.endsWith(".zip") -> return FileType.ARCHIVE
+        
+        // Code/programmatic files check
+        nameToCheck.endsWith(".py") || nameToCheck.endsWith(".kt") || nameToCheck.endsWith(".java") || 
+        nameToCheck.endsWith(".json") || nameToCheck.endsWith(".xml") || nameToCheck.endsWith(".html") || 
+        nameToCheck.endsWith(".css") || nameToCheck.endsWith(".js") || nameToCheck.endsWith(".gradle") || 
+        nameToCheck.endsWith(".sh") || nameToCheck.endsWith(".bat") || nameToCheck.endsWith(".cpp") || 
+        nameToCheck.endsWith(".c") || nameToCheck.endsWith(".h") || nameToCheck.endsWith(".md") || 
+        nameToCheck.endsWith(".properties") -> return FileType.TXT
     }
+
+    // 4. Deep Plain-Text Inspection Fallback (check absence of null bytes in first 4KB)
+    try {
+        if (cachedFile.exists() && cachedFile.length() > 0) {
+            val length = Math.min(cachedFile.length(), 4096L).toInt()
+            val buffer = ByteArray(length)
+            java.io.FileInputStream(cachedFile).use { fis ->
+                var bytesRead = 0
+                while (bytesRead < length) {
+                    val read = fis.read(buffer, bytesRead, length - bytesRead)
+                    if (read == -1) break
+                    bytesRead += read
+                }
+            }
+            var hasNullBytes = false
+            for (i in 0 until length) {
+                if (buffer[i] == 0.toByte()) {
+                    hasNullBytes = true
+                    break
+                }
+            }
+            if (!hasNullBytes) {
+                return FileType.TXT
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    return null
 }
 
 @Composable
@@ -269,5 +388,31 @@ fun ErrorCard(
             }
         }
     }
+}
+
+private fun getFileNameFromUri(context: Context, uri: Uri): String? {
+    var name: String? = null
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        name = cursor.getString(nameIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    if (name == null) {
+        name = uri.path
+        val lastSlash = name?.lastIndexOf('/') ?: -1
+        if (lastSlash != -1) {
+            name = name?.substring(lastSlash + 1)
+        }
+    }
+    return name
 }
 

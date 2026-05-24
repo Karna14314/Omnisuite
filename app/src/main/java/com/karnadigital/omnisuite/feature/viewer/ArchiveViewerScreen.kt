@@ -65,6 +65,7 @@ data class ZipEntryInfo(
 @Composable
 fun ArchiveViewerScreen(
     fileUri: String, // Absolute path of cached zip file
+    onOpenFile: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -318,10 +319,42 @@ fun ArchiveViewerScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         if (!entry.isDirectory) {
-                                            // Toggle selection
-                                            entry.isSelected = !entry.isSelected
-                                            // Trigger state update
-                                            entries = entries.toList()
+                                            // Extract single file to cache and view once in-app directly!
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                try {
+                                                    val zipInputStream = ZipInputStream(FileInputStream(zipFile))
+                                                    var currentEntry: ZipEntry? = zipInputStream.nextEntry
+                                                    while (currentEntry != null) {
+                                                        if (currentEntry.name == entry.name) {
+                                                            val cleanFileName = entry.name.substringAfterLast('/')
+                                                            // Save in cache dir with unique prefix
+                                                            val tempFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_$cleanFileName")
+                                                            
+                                                            val buffer = ByteArray(4096)
+                                                            FileOutputStream(tempFile).use { fos ->
+                                                                var len = zipInputStream.read(buffer)
+                                                                while (len > 0) {
+                                                                    fos.write(buffer, 0, len)
+                                                                    len = zipInputStream.read(buffer)
+                                                                }
+                                                            }
+                                                            
+                                                            withContext(Dispatchers.Main) {
+                                                                onOpenFile(Uri.fromFile(tempFile).toString())
+                                                            }
+                                                            break
+                                                        }
+                                                        zipInputStream.closeEntry()
+                                                        currentEntry = zipInputStream.nextEntry
+                                                    }
+                                                    zipInputStream.close()
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast.makeText(context, "Error opening file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     .padding(12.dp),

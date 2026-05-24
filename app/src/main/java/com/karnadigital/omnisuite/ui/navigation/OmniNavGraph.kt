@@ -27,6 +27,7 @@ import com.karnadigital.omnisuite.feature.utility.OcrScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
 import com.karnadigital.omnisuite.feature.tools.BatchToolsScreen
+import com.karnadigital.omnisuite.feature.tools.ZipMakerScreen
 
 
 /**
@@ -102,6 +103,9 @@ fun OmniNavGraph(
                 onNavigateToBatchTools = {
                     navController.navigate(Screen.BatchTools.route)
                 },
+                onNavigateToZipMaker = {
+                    navController.navigate(Screen.ZipMaker.route)
+                },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
@@ -150,6 +154,9 @@ fun OmniNavGraph(
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             ViewerDispatcherScreen(
                 fileUri = fileUri,
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                },
                 onBack = {
                     navController.popBackStack()
                 }
@@ -327,6 +334,15 @@ fun OmniNavGraph(
         // 11. Offline Batch Utilities Screen (Image Lab, PDF Lock)
         composable(route = Screen.BatchTools.route) {
             BatchToolsScreen(
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // 12. Offline ZIP Maker Screen
+        composable(route = Screen.ZipMaker.route) {
+            ZipMakerScreen(
                 onBack = {
                     navController.popBackStack()
                 }

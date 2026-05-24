@@ -38,13 +38,34 @@ object UriCacheUtils {
                 cacheFile.delete()
             }
 
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                FileOutputStream(cacheFile).use { outputStream ->
-                    inputStream.copyTo(outputStream)
+            val scheme = uri.scheme?.lowercase()
+            if (scheme == "http" || scheme == "https") {
+                val url = java.net.URL(uri.toString())
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.requestMethod = "GET"
+                connection.connect()
+                
+                if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    connection.inputStream.use { inputStream ->
+                        FileOutputStream(cacheFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    cacheFile
+                } else {
+                    null
                 }
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    FileOutputStream(cacheFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                cacheFile
             }
-            cacheFile
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }

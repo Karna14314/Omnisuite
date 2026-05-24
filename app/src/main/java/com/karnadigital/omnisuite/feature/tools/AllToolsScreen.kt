@@ -47,10 +47,11 @@ fun AllToolsScreen(
     onNavigateToBarcodeScanner: () -> Unit,
     onNavigateToOcr: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
+    onNavigateToZipMaker: () -> Unit,
     onSelectFileForType: (String) -> Unit // Resolves picking files for viewers
 ) {
     var selectedTabState by remember { mutableStateOf(0) }
-    val tabs = listOf("PDF", "Documents", "Image", "Utilities")
+    val tabs = listOf("PDF", "Documents", "Image", "Archive & QR")
 
     Scaffold(
         topBar = {
@@ -144,10 +145,12 @@ fun AllToolsScreen(
                         onNavigateToOcr = onNavigateToOcr,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner
                     )
-                    3 -> UtilitiesToolsGrid(
+                    3 -> ArchiveQrToolsGrid(
                         onNavigateToQrGenerator = onNavigateToQrGenerator,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
-                        onNavigateToBatchTools = onNavigateToBatchTools
+                        onNavigateToBatchTools = onNavigateToBatchTools,
+                        onNavigateToZipMaker = onNavigateToZipMaker,
+                        onSelectFileForType = onSelectFileForType
                     )
                 }
             }
@@ -225,12 +228,16 @@ fun ImageToolsGrid(
 }
 
 @Composable
-fun UtilitiesToolsGrid(
+fun ArchiveQrToolsGrid(
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
-    onNavigateToBatchTools: () -> Unit
+    onNavigateToBatchTools: () -> Unit,
+    onNavigateToZipMaker: () -> Unit,
+    onSelectFileForType: (String) -> Unit
 ) {
     val items = listOf(
+        ToolItem("ZIP Maker", "Compress multiple files to ZIP", "🗜️", Color(0xFF06B6D4), onNavigateToZipMaker),
+        ToolItem("ZIP Extractor", "Extract local ZIP archives", "🔓", Color(0xFF06B6D4)) { onSelectFileForType("zip") },
         ToolItem("QR Generator", "Compile WiFi/vCard QR codes", "🧬", Color(0xFF06B6D4), onNavigateToQrGenerator),
         ToolItem("QR Scanner", "Live viewfinder decoding", "📷", Color(0xFF06B6D4), onNavigateToBarcodeScanner),
         ToolItem("Barcode Builder", "Generate EAN/UPC barcodes", "📊", Color(0xFF06B6D4), onNavigateToQrGenerator),

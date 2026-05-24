@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -481,34 +482,38 @@ fun PdfViewerScreen(
                     }
                 }
                 is PdfLoadState.Success -> {
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+                    ZoomableBox(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(currentState.pageCount) { pageIndex ->
-                            val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == pageIndex
-                            
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                InteractivePdfPageItem(
-                                    pageIndex = pageIndex,
-                                    viewModel = viewModel,
-                                    isHighlighted = isHighlighted,
-                                    annotationMode = annotationMode,
-                                    selectedColor = selectedMarkerColor,
-                                    pagePaths = pagePaths,
-                                    pageTextNotes = pageTextNotes,
-                                    onAddTextNoteTap = { offset ->
-                                        activeNoteOffset = offset
-                                        activeNotePageIndex = pageIndex
-                                        showTextNoteDialog = true
-                                    }
-                                )
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+                        ) {
+                            items(currentState.pageCount) { pageIndex ->
+                                val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == pageIndex
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                ) {
+                                    InteractivePdfPageItem(
+                                        pageIndex = pageIndex,
+                                        viewModel = viewModel,
+                                        isHighlighted = isHighlighted,
+                                        annotationMode = annotationMode,
+                                        selectedColor = selectedMarkerColor,
+                                        pagePaths = pagePaths,
+                                        pageTextNotes = pageTextNotes,
+                                        onAddTextNoteTap = { offset ->
+                                            activeNoteOffset = offset
+                                            activeNotePageIndex = pageIndex
+                                            showTextNoteDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
