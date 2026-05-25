@@ -47,6 +47,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -459,7 +460,7 @@ fun XlsxViewerScreen(
                                                     HeaderCell((rowIndex + 1).toString(), isRowHeader = true)
                                                     
                                                     // Data Row Values
-                                                    rowCells.forEachIndexed { colIndex, cellText ->
+                                                    rowCells.forEachIndexed { colIndex, cellData ->
                                                         val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
                                                         val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                             match.pageIndex == activeSheetIndex &&
@@ -468,12 +469,13 @@ fun XlsxViewerScreen(
                                                             } ?: false
                                                         } ?: false
                                                         DataCell(
-                                                            text = cellText,
+                                                            text = cellData.text,
+                                                            colorHex = cellData.colorHex,
                                                             isSelected = isSelected,
                                                             isSearchResult = isSearchResult,
                                                             onClick = {
                                                                 selectedCell = CellCoords(rowIndex, colIndex)
-                                                                bottomSheetValue = cellText
+                                                                bottomSheetValue = cellData.text
                                                                 showBottomSheet = true
                                                             }
                                                         )
@@ -588,6 +590,36 @@ fun XlsxViewerScreen(
                     singleLine = true
                 )
 
+                Spacer(modifier = Modifier.height(16.dp))
+                var activeColorHex by remember { mutableStateOf<String?>(null) }
+                Text("Cell Color:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    listOf(null, "#EF4444", "#3B82F6", "#10B981", "#F59E0B").forEach { colorHex ->
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(if (colorHex == null) Color.Transparent else Color(android.graphics.Color.parseColor(colorHex)))
+                                .border(1.dp, if (colorHex == null) MaterialTheme.colorScheme.outline else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
+                                .clickable { activeColorHex = colorHex }
+                                .padding(2.dp)
+                        ) {
+                            if (activeColorHex == colorHex) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.3f))
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Row(
@@ -606,7 +638,8 @@ fun XlsxViewerScreen(
                                 sheetIndex = activeSheetIndex,
                                 rowIndex = cell.rowIndex,
                                 colIndex = cell.colIndex,
-                                valueString = bottomSheetValue
+                                valueString = bottomSheetValue,
+                                colorHex = activeColorHex
                             )
                             showBottomSheet = false
                         },
@@ -669,6 +702,7 @@ fun HeaderCell(
 @Composable
 fun DataCell(
     text: String,
+    colorHex: String? = null,
     isSelected: Boolean,
     isSearchResult: Boolean = false,
     onClick: () -> Unit
@@ -680,6 +714,7 @@ fun DataCell(
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                 else if (isSearchResult) Color(0xFFFFF59D)
+                else if (colorHex != null) Color(android.graphics.Color.parseColor(colorHex))
                 else MaterialTheme.colorScheme.surface
             )
             .border(

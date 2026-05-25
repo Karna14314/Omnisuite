@@ -530,7 +530,7 @@ object OfficeConverter {
             val testLine = if (currentLine.isEmpty()) word else "${currentLine} $word"
             val cleanTestLine = sanitizeText(testLine)
             try {
-                val width = (font.getStringWidth(cleanTestLine) / 1000f * fontSize) * 0.92f
+                val width = (font.getStringWidth(cleanTestLine) / 1000f * fontSize)
                 if (width <= maxWidth) {
                     currentLine.append(if (currentLine.isEmpty()) word else " $word")
                 } else {
@@ -554,13 +554,13 @@ object OfficeConverter {
      */
     private fun truncateToWidth(text: String, font: PDType1Font, fontSize: Float, maxWidth: Float): String {
         try {
-            var width = font.getStringWidth(text) / 1000f * fontSize
+            var width = (font.getStringWidth(text) / 1000f * fontSize)
             if (width <= maxWidth) return text
 
             var truncated = text
             while (truncated.isNotEmpty() && width > maxWidth) {
                 truncated = truncated.dropLast(1)
-                width = font.getStringWidth("$truncated...") / 1000f * fontSize
+                width = (font.getStringWidth("$truncated...") / 1000f * fontSize)
             }
             return if (truncated.isEmpty()) "" else "$truncated..."
         } catch (e: Exception) {

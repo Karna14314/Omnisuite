@@ -81,7 +81,23 @@ fun ArchiveViewerScreen(
     val zipFile = remember { File(fileUri) }
     val archiveName = remember { zipFile.name.removeSuffix(".zip") }
 
+
+    // Ephemeral Purge Routine
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                val extractionDir = File(context.cacheDir, "omnisuite_extracted_${archiveName}")
+                if (extractionDir.exists()) {
+                    extractionDir.deleteRecursively()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     // Load zip contents on start
+
     LaunchedEffect(fileUri) {
         withContext(Dispatchers.IO) {
             val list = mutableListOf<ZipEntryInfo>()
@@ -141,29 +157,14 @@ fun ArchiveViewerScreen(
                             }
                             val fileBytes = outStream.toByteArray()
 
-                            // Save inside Public Documents/OmniSuite/Archives/<archive_name>/
-                            val saveFolder = "Archives${File.separator}$archiveName"
+                            // Extract strictly to Ephemeral Cache
                             val cleanFileName = name.substringAfterLast('/')
+                            val extractionDir = File(context.cacheDir, "omnisuite_extracted_${archiveName}")
+                            if (!extractionDir.exists()) extractionDir.mkdirs()
                             
-                            val savedUri = FileOutputManager.saveToDefault(
-                                context = context,
-                                bytes = fileBytes,
-                                filename = cleanFileName,
-                                mimeType = resolveMimeType(cleanFileName),
-                                subfolder = saveFolder
-                            )
-
-                            if (savedUri != null) {
-                                // Register in recent files history
-                                val recent = RecentFile(
-                                    fileUri = savedUri.toString(),
-                                    fileName = cleanFileName,
-                                    mimeType = resolveMimeType(cleanFileName),
-                                    fileSize = fileBytes.size.toLong(),
-                                    lastOpened = System.currentTimeMillis()
-                                )
-                                // Register using the dedicated Hilt ViewModel
-                                viewModel.registerRecentFile(recent)
+                            val tempFile = File(extractionDir, cleanFileName)
+                            FileOutputStream(tempFile).use { fos ->
+                                fos.write(fileBytes)
                             }
                         }
                         zipInputStream.closeEntry()
@@ -172,7 +173,7 @@ fun ArchiveViewerScreen(
                     zipInputStream.close()
 
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Selected files extracted to Documents/OmniSuite/Archives/$archiveName", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Archive items successfully extracted to secure temporary viewer.", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()

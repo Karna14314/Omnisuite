@@ -48,6 +48,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -670,6 +671,7 @@ fun DocxParagraphItem(
     isHighlighted: Boolean = false,
     searchQuery: String = ""
 ) {
+    SelectionContainer {
     val annotatedString = remember(paragraph, searchQuery) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
@@ -740,6 +742,7 @@ fun DocxParagraphItem(
             .background(backgroundColor)
             .padding(horizontal = 20.dp, vertical = verticalPadding)
     )
+    }
 }
 
 @Composable

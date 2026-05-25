@@ -172,20 +172,35 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 }
             }
             
-            // Check ZIP-based files (ZIP, DOCX, XLSX, PPTX): Starts with PK (50 4B 03 04)
+                        // Check ZIP-based files (ZIP, DOCX, XLSX, PPTX): Starts with PK (50 4B 03 04)
             if (hex.startsWith("504B0304")) {
+                // Tiered checking: First magic bytes, then extension or zip contents
+                val originalName = getFileNameFromUri(context, Uri.parse(originalUriString))?.lowercase() ?: cachedFile.name.lowercase()
+
+                // If extension is strictly a generic zip, don't try to parse as docx/pptx
+                if (originalName.endsWith(".zip")) {
+                    return FileType.ARCHIVE
+                }
+
                 try {
                     java.util.zip.ZipFile(cachedFile).use { zip ->
                         val entries = zip.entries()
                         var isDocx = false
                         var isPptx = false
                         var isXlsx = false
-                        while (entries.hasMoreElements()) {
+
+                        // Only need to check a few files to determine format
+                        var count = 0
+                        while (entries.hasMoreElements() && count < 20) {
                             val entry = entries.nextElement()
                             val name = entry.name
                             if (name.startsWith("word/")) isDocx = true
                             if (name.startsWith("ppt/")) isPptx = true
                             if (name.startsWith("xl/")) isXlsx = true
+                            if (name == "[Content_Types].xml" && originalName.endsWith(".pptx")) isPptx = true
+                            if (name == "[Content_Types].xml" && originalName.endsWith(".docx")) isDocx = true
+                            if (name == "[Content_Types].xml" && originalName.endsWith(".xlsx")) isXlsx = true
+                            count++
                         }
                         return when {
                             isDocx -> FileType.DOCX

@@ -46,9 +46,7 @@ import kotlinx.coroutines.launch
  */
 enum class HomeTab {
     Home,
-    Tools,
-    Files,
-    History
+    Tools
 }
 
 data class OpenFileItem(
@@ -196,11 +194,10 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Image(
-                            painter = androidx.compose.ui.res.painterResource(id = com.karnadigital.omnisuite.R.drawable.ic_launcher_foreground),
+                            painter = androidx.compose.ui.res.painterResource(id = com.karnadigital.omnisuite.R.mipmap.ic_launcher),
                             contentDescription = "OmniSuite App Icon",
                             modifier = Modifier
                                 .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
@@ -229,7 +226,7 @@ fun HomeScreen(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp
             ) {
-                NavigationBarItem(
+                                NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home Cockpit") },
                     label = { Text("Home") },
                     selected = selectedTab == HomeTab.Home,
@@ -241,18 +238,6 @@ fun HomeScreen(
                     selected = selectedTab == HomeTab.Tools,
                     onClick = { selectedTab = HomeTab.Tools }
                 )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.FolderOpen, contentDescription = "In-App File Explorer") },
-                    label = { Text("Files") },
-                    selected = selectedTab == HomeTab.Files,
-                    onClick = { selectedTab = HomeTab.Files }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.History, contentDescription = "Activity Logs") },
-                    label = { Text("History") },
-                    selected = selectedTab == HomeTab.History,
-                    onClick = { selectedTab = HomeTab.History }
-                )
             }
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -263,7 +248,7 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             when (selectedTab) {
-                HomeTab.Home -> {
+                                HomeTab.Home -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -304,12 +289,12 @@ fun HomeScreen(
                                 onClick = onNavigateToPdfMerge
                             )
                             ToolItemCard(
-                                title = "Image Lab",
-                                description = "Compress & convert",
-                                iconText = "🖼️",
-                                color = Color(0xFF8B5CF6),
+                                title = "ZIP Maker",
+                                description = "Compress files",
+                                iconText = "🗜️",
+                                color = Color(0xFF06B6D4),
                                 modifier = Modifier.weight(1f),
-                                onClick = onNavigateToImageTools
+                                onClick = onNavigateToZipMaker
                             )
                         }
                         Spacer(modifier = Modifier.height(10.dp))
@@ -326,12 +311,12 @@ fun HomeScreen(
                                 onClick = onNavigateToQrGenerator
                             )
                             ToolItemCard(
-                                title = "Text OCR",
-                                description = "Camera page extraction",
-                                iconText = "🔬",
-                                color = Color(0xFF10B981),
+                                title = "Image Lab",
+                                description = "Compress & convert",
+                                iconText = "🖼️",
+                                color = Color(0xFF8B5CF6),
                                 modifier = Modifier.weight(1f),
-                                onClick = onNavigateToOcr
+                                onClick = onNavigateToImageTools
                             )
                         }
 
@@ -429,6 +414,16 @@ fun HomeScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(32.dp))
+
+                        CategoryHeader("File Manager", "Browse local device storage")
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Inline File Browser with defined height to scroll within Home dashboard
+                        Box(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+                            FileBrowserScreen(onOpenFile = onOpenFile)
+                        }
+
+                        Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
                 HomeTab.Tools -> {
@@ -487,17 +482,7 @@ fun HomeScreen(
                         }
                     )
                 }
-                HomeTab.Files -> {
-                    FileBrowserScreen(
-                        onOpenFile = onOpenFile
-                    )
                 }
-                HomeTab.History -> {
-                    HistoryScreen(
-                        onOpenFile = onOpenFile
-                    )
-                }
-            }
         }
     }
 }

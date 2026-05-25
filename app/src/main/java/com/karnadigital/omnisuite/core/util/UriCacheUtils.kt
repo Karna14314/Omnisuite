@@ -58,9 +58,19 @@ object UriCacheUtils {
                     null
                 }
             } else {
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    FileOutputStream(cacheFile).use { outputStream ->
-                        inputStream.copyTo(outputStream)
+                                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (pfd != null) {
+                    java.io.FileInputStream(pfd.fileDescriptor).use { inputStream ->
+                        FileOutputStream(cacheFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    pfd.close()
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        FileOutputStream(cacheFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
                     }
                 }
                 cacheFile

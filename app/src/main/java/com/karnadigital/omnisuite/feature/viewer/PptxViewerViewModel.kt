@@ -117,4 +117,16 @@ class PptxViewerViewModel @Inject constructor(
             }
         }
     }
+
+    fun updateSlideText(slideIndex: Int, newTitle: String) {
+        val currentState = _loadState.value
+        if (currentState is PptxLoadState.Success) {
+            val slides = currentState.presentation.slides.toMutableList()
+            if (slideIndex in slides.indices) {
+                val oldSlide = slides[slideIndex]
+                slides[slideIndex] = oldSlide.copy(title = newTitle)
+                _loadState.value = PptxLoadState.Success(PptxPresentation(slides), currentState.fileName)
+            }
+        }
+    }
 }
