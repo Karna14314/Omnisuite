@@ -353,59 +353,142 @@ object OfficeConverter {
                     canvas.scale(scaleFactor, scaleFactor)
                     canvas.drawColor(android.graphics.Color.WHITE) // Background fill
 
-                    // Draw all shapes
+                    // Extract slide title and text blocks for visual reflow fallback
+                    var slideTitle = ""
+                    val bodyBlocks = mutableListOf<String>()
                     for (shape in slide.shapes) {
-                        val anchorObj = try { shape.javaClass.getMethod("getAnchor").invoke(shape) } catch(e: Exception) { null } ?: continue
-                        val x = try { (anchorObj.javaClass.getMethod("getX").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
-                        val y = try { (anchorObj.javaClass.getMethod("getY").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
-                        val w = try { (anchorObj.javaClass.getMethod("getWidth").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
-                        val h = try { (anchorObj.javaClass.getMethod("getHeight").invoke(anchorObj) as Number).toFloat() } catch(e: Exception) { 0f }
-
-                        if (shape is XSLFSimpleShape) {
-                            val fillObj = try { shape.javaClass.getMethod("getFillColor").invoke(shape) } catch (e: Exception) { null }
-                            if (fillObj != null) {
-                                val fillPaint = Paint().apply {
-                                    val r = try { fillObj.javaClass.getMethod("getRed").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                    val g = try { fillObj.javaClass.getMethod("getGreen").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                    val b = try { fillObj.javaClass.getMethod("getBlue").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                    val a = try { fillObj.javaClass.getMethod("getAlpha").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                    color = android.graphics.Color.argb(a, r, g, b)
-                                    style = Paint.Style.FILL
-                                }
-                                canvas.drawRect(x, y, x + w, y + h, fillPaint)
-                            }
-                            
-                            val lineObj = try { shape.javaClass.getMethod("getLineColor").invoke(shape) } catch (e: Exception) { null }
-                            if (lineObj != null) {
-                                val strokePaint = Paint().apply {
-                                    val r = try { lineObj.javaClass.getMethod("getRed").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                    val g = try { lineObj.javaClass.getMethod("getGreen").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                    val b = try { lineObj.javaClass.getMethod("getBlue").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                    val a = try { lineObj.javaClass.getMethod("getAlpha").invoke(lineObj) as Int } catch (e: Exception) { 255 }
-                                    color = android.graphics.Color.argb(a, r, g, b)
-                                    style = Paint.Style.STROKE
-                                    strokeWidth = 1f
-                                }
-                                canvas.drawRect(x, y, x + w, y + h, strokePaint)
-                            }
-                        }
-
                         if (shape is XSLFTextShape) {
                             val text = shape.text ?: ""
                             if (text.isNotBlank()) {
-                                val isTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
-                                val textPaint = Paint().apply {
-                                    color = android.graphics.Color.BLACK
-                                    textSize = if (isTitle) 22f else 14f
-                                    isAntiAlias = true
-                                    isFakeBoldText = isTitle
+                                if (shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)) {
+                                    slideTitle = text
+                                } else {
+                                    bodyBlocks.add(text)
+                                }
+                            }
+                        }
+                    }
+                    if (slideTitle.isBlank()) {
+                        slideTitle = "Slide ${slideIndex + 1}"
+                    }
+
+                    var drawingSucceeded = false
+                    try {
+                        // Draw all shapes if reflection is successful
+                        for (shape in slide.shapes) {
+                            val anchorObj = shape.javaClass.getMethod("getAnchor").invoke(shape) ?: continue
+                            val x = (anchorObj.javaClass.getMethod("getX").invoke(anchorObj) as Number).toFloat()
+                            val y = (anchorObj.javaClass.getMethod("getY").invoke(anchorObj) as Number).toFloat()
+                            val w = (anchorObj.javaClass.getMethod("getWidth").invoke(anchorObj) as Number).toFloat()
+                            val h = (anchorObj.javaClass.getMethod("getHeight").invoke(anchorObj) as Number).toFloat()
+
+                            if (shape is XSLFSimpleShape) {
+                                val fillObj = try { shape.javaClass.getMethod("getFillColor").invoke(shape) } catch (e: Exception) { null }
+                                if (fillObj != null) {
+                                    val fillPaint = Paint().apply {
+                                        val r = try { fillObj.javaClass.getMethod("getRed").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                        val g = try { fillObj.javaClass.getMethod("getGreen").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                        val b = try { fillObj.javaClass.getMethod("getBlue").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                        val a = try { fillObj.javaClass.getMethod("getAlpha").invoke(fillObj) as Int } catch (e: Exception) { 255 }
+                                        color = android.graphics.Color.argb(a, r, g, b)
+                                        style = Paint.Style.FILL
+                                    }
+                                    canvas.drawRect(x, y, x + w, y + h, fillPaint)
                                 }
                                 
-                                val lines = text.split("\n")
-                                var curY = y + textPaint.textSize + 4f
-                                for (line in lines) {
-                                    canvas.drawText(line, x + 8f, curY, textPaint)
-                                    curY += textPaint.textSize * 1.3f
+                                val lineObj = try { shape.javaClass.getMethod("getLineColor").invoke(shape) } catch (e: Exception) { null }
+                                if (lineObj != null) {
+                                    val strokePaint = Paint().apply {
+                                        val r = try { lineObj.javaClass.getMethod("getRed").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                        val g = try { lineObj.javaClass.getMethod("getGreen").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                        val b = try { lineObj.javaClass.getMethod("getBlue").invoke(lineObj) as Int } catch (e: Exception) { 0 }
+                                        val a = try { lineObj.javaClass.getMethod("getAlpha").invoke(lineObj) as Int } catch (e: Exception) { 255 }
+                                        color = android.graphics.Color.argb(a, r, g, b)
+                                        style = Paint.Style.STROKE
+                                        strokeWidth = 1f
+                                    }
+                                    canvas.drawRect(x, y, x + w, y + h, strokePaint)
+                                }
+                            }
+
+                            if (shape is XSLFTextShape) {
+                                val text = shape.text ?: ""
+                                if (text.isNotBlank()) {
+                                    val isTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                                    val textPaint = Paint().apply {
+                                        color = android.graphics.Color.BLACK
+                                        textSize = if (isTitle) 22f else 14f
+                                        isAntiAlias = true
+                                        isFakeBoldText = isTitle
+                                    }
+                                    
+                                    val lines = text.split("\n")
+                                    var curY = y + textPaint.textSize + 4f
+                                    for (line in lines) {
+                                        canvas.drawText(line, x + 8f, curY, textPaint)
+                                        curY += textPaint.textSize * 1.3f
+                                    }
+                                }
+                            }
+                        }
+                        drawingSucceeded = true
+                    } catch (e: Throwable) {
+                        e.printStackTrace()
+                    }
+
+                    if (!drawingSucceeded) {
+                        // High-fidelity fallback painter: Paint slide content elegantly on the Canvas
+                        val titlePaint = Paint().apply {
+                            color = android.graphics.Color.rgb(13, 15, 20) // Deep slate primary
+                            textSize = 32f
+                            isAntiAlias = true
+                            isFakeBoldText = true
+                        }
+                        
+                        var currentY = 60f
+                        canvas.drawText(slideTitle, 40f, currentY, titlePaint)
+                        currentY += 24f
+                        
+                        // Draw a sleek visual separator line
+                        val linePaint = Paint().apply {
+                            color = android.graphics.Color.rgb(239, 68, 68) // Category Red Accent
+                            strokeWidth = 3f
+                            style = Paint.Style.STROKE
+                        }
+                        canvas.drawLine(40f, currentY, (slideWidth - 40).toFloat(), currentY, linePaint)
+                        currentY += 40f
+                        
+                        // Draw body text blocks
+                        val bodyPaint = Paint().apply {
+                            color = android.graphics.Color.rgb(55, 65, 81) // Soft charcoal
+                            textSize = 18f
+                            isAntiAlias = true
+                        }
+                        val bulletPaint = Paint().apply {
+                            color = android.graphics.Color.rgb(239, 68, 68) // Bullet red
+                            textSize = 20f
+                            isAntiAlias = true
+                            isFakeBoldText = true
+                        }
+                        
+                        for (block in bodyBlocks) {
+                            val paragraphLines = block.split("\n")
+                            for (pLine in paragraphLines) {
+                                val wrapped = wrapTextForCanvas(pLine, bodyPaint, (slideWidth - 100).toFloat())
+                                for (line in wrapped) {
+                                    // Draw bullet marker
+                                    canvas.drawText("•", 45f, currentY, bulletPaint)
+                                    // Draw bullet line text
+                                    canvas.drawText(line, 68f, currentY, bodyPaint)
+                                    currentY += bodyPaint.textSize * 1.4f
+                                    
+                                    if (currentY > slideHeight - 40f) {
+                                        break
+                                    }
+                                }
+                                currentY += 12f // paragraph spacing
+                                if (currentY > slideHeight - 40f) {
+                                    break
                                 }
                             }
                         }
@@ -566,6 +649,30 @@ object OfficeConverter {
         } catch (e: Exception) {
             return text
         }
+    }
+
+    private fun wrapTextForCanvas(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val words = text.split(Regex("\\s+"))
+        val lines = mutableListOf<String>()
+        var currentLine = StringBuilder()
+
+        for (word in words) {
+            if (word.isEmpty()) continue
+            val testLine = if (currentLine.isEmpty()) word else "${currentLine} $word"
+            val width = paint.measureText(testLine)
+            if (width <= maxWidth) {
+                currentLine.append(if (currentLine.isEmpty()) word else " $word")
+            } else {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine.toString())
+                }
+                currentLine = StringBuilder(word)
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine.toString())
+        }
+        return lines
     }
 
     /**

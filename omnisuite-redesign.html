@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniSuite — UI/UX Redesign Blueprint</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0D0F14;
+    --surface: #161922;
+    --surface2: #1E2330;
+    --border: rgba(255,255,255,0.06);
+    --text: #F0F2F7;
+    --muted: #7A8299;
+    --pdf: #EF4444;
+    --pdf-bg: rgba(239,68,68,0.12);
+    --doc: #3B82F6;
+    --doc-bg: rgba(59,130,246,0.12);
+    --img: #8B5CF6;
+    --img-bg: rgba(139,92,246,0.12);
+    --arc: #06B6D4;
+    --arc-bg: rgba(6,182,212,0.12);
+    --xls: #10B981;
+    --xls-bg: rgba(16,185,129,0.12);
+    --accent: #6366F1;
+    --accent-glow: rgba(99,102,241,0.25);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #080A0F;
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ─── LAYOUT ─── */
+  .page { max-width: 1400px; margin: 0 auto; padding: 48px 32px; }
+
+  .header {
+    text-align: center;
+    margin-bottom: 72px;
+  }
+  .header .badge {
+    display: inline-block;
+    background: var(--accent-glow);
+    border: 1px solid rgba(99,102,241,0.4);
+    color: #A5B4FC;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 100px;
+    margin-bottom: 20px;
+  }
+  .header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(36px, 5vw, 64px);
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff 40%, #6366F1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+  .header p {
+    color: var(--muted);
+    font-size: 17px;
+    max-width: 560px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ─── ISSUES PANEL ─── */
+  .issues-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 80px;
+  }
+  .issue-card {
+    background: var(--surface);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 16px;
+    padding: 20px;
+  }
+  .issue-card .num {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    color: rgba(239,68,68,0.3);
+    line-height: 1;
+  }
+  .issue-card h3 { font-size: 14px; font-weight: 600; margin: 8px 0 6px; }
+  .issue-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* ─── SECTION TITLE ─── */
+  .sec-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .sec-sub { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+
+  /* ─── PHONE MOCKUP ─── */
+  .phones-row {
+    display: flex;
+    gap: 28px;
+    overflow-x: auto;
+    padding-bottom: 24px;
+    margin-bottom: 80px;
+    scrollbar-width: none;
+  }
+  .phone-wrap { flex-shrink: 0; }
+  .phone-label {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .phone {
+    width: 280px;
+    height: 580px;
+    background: var(--surface);
+    border-radius: 36px;
+    border: 1.5px solid var(--border);
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .phone::before {
+    content: '';
+    position: absolute;
+    top: 12px; left: 50%; transform: translateX(-50%);
+    width: 80px; height: 5px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 100px;
+    z-index: 10;
+  }
+
+  /* ─── STATUS BAR ─── */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 20px 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ─── APP TOPBAR ─── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px 12px;
+  }
+  .topbar .app-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 22px;
+    color: var(--text);
+  }
+  .topbar .logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, #6366F1, #8B5CF6);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 800; color: white;
+  }
+  .topbar .icons { display: flex; gap: 8px; }
+  .topbar .icon-btn {
+    width: 34px; height: 34px;
+    background: var(--surface2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+
+  /* ─── HOME SCREEN CONTENT ─── */
+  .screen-content { flex: 1; overflow: hidden; padding: 0 16px 16px; }
+
+  .search-bar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    font-size: 13px; color: var(--muted);
+  }
+
+  .section-label {
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* Quick Actions Horizontal */
+  .quick-row {
+    display: flex; gap: 10px; margin-bottom: 20px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .quick-chip {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 12px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .quick-chip.pdf { background: var(--pdf-bg); color: var(--pdf); }
+  .quick-chip.doc { background: var(--doc-bg); color: var(--doc); }
+  .quick-chip.img { background: var(--img-bg); color: var(--img); }
+  .quick-chip.arc { background: var(--arc-bg); color: var(--arc); }
+
+  /* Tool Category Cards (2-col) */
+  .tools-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 20px;
+  }
+  .tool-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tool-card:hover { border-color: rgba(255,255,255,0.15); transform: scale(0.98); }
+  .tool-card .icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; margin-bottom: 8px;
+  }
+  .tool-card h4 { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+  .tool-card p { font-size: 10px; color: var(--muted); line-height: 1.4; }
+  .tool-card.pdf .icon { background: var(--pdf-bg); }
+  .tool-card.doc .icon { background: var(--doc-bg); }
+  .tool-card.img .icon { background: var(--img-bg); }
+  .tool-card.arc .icon { background: var(--arc-bg); }
+  .tool-card.xls .icon { background: var(--xls-bg); }
+
+  /* Recent files horizontal strip */
+  .recent-strip {
+    display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+    margin-bottom: 6px;
+  }
+  .recent-chip {
+    flex-shrink: 0; width: 130px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 10px;
+  }
+  .recent-chip .rtype {
+    font-size: 9px; font-weight: 700; letter-spacing: 1px;
+    padding: 2px 6px; border-radius: 6px; margin-bottom: 6px;
+    display: inline-block;
+  }
+  .recent-chip .rname { font-size: 10px; font-weight: 600; line-height: 1.3; margin-bottom: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .recent-chip .rsize { font-size: 9px; color: var(--muted); }
+
+  /* ─── BOTTOM NAV ─── */
+  .bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 10px 8px 18px;
+    gap: 0;
+  }
+  .nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 4px;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .nav-item .nav-icon { font-size: 18px; }
+  .nav-item .nav-label { font-size: 9px; font-weight: 600; color: var(--muted); }
+  .nav-item.active .nav-label { color: var(--accent); }
+  .nav-item.active .nav-pill {
+    background: var(--accent-glow);
+    border-radius: 12px; padding: 4px 14px;
+  }
+
+  /* FAB */
+  .fab {
+    position: absolute; bottom: 70px; right: 16px;
+    width: 46px; height: 46px;
+    background: linear-gradient(135deg, #6366F1, #8B5CF6);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700; color: white;
+    box-shadow: 0 8px 24px rgba(99,102,241,0.45);
+  }
+
+  /* ─── TOOLS SCREEN ─── */
+  .category-tabs {
+    display: flex; gap: 0; overflow-x: auto; scrollbar-width: none;
+    margin-bottom: 16px; padding-bottom: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ctab {
+    flex-shrink: 0; padding: 8px 14px;
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .ctab.active { color: var(--pdf); border-bottom-color: var(--pdf); }
+
+  .tool-list { display: flex; flex-direction: column; gap: 6px; }
+  .tool-row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 14px;
+    cursor: pointer;
+  }
+  .tool-row .ri { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+  .tool-row .rt h4 { font-size: 13px; font-weight: 700; }
+  .tool-row .rt p { font-size: 10px; color: var(--muted); }
+  .tool-row .arr { margin-left: auto; color: var(--muted); font-size: 14px; }
+
+  /* ─── COLOR SYSTEM ─── */
+  .palette { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 80px; }
+  .swatch { border-radius: 14px; padding: 18px 20px; min-width: 140px; }
+  .swatch .sw-name { font-size: 11px; font-weight: 700; letter-spacing: 1px; opacity: 0.7; margin-bottom: 4px; }
+  .swatch .sw-val { font-size: 14px; font-weight: 700; }
+
+  /* ─── DESIGN PRINCIPLES ─── */
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 80px; }
+  .prin-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 24px; }
+  .prin-card .ico { font-size: 28px; margin-bottom: 12px; }
+  .prin-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .prin-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* ─── CURSOR PROMPT ─── */
+  .cursor-box {
+    background: #0A0C10;
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 20px;
+    padding: 32px;
+    position: relative;
+    margin-bottom: 80px;
+  }
+  .cursor-box::before {
+    content: 'CURSOR AI PROMPT';
+    position: absolute; top: -12px; left: 28px;
+    background: #6366F1; color: white;
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    padding: 4px 14px; border-radius: 100px;
+  }
+  .cursor-box pre {
+    font-family: 'Courier New', monospace;
+    font-size: 12.5px;
+    line-height: 1.8;
+    color: #C9D1E0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .cursor-box pre .kw { color: #6366F1; font-weight: 700; }
+  .cursor-box pre .hl { color: #10B981; }
+  .cursor-box pre .cm { color: #4B5563; }
+  .copy-btn {
+    position: absolute; top: 20px; right: 20px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 12px; font-weight: 600;
+    padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { color: white; background: var(--accent); border-color: var(--accent); }
+
+  /* ─── DIVIDER ─── */
+  .divider { height: 1px; background: var(--border); margin: 0 0 64px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 4px; }
+
+  /* ─── ANIMATIONS ─── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .phone { animation: fadeUp 0.5s ease forwards; }
+  .phone:nth-child(2) { animation-delay: 0.1s; }
+  .phone:nth-child(3) { animation-delay: 0.2s; }
+  .phone:nth-child(4) { animation-delay: 0.3s; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="badge">UI/UX Redesign Blueprint</div>
+    <h1>OmniSuite — Complete<br>Design Overhaul</h1>
+    <p>A dark-first, premium offline productivity suite. Every screen rebuilt from first principles for clarity, speed, and delight.</p>
+  </div>
+
+  <!-- ISSUES -->
+  <div class="sec-title">🔍 Current UI Problems</div>
+  <div class="sec-sub">6 critical issues identified across all screens</div>
+  <div class="issues-grid">
+    <div class="issue-card">
+      <div class="num">01</div>
+      <h3>Only 2 Nav Tabs (Home + Tools)</h3>
+      <p>Bottom nav is starved — no History, Files, or Settings tab. User has to hunt for features across horizontal scroll tabs instead.</p>
+    </div>
+    <div class="issue-card">
+      <div class="num">02</div>
+      <h3>Horizontal Category Tabs Cut Off</h3>
+      <p>"Archive & Q…" is clipped and barely visible. Users can't discover what's there. Tab row doesn't afford scrolling visually.</p>
+    </div>
+    <div class="issue-card">
+      <div class="num">03</div>
+      <h3>Generic Emoji Icons</h3>
+      <p>Tool cards use inconsistent emoji and stock icons with mismatched pastel circles. No visual cohesion or brand identity.</p>
+    </div>
+    <div class="issue-card">
+      <div class="num">04</div>
+      <h3>Large Wasted Empty Space</h3>
+      <p>Documents tab has 40% dead whitespace at the bottom. Home screen wastes space with no CTA or file entry area visible.</p>
+    </div>
+    <div class="issue-card">
+      <div class="num">05</div>
+      <h3>No Visual Hierarchy / Accents</h3>
+      <p>Everything is the same gray card on gray background. Category colors (red=PDF, green=Excel) are not used consistently.</p>
+    </div>
+    <div class="issue-card">
+      <div class="num">06</div>
+      <h3>Light Theme — High Eye Strain</h3>
+      <p>Flat white/gray light theme looks corporate and low-contrast. Dark mode exists in Settings but is not the default premium look.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- PHONE MOCKUPS -->
+  <div class="sec-title">📱 Redesigned Screens</div>
+  <div class="sec-sub">4 key screens — dark-first, color-coded, properly structured</div>
+
+  <div class="phones-row">
+
+    <!-- SCREEN 1: HOME -->
+    <div class="phone-wrap">
+      <div class="phone-label">01 · Home Cockpit</div>
+      <div class="phone" style="display:flex;flex-direction:column;">
+        <div class="status-bar"><span>9:41</span><span>●●● 5G 84%</span></div>
+        <div class="topbar">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="logo">O</div>
+            <div class="app-name">OmniSuite</div>
+          </div>
+          <div class="icons">
+            <div class="icon-btn">🔔</div>
+            <div class="icon-btn">⚙️</div>
+          </div>
+        </div>
+        <div class="screen-content">
+          <!-- Search -->
+          <div class="search-bar">🔍 <span>Search files, tools…</span></div>
+          <!-- Quick Categories -->
+          <div class="section-label">Quick Open</div>
+          <div class="quick-row">
+            <div class="quick-chip pdf">🗂 PDF Tools</div>
+            <div class="quick-chip doc">📄 Documents</div>
+            <div class="quick-chip img">🖼 Image Lab</div>
+            <div class="quick-chip arc">📦 Archive</div>
+          </div>
+          <!-- 2x2 Main Tools -->
+          <div class="section-label">Toolkits</div>
+          <div class="tools-grid">
+            <div class="tool-card pdf">
+              <div class="icon" style="background:var(--pdf-bg)">📋</div>
+              <h4 style="color:var(--pdf)">PDF Factory</h4>
+              <p>Merge, split, encrypt</p>
+            </div>
+            <div class="tool-card arc">
+              <div class="icon" style="background:var(--arc-bg)">📦</div>
+              <h4 style="color:var(--arc)">ZIP Maker</h4>
+              <p>Compress files offline</p>
+            </div>
+            <div class="tool-card img">
+              <div class="icon" style="background:var(--img-bg)">🎨</div>
+              <h4 style="color:var(--img)">Image Lab</h4>
+              <p>OCR, resize, convert</p>
+            </div>
+            <div class="tool-card arc">
+              <div class="icon" style="background:var(--arc-bg)">📲</div>
+              <h4 style="color:var(--arc)">QR Studio</h4>
+              <p>WiFi, vCard, URL</p>
+            </div>
+          </div>
+          <!-- Recent Files -->
+          <div class="section-label">Recents</div>
+          <div class="recent-strip">
+            <div class="recent-chip">
+              <div class="rtype" style="background:var(--pdf-bg);color:var(--pdf)">PDF</div>
+              <div class="rname">project_report.pdf</div>
+              <div class="rsize">2.3 MB</div>
+            </div>
+            <div class="recent-chip">
+              <div class="rtype" style="background:var(--doc-bg);color:var(--doc)">DOC</div>
+              <div class="rname">SIH-Presentation.pptx</div>
+              <div class="rsize">265 KB</div>
+            </div>
+            <div class="recent-chip">
+              <div class="rtype" style="background:var(--xls-bg);color:var(--xls)">XLS</div>
+              <div class="rname">marks_sheet.xlsx</div>
+              <div class="rsize">88 KB</div>
+            </div>
+          </div>
+        </div>
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <div class="nav-item active">
+            <div class="nav-pill">
+              <div class="nav-icon">🏠</div>
+            </div>
+            <div class="nav-label" style="color:var(--accent)">Home</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">🛠</div>
+            <div class="nav-label">Tools</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">📁</div>
+            <div class="nav-label">Files</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">🕐</div>
+            <div class="nav-label">History</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">⚙️</div>
+            <div class="nav-label">Settings</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: TOOLS (PDF) -->
+    <div class="phone-wrap">
+      <div class="phone-label">02 · Tools Hub (PDF)</div>
+      <div class="phone" style="display:flex;flex-direction:column;">
+        <div class="status-bar"><span>9:41</span><span>●●● 5G 84%</span></div>
+        <div class="topbar">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="logo">O</div>
+            <div class="app-name">Tools</div>
+          </div>
+          <div class="icons">
+            <div class="icon-btn">🔍</div>
+          </div>
+        </div>
+        <div class="screen-content">
+          <!-- Category Tabs with color accents -->
+          <div class="category-tabs">
+            <div class="ctab active">📋 PDF</div>
+            <div class="ctab">📄 Docs</div>
+            <div class="ctab">🖼 Image</div>
+            <div class="ctab">📦 Archive</div>
+          </div>
+          <!-- Tool list rows -->
+          <div class="tool-list">
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">📎</div>
+              <div class="rt"><h4>Merge PDFs</h4><p>Combine multiple files</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">✂️</div>
+              <div class="rt"><h4>Split PDF</h4><p>Extract page ranges</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">🔒</div>
+              <div class="rt"><h4>Encrypt PDF</h4><p>Lock with password</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">✍️</div>
+              <div class="rt"><h4>Digital Sign</h4><p>Stamp signature</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">💧</div>
+              <div class="rt"><h4>Watermark</h4><p>Security overlay</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">📑</div>
+              <div class="rt"><h4>Doc → PDF</h4><p>DOCX/PPTX offline</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:var(--pdf-bg)">🖨</div>
+              <div class="rt"><h4>PDF → Word</h4><p>Convert to DOCX</p></div>
+              <div class="arr">›</div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
+          <div class="nav-item active"><div class="nav-pill"><div class="nav-icon">🛠</div></div><div class="nav-label" style="color:var(--accent)">Tools</div></div>
+          <div class="nav-item"><div class="nav-icon">📁</div><div class="nav-label">Files</div></div>
+          <div class="nav-item"><div class="nav-icon">🕐</div><div class="nav-label">History</div></div>
+          <div class="nav-item"><div class="nav-icon">⚙️</div><div class="nav-label">Settings</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: FILES BROWSER -->
+    <div class="phone-wrap">
+      <div class="phone-label">03 · Files Browser (NEW)</div>
+      <div class="phone" style="display:flex;flex-direction:column;">
+        <div class="status-bar"><span>9:41</span><span>●●● 5G 84%</span></div>
+        <div class="topbar">
+          <div class="app-name">Files</div>
+          <div class="icons">
+            <div class="icon-btn">🔍</div>
+            <div class="icon-btn">⚡</div>
+          </div>
+        </div>
+        <div class="screen-content">
+          <!-- Filter chips -->
+          <div class="quick-row" style="margin-bottom:14px;">
+            <div class="quick-chip pdf" style="border:1px solid rgba(239,68,68,0.4)">All</div>
+            <div class="quick-chip pdf">PDFs</div>
+            <div class="quick-chip doc">Docs</div>
+            <div class="quick-chip xls" style="background:var(--xls-bg);color:var(--xls)">Excel</div>
+            <div class="quick-chip img">Images</div>
+          </div>
+          <!-- Storage locations -->
+          <div class="section-label">Storage</div>
+          <div class="tool-list" style="margin-bottom:14px;">
+            <div class="tool-row">
+              <div class="ri" style="background:rgba(99,102,241,0.15)">📁</div>
+              <div class="rt"><h4>Sandbox Drafts</h4><p>App private workspace</p></div>
+              <div class="arr">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:rgba(255,255,255,0.06)">💾</div>
+              <div class="rt"><h4>Internal Storage</h4><p>Device root browser</p></div>
+              <div class="arr">›</div>
+            </div>
+          </div>
+          <!-- Quick pickers -->
+          <div class="section-label">Quick Pick by Type</div>
+          <div class="tools-grid">
+            <div class="tool-card pdf"><div class="icon" style="background:var(--pdf-bg)">📋</div><h4 style="color:var(--pdf)">PDF</h4><p>Pick from storage</p></div>
+            <div class="tool-card doc"><div class="icon" style="background:var(--doc-bg)">📝</div><h4 style="color:var(--doc)">Word</h4><p>DOCX files</p></div>
+            <div class="tool-card xls"><div class="icon" style="background:var(--xls-bg)">📊</div><h4 style="color:var(--xls)">Excel</h4><p>XLSX sheets</p></div>
+            <div class="tool-card img"><div class="icon" style="background:var(--img-bg)">🖼</div><h4 style="color:var(--img)">Images</h4><p>PNG, JPG, WEBP</p></div>
+          </div>
+        </div>
+        <!-- FAB -->
+        <div class="fab">+</div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
+          <div class="nav-item"><div class="nav-icon">🛠</div><div class="nav-label">Tools</div></div>
+          <div class="nav-item active"><div class="nav-pill"><div class="nav-icon">📁</div></div><div class="nav-label" style="color:var(--accent)">Files</div></div>
+          <div class="nav-item"><div class="nav-icon">🕐</div><div class="nav-label">History</div></div>
+          <div class="nav-item"><div class="nav-icon">⚙️</div><div class="nav-label">Settings</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: SETTINGS -->
+    <div class="phone-wrap">
+      <div class="phone-label">04 · Settings (Redesigned)</div>
+      <div class="phone" style="display:flex;flex-direction:column;">
+        <div class="status-bar"><span>9:41</span><span>●●● 5G 84%</span></div>
+        <div class="topbar">
+          <div class="app-name">Settings</div>
+        </div>
+        <div class="screen-content" style="padding:0 14px 16px;">
+          <!-- App identity card -->
+          <div style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(139,92,246,0.1));border:1px solid rgba(99,102,241,0.2);border-radius:18px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
+            <div style="width:44px;height:44px;background:linear-gradient(135deg,#6366F1,#8B5CF6);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:white;flex-shrink:0;">O</div>
+            <div>
+              <div style="font-weight:700;font-size:14px;">OmniSuite v1.1</div>
+              <div style="font-size:11px;color:var(--muted);">100% Free · Fully Offline · Apache POI 5.2.5</div>
+            </div>
+          </div>
+          <!-- Settings sections -->
+          <div class="section-label">Preferences</div>
+          <div class="tool-list" style="margin-bottom:14px;">
+            <div class="tool-row" style="justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="ri" style="background:rgba(99,102,241,0.15);width:32px;height:32px;font-size:14px;">🌙</div>
+                <div class="rt"><h4 style="font-size:12px;">Dark Theme</h4><p>Reduce eye strain</p></div>
+              </div>
+              <div style="width:36px;height:20px;background:#6366F1;border-radius:10px;position:relative;"><div style="position:absolute;right:2px;top:2px;width:16px;height:16px;background:white;border-radius:8px;"></div></div>
+            </div>
+            <div class="tool-row" style="justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="ri" style="background:rgba(16,185,129,0.12);width:32px;height:32px;font-size:14px;">⚡</div>
+                <div class="rt"><h4 style="font-size:12px;">Hardware Acceleration</h4><p>GPU canvas rendering</p></div>
+              </div>
+              <div style="width:36px;height:20px;background:#6366F1;border-radius:10px;position:relative;"><div style="position:absolute;right:2px;top:2px;width:16px;height:16px;background:white;border-radius:8px;"></div></div>
+            </div>
+            <div class="tool-row" style="justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="ri" style="background:rgba(255,255,255,0.06);width:32px;height:32px;font-size:14px;">💾</div>
+                <div class="rt"><h4 style="font-size:12px;">Auto-Save Temp Files</h4><p>Cache on suspend</p></div>
+              </div>
+              <div style="width:36px;height:20px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;position:relative;"><div style="position:absolute;left:2px;top:2px;width:16px;height:16px;background:var(--muted);border-radius:8px;"></div></div>
+            </div>
+          </div>
+          <div class="section-label">Maintenance</div>
+          <div class="tool-list">
+            <div class="tool-row">
+              <div class="ri" style="background:rgba(239,68,68,0.1);width:32px;height:32px;font-size:14px;">🗑</div>
+              <div class="rt"><h4 style="font-size:12px;">Clear SAF Cache</h4><p>Delete temp payload streams</p></div>
+              <div class="arr" style="color:var(--pdf)">›</div>
+            </div>
+            <div class="tool-row">
+              <div class="ri" style="background:rgba(6,182,212,0.1);width:32px;height:32px;font-size:14px;">📊</div>
+              <div class="rt"><h4 style="font-size:12px;">Storage Usage</h4><p>Cached: 43.5 MB</p></div>
+              <div class="arr">›</div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
+          <div class="nav-item"><div class="nav-icon">🛠</div><div class="nav-label">Tools</div></div>
+          <div class="nav-item"><div class="nav-icon">📁</div><div class="nav-label">Files</div></div>
+          <div class="nav-item"><div class="nav-icon">🕐</div><div class="nav-label">History</div></div>
+          <div class="nav-item active"><div class="nav-pill"><div class="nav-icon">⚙️</div></div><div class="nav-label" style="color:var(--accent)">Settings</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /phones-row -->
+
+  <div class="divider"></div>
+
+  <!-- COLOR SYSTEM -->
+  <div class="sec-title">🎨 Color System</div>
+  <div class="sec-sub">Semantic color-coding — one glance = instant context</div>
+  <div class="palette">
+    <div class="swatch" style="background:var(--pdf-bg);border:1px solid rgba(239,68,68,0.25);">
+      <div class="sw-name" style="color:var(--pdf)">PDF FACTORY</div>
+      <div class="sw-val" style="color:var(--pdf)">#EF4444</div>
+    </div>
+    <div class="swatch" style="background:var(--doc-bg);border:1px solid rgba(59,130,246,0.25);">
+      <div class="sw-name" style="color:var(--doc)">DOCUMENTS</div>
+      <div class="sw-val" style="color:var(--doc)">#3B82F6</div>
+    </div>
+    <div class="swatch" style="background:var(--xls-bg);border:1px solid rgba(16,185,129,0.25);">
+      <div class="sw-name" style="color:var(--xls)">EXCEL / CSV</div>
+      <div class="sw-val" style="color:var(--xls)">#10B981</div>
+    </div>
+    <div class="swatch" style="background:var(--img-bg);border:1px solid rgba(139,92,246,0.25);">
+      <div class="sw-name" style="color:var(--img)">IMAGE LAB</div>
+      <div class="sw-val" style="color:var(--img)">#8B5CF6</div>
+    </div>
+    <div class="swatch" style="background:var(--arc-bg);border:1px solid rgba(6,182,212,0.25);">
+      <div class="sw-name" style="color:var(--arc)">ARCHIVE / QR</div>
+      <div class="sw-val" style="color:var(--arc)">#06B6D4</div>
+    </div>
+    <div class="swatch" style="background:var(--accent-glow);border:1px solid rgba(99,102,241,0.25);">
+      <div class="sw-name" style="color:#A5B4FC">BRAND / ACCENT</div>
+      <div class="sw-val" style="color:#A5B4FC">#6366F1</div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- DESIGN PRINCIPLES -->
+  <div class="sec-title">📐 Design Principles</div>
+  <div class="sec-sub">What every screen must obey</div>
+  <div class="principles">
+    <div class="prin-card">
+      <div class="ico">🌑</div>
+      <h3>Dark-First Default</h3>
+      <p>Background #0D0F14, surfaces #161922. Users spending time with documents need low eye strain. Dark is the canonical theme — light is the accessibility variant.</p>
+    </div>
+    <div class="prin-card">
+      <div class="ico">🎯</div>
+      <h3>5-Tab Bottom Nav</h3>
+      <p>Home · Tools · Files · History · Settings. All primary destinations one tap away. No hidden horizontal tabs for top-level categories.</p>
+    </div>
+    <div class="prin-card">
+      <div class="ico">🎨</div>
+      <h3>Semantic Color Coding</h3>
+      <p>Every tool category has a signature color that appears on icons, borders, labels, and headers. User learns the language once, navigates forever.</p>
+    </div>
+    <div class="prin-card">
+      <div class="ico">📋</div>
+      <h3>List Rows for 5+ Tools</h3>
+      <p>2×2 card grid only for max 4 featured items. Tool detail lists (PDF, Archive tabs) use full-width rows for scannability — title, subtitle, chevron.</p>
+    </div>
+    <div class="prin-card">
+      <div class="ico">⚡</div>
+      <h3>No Wasted Space</h3>
+      <p>Every screen viewport fills with useful content. Recents carousel, quick pickers, file types — stacked for dense but uncluttered information.</p>
+    </div>
+    <div class="prin-card">
+      <div class="ico">✏️</div>
+      <h3>DM Sans + Syne Typography</h3>
+      <p>Syne 800 for screen titles and brand identity. DM Sans 400/600/700 for body, labels, and card titles. No generic system fonts.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- NAVIGATION MAP -->
+  <div class="sec-title">🗺 Navigation Architecture</div>
+  <div class="sec-sub">New 5-tab structure vs old 2-tab structure</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:28px;margin-bottom:80px;">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center;">
+      <div>
+        <div style="background:var(--accent-glow);border:1px solid rgba(99,102,241,0.3);border-radius:14px;padding:16px 8px;margin-bottom:8px;">
+          <div style="font-size:24px;margin-bottom:4px;">🏠</div>
+          <div style="font-size:12px;font-weight:700;color:#A5B4FC;">Home</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Search · Toolkits · Recents · File Manager</div>
+      </div>
+      <div>
+        <div style="background:var(--pdf-bg);border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:16px 8px;margin-bottom:8px;">
+          <div style="font-size:24px;margin-bottom:4px;">🛠</div>
+          <div style="font-size:12px;font-weight:700;color:var(--pdf);">Tools</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">PDF · Docs · Image · Archive tabs (full list)</div>
+      </div>
+      <div>
+        <div style="background:var(--doc-bg);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:16px 8px;margin-bottom:8px;">
+          <div style="font-size:24px;margin-bottom:4px;">📁</div>
+          <div style="font-size:12px;font-weight:700;color:var(--doc);">Files</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Sandbox · Internal Storage · Quick Pickers by type</div>
+      </div>
+      <div>
+        <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:16px 8px;margin-bottom:8px;">
+          <div style="font-size:24px;margin-bottom:4px;">🕐</div>
+          <div style="font-size:12px;font-weight:700;">History</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">SQLite log · Timestamp sorted · Open / Delete</div>
+      </div>
+      <div>
+        <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:16px 8px;margin-bottom:8px;">
+          <div style="font-size:24px;margin-bottom:4px;">⚙️</div>
+          <div style="font-size:12px;font-weight:700;">Settings</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Theme · HW Accel · Cache · System Info</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CURSOR PROMPT -->
+  <div class="sec-title">🤖 Cursor AI Developer Prompt</div>
+  <div class="sec-sub">Paste this directly into Cursor to implement the full redesign</div>
+
+  <div class="cursor-box">
+    <button class="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
+    <pre id="cursor-prompt">
+<span class="kw">## OmniSuite Android UI/UX Redesign — Cursor Implementation Prompt</span>
+
+<span class="cm">### CONTEXT</span>
+You are implementing a complete UI/UX overhaul of OmniSuite, a 100% offline Android 
+productivity app (Kotlin + Jetpack Compose, Hilt DI, single-activity, MVVM architecture).
+The package is `com.karnadigital.omnisuite`.
+
+<span class="cm">### DESIGN SYSTEM TOKENS (Define in ui/theme/OmniTheme.kt)</span>
+
+<span class="hl">val OmniColors = object {
+    // Backgrounds
+    val Bg          = Color(0xFF0D0F14)   // Primary background
+    val Surface     = Color(0xFF161922)   // Card / sheet surfaces
+    val Surface2    = Color(0xFF1E2330)   // Input / secondary surfaces
+    val Border      = Color(0x0FFFFFFF)   // Subtle borders
+
+    // Text
+    val TextPrimary = Color(0xFFF0F2F7)
+    val TextMuted   = Color(0xFF7A8299)
+
+    // Semantic category colors
+    val PdfRed      = Color(0xFFEF4444)
+    val PdfRedBg    = Color(0x1FEF4444)
+    val DocBlue     = Color(0xFF3B82F6)
+    val DocBlueBg   = Color(0x1F3B82F6)
+    val XlsGreen    = Color(0xFF10B981)
+    val XlsGreenBg  = Color(0x1F10B981)
+    val ImgPurple   = Color(0xFF8B5CF6)
+    val ImgPurpleBg = Color(0x1F8B5CF6)
+    val ArcCyan     = Color(0xFF06B6D4)
+    val ArcCyanBg   = Color(0x1F06B6D4)
+    val Accent      = Color(0xFF6366F1)
+    val AccentGlow  = Color(0x406366F1)
+}</span>
+
+<span class="cm">### TYPOGRAPHY</span>
+Use Google Fonts: DM Sans (weights 400, 600, 700) + Syne (weight 700, 800).
+Define in Typography.kt using downloadable fonts or bundled assets.
+- DisplayLarge: Syne 800, 26sp
+- TitleLarge: Syne 700, 20sp
+- BodyLarge: DM Sans 400, 15sp
+- LabelMedium: DM Sans 700, 11sp (ALL CAPS + letterSpacing=1.5sp for section headers)
+
+<span class="cm">### NAVIGATION ARCHITECTURE CHANGE (CRITICAL)</span>
+<span class="kw">Replace the existing 2-tab BottomNavigation with a 5-tab NavigationBar:</span>
+
+```kotlin
+sealed class OmniScreen(val route: String, val icon: ImageVector, val label: String) {
+    object Home     : OmniScreen("home",     Icons.Rounded.Home,        "Home")
+    object Tools    : OmniScreen("tools",    Icons.Rounded.Build,       "Tools")
+    object Files    : OmniScreen("files",    Icons.Rounded.Folder,      "Files")
+    object History  : OmniScreen("history",  Icons.Rounded.AccessTime,  "History")
+    object Settings : OmniScreen("settings", Icons.Rounded.Settings,    "Settings")
+}
+```
+
+NavHost destinations: home, tools, files, history, settings.
+Active indicator: AccentGlow pill background behind active icon.
+Bottom bar background: Surface, no elevation, top border 1dp Border color.
+
+<span class="cm">### HOME SCREEN (HomeScreen.kt) — Full rebuild</span>
+
+Structure (LazyColumn):
+1. TopAppBar — Logo vector (ic_launcher_foreground) + "OmniSuite" (Syne 800) + Notification + Settings icons
+2. SearchBar — OutlinedTextField with rounded 14dp corners, Surface2 fill, "Search files, tools…" hint
+3. Section: "Quick Open" — horizontal LazyRow of 4 FilterChip-style chips:
+   [📋 PDF Tools | 📄 Documents | 🖼 Image Lab | 📦 Archive]
+   Each chip: category color bg (12% opacity) + category color text, rounded 12dp
+4. Section: "Toolkits" — 2x2 Grid of ToolkitCard composable:
+   - PDF Factory (PdfRed), ZIP Maker (ArcCyan), Image Lab (ImgPurple), QR Studio (ArcCyan)
+   - Card: Surface2 bg, 16dp radius, 1dp Border stroke, icon in colored 36dp circle, bold title, muted subtitle
+5. Section: "Recents" — horizontal LazyRow of RecentFileChip composables:
+   - 130dp wide card, file type badge (colored), truncated filename (2 lines), size
+6. Section: "File Manager" label → single card row for "Sandbox Drafts" with chevron
+
+<span class="cm">### TOOLS SCREEN (AllToolsScreen.kt) — Redesign tab structure</span>
+
+<span class="kw">Keep ScrollableTabRow but add ICONS to each tab + use semantic colors for active indicator:</span>
+- "📋 PDF" → indicator PdfRed
+- "📄 Docs" → indicator DocBlue  
+- "🖼 Image" → indicator ImgPurple
+- "📦 Archive" → indicator ArcCyan
+
+Replace 2-column card grid with full-width ToolListRow composable:
+```kotlin
+@Composable
+fun ToolListRow(icon: String, title: String, subtitle: String, accentColor: Color, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Surface2)
+            .border(1.dp, Border, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp, 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+            .background(accentColor.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center) { Text(icon, fontSize = 17.sp) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+        }
+        Icon(Icons.Rounded.ChevronRight, null, tint = TextMuted)
+    }
+}
+```
+
+<span class="cm">### FILES SCREEN (new FilesScreen.kt)</span>
+
+New dedicated screen replacing the inline File Manager on Home:
+1. Filter chips row: All / PDFs / Docs / Excel / Images — filter the list
+2. "Storage" section:
+   - Row: Sandbox Drafts (app-private cache dir)
+   - Row: Internal Storage (SAF document tree picker)
+3. "Quick Pick by Type" — 2x2 grid: PDF, Word, Excel, Image → triggers SAF picker with MIME filter
+4. Floating Action Button (+) → opens bottom sheet: "Pick from Storage" / "Use Camera"
+
+<span class="cm">### HISTORY SCREEN (new HistoryScreen.kt)</span>
+
+ViewModel queries RecentFile from SQLite (Room), sorted by openedAt DESC.
+LazyColumn of HistoryRow: file icon (by MIME) + filename + date + file size + overflow menu (Open / Delete).
+Empty state: centered illustration + "No files opened yet" text.
+
+<span class="cm">### SETTINGS SCREEN (SettingsScreen.kt) — Redesign</span>
+
+Remove plain back-arrow TopAppBar → use consistent OmniTopBar style.
+Add identity card at top: gradient accent card showing app logo + version + "100% Offline" badge.
+Group toggles with SettingToggleRow composable (icon, title, subtitle, Switch with Accent color).
+Add "Storage Usage" row showing cache size computed from cacheDir.
+
+<span class="cm">### DARK THEME AS DEFAULT</span>
+In OmniSuiteApp or MainActivity:
+```kotlin
+OmniSuiteTheme(darkTheme = true) { ... }
+```
+Respect system setting only if user explicitly toggled "Follow System" in Settings.
+
+<span class="cm">### COMPONENT LIBRARY CHECKLIST</span>
+Create these reusable composables in ui/components/:
+- [ ] OmniTopBar.kt        — consistent topbar with logo, title, trailing icons
+- [ ] ToolkitCard.kt       — 2x2 home grid card
+- [ ] ToolListRow.kt       — full-width tool row with icon + chevron
+- [ ] RecentFileChip.kt    — horizontal scroll file card
+- [ ] SectionHeader.kt     — ALL CAPS muted label with optional "See All" link
+- [ ] OmniFilterChip.kt    — colored category filter chip
+- [ ] SettingToggleRow.kt  — settings toggle with icon, title, subtitle
+- [ ] OmniBottomNav.kt     — 5-tab NavigationBar with AccentGlow pill indicator
+
+<span class="cm">### WHAT TO PRESERVE (Do NOT change)</span>
+- All ViewModel business logic, file processing, SAF utilities
+- UriCacheUtils.kt sandboxing mechanism
+- Apache POI + PDFBox engine calls
+- All existing navigation routes (add files/history, keep others)
+- Hilt module structure
+- TopAppBar crash fix (use ic_launcher_foreground VectorDrawable, not mipmap)
+    </pre>
+  </div>
+
+  <div style="text-align:center;color:var(--muted);font-size:12px;padding-bottom:32px;">
+    OmniSuite Redesign Blueprint · Karna Digital · 2026
+  </div>
+
+</div>
+
+<script>
+function copyPrompt() {
+  const el = document.getElementById('cursor-prompt');
+  const text = el.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    btn.style.background = '#10B981';
+    btn.style.color = 'white';
+    btn.style.borderColor = '#10B981';
+    setTimeout(() => {
+      btn.textContent = 'Copy Prompt';
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 2000);
+  });
+}
+</script>
+</body>
+</html>

@@ -74,10 +74,18 @@ class PdfToolsViewModel @Inject constructor(
 
     var successUri by mutableStateOf<Uri?>(null)
         private set
+    var successUris by mutableStateOf<List<Uri>>(emptyList())
+        private set
     var successName by mutableStateOf<String?>(null)
         private set
     var lastOutputBytes by mutableStateOf<ByteArray?>(null)
         private set
+
+    fun registerRecentFile(recent: RecentFile) {
+        viewModelScope.launch(Dispatchers.IO) {
+            recentFileRepository.insertRecentFile(recent)
+        }
+    }
 
     fun addMergeUri(uri: Uri) {
         if (!selectedMergeUris.contains(uri)) {
@@ -105,6 +113,10 @@ class PdfToolsViewModel @Inject constructor(
     fun resetStatus() {
         successMessage = null
         errorMessage = null
+        successUri = null
+        successName = null
+        successUris = emptyList()
+        lastOutputBytes = null
     }
 
     /**
@@ -653,9 +665,10 @@ class PdfToolsViewModel @Inject constructor(
                     }
 
                     val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
-                    var sampleSavedUri: Uri? = null
+                    val savedUris = mutableListOf<Uri>()
                     var sampleBytes: ByteArray? = null
                     var sampleName: String? = null
+                    var totalSize = 0L
 
                     for (i in 0 until pageCount) {
                         val page = pdfRenderer.openPage(i)
@@ -689,29 +702,33 @@ class PdfToolsViewModel @Inject constructor(
                             subfolder = "Images"
                         ) ?: throw Exception("Failed to save page ${i + 1} image.")
 
-                        // Register to recent files
-                        val recent = RecentFile(
-                            fileUri = savedUri.toString(),
-                            fileName = imageName,
-                            mimeType = "image/png",
-                            fileSize = bytes.size.toLong(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recent)
+                        savedUris.add(savedUri)
+                        totalSize += bytes.size.toLong()
 
                         if (i == 0) {
-                            sampleSavedUri = savedUri
                             sampleBytes = bytes
                             sampleName = imageName
                         }
                     }
 
+                    // Register to recent files as a single batch history entry
+                    val batchUriString = savedUris.joinToString("|") { it.toString() }
+                    val recent = RecentFile(
+                        fileUri = batchUriString,
+                        fileName = "${originalName} (All Pages)",
+                        mimeType = "image/png",
+                        fileSize = totalSize,
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
                     pdfRenderer.close()
                     parcelFileDescriptor.close()
 
-                    successUri = sampleSavedUri
+                    successUri = savedUris.firstOrNull()
+                    successUris = savedUris
                     lastOutputBytes = sampleBytes
-                    successName = sampleName
+                    successName = "${originalName} (All Pages)"
                 }
 
                 successMessage = "PDF pages successfully converted to images under Documents/OmniSuite/Images/!"

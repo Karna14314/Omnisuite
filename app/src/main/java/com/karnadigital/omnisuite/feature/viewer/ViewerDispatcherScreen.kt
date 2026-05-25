@@ -65,6 +65,10 @@ fun ViewerDispatcherScreen(
 
     LaunchedEffect(fileUri) {
         try {
+            if (fileUri != null && fileUri.contains("|")) {
+                state = DispatcherState.Success(fileUri, FileType.IMAGE)
+                return@LaunchedEffect
+            }
             val parsedUri = Uri.parse(fileUri)
             val cachedFile = UriCacheUtils.cacheUriToFile(context, parsedUri)
             if (cachedFile != null && cachedFile.exists()) {
@@ -76,7 +80,8 @@ fun ViewerDispatcherScreen(
                 }
             } else {
                 // If it's a direct absolute path to an existing local file, we can fall back to checking it directly
-                val directFile = File(fileUri)
+                val pathToCheck = parsedUri.path ?: fileUri
+                val directFile = File(pathToCheck)
                 if (directFile.exists() && directFile.isFile) {
                     val fileType = determineFileType(context, fileUri, directFile)
                     if (fileType != null) {
@@ -172,13 +177,21 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 }
             }
             
-                        // Check ZIP-based files (ZIP, DOCX, XLSX, PPTX): Starts with PK (50 4B 03 04)
-            if (hex.startsWith("504B0304")) {
+            // Check ZIP-based files (ZIP, DOCX, XLSX, PPTX): Starts with PK (50 4B)
+            if (hex.startsWith("504B")) {
                 // Tiered checking: First magic bytes, then extension or zip contents
                 val originalName = getFileNameFromUri(context, Uri.parse(originalUriString))?.lowercase() ?: cachedFile.name.lowercase()
+                val mimeType = try {
+                    context.contentResolver.getType(Uri.parse(originalUriString))?.lowercase()
+                } catch (e: Exception) {
+                    null
+                }
 
-                // If extension is strictly a generic zip, don't try to parse as docx/pptx
-                if (originalName.endsWith(".zip")) {
+                // If extension or MIME type is strictly a generic zip, don't try to parse as docx/pptx
+                if (originalName.endsWith(".zip") || 
+                    mimeType == "application/zip" || 
+                    mimeType == "application/x-zip-compressed" || 
+                    mimeType == "application/x-zip") {
                     return FileType.ARCHIVE
                 }
 

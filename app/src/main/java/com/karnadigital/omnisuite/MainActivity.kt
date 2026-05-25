@@ -6,9 +6,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.getValue
 import com.karnadigital.omnisuite.ui.navigation.OmniNavGraph
 import com.karnadigital.omnisuite.ui.navigation.Screen
 import com.karnadigital.omnisuite.ui.theme.OmniSuiteTheme
+import com.karnadigital.omnisuite.core.util.ThemePreferences
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -18,11 +20,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Sniff for external file open intents
+        ThemePreferences.initialize(this)
         val externalUriString = getExternalFileUri(intent)
         
         setContent {
-            OmniSuiteTheme {
+            val themeMode = ThemePreferences.currentThemeState.value
+            OmniSuiteTheme(themeMode = themeMode) {
                 val controller = rememberNavController()
                 navController = controller
                 

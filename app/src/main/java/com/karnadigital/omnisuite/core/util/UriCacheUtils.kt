@@ -29,6 +29,17 @@ object UriCacheUtils {
      * @return The local cached [File], or null if the read/write operation fails.
      */
     suspend fun cacheUriToFile(context: Context, uri: Uri): File? = withContext(Dispatchers.IO) {
+        val scheme = uri.scheme?.lowercase()
+        if (scheme == "file" || scheme == null) {
+            val path = uri.path
+            if (path != null) {
+                val file = File(path)
+                if (file.exists()) {
+                    return@withContext file
+                }
+            }
+        }
+
         val fileName = getFileName(context, uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
         val cacheFile = File(context.cacheDir, fileName)
 
@@ -38,7 +49,6 @@ object UriCacheUtils {
                 cacheFile.delete()
             }
 
-            val scheme = uri.scheme?.lowercase()
             if (scheme == "http" || scheme == "https") {
                 val url = java.net.URL(uri.toString())
                 val connection = url.openConnection() as java.net.HttpURLConnection
@@ -58,7 +68,11 @@ object UriCacheUtils {
                     null
                 }
             } else {
-                                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                val pfd = try {
+                    context.contentResolver.openFileDescriptor(uri, "r")
+                } catch (e: Exception) {
+                    null
+                }
                 if (pfd != null) {
                     java.io.FileInputStream(pfd.fileDescriptor).use { inputStream ->
                         FileOutputStream(cacheFile).use { outputStream ->

@@ -21,7 +21,31 @@ class RecentFileRepository @Inject constructor(
      * Inserts or replaces a recent file reference in the persistence cache.
      */
     suspend fun insertRecentFile(recentFile: RecentFile) {
-        recentFileDao.insertRecentFile(recentFile)
+        val mime = recentFile.mimeType.lowercase()
+        val name = recentFile.fileName.lowercase()
+        val isOp = recentFile.isOperation ||
+                mime.contains("barcode") ||
+                mime.contains("qrcode") ||
+                name.contains("barcode scan:") ||
+                name.contains("scanned barcode:") ||
+                name.contains("generated qr:") ||
+                name.startsWith("stitched_") ||
+                name.startsWith("id_template_") ||
+                name.startsWith("watermarked_") ||
+                name.startsWith("compressed_") ||
+                name.startsWith("resized_") ||
+                name.startsWith("transcoded_") ||
+                name.startsWith("merged_") ||
+                name.startsWith("split_") ||
+                name.startsWith("encrypted_") ||
+                name.startsWith("decrypted_") ||
+                name.startsWith("signed_") ||
+                name.startsWith("converted_") ||
+                name.startsWith("images_compiled") ||
+                mime.startsWith("application/x-")
+
+        val modified = recentFile.copy(isOperation = isOp)
+        recentFileDao.insertRecentFile(modified)
     }
 
     /**

@@ -28,6 +28,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -84,6 +85,7 @@ fun XlsxViewerScreen(
     val horizontalScrollState = rememberScrollState()
 
     var selectedCell by remember { mutableStateOf<CellCoords?>(null) }
+    var selectedCellData by remember { mutableStateOf<com.karnadigital.omnisuite.feature.viewer.CellData?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var bottomSheetValue by remember { mutableStateOf("") }
 
@@ -473,8 +475,10 @@ fun XlsxViewerScreen(
                                                             colorHex = cellData.colorHex,
                                                             isSelected = isSelected,
                                                             isSearchResult = isSearchResult,
+                                                            comment = cellData.comment,
                                                             onClick = {
                                                                 selectedCell = CellCoords(rowIndex, colIndex)
+                                                                selectedCellData = cellData
                                                                 bottomSheetValue = cellData.text
                                                                 showBottomSheet = true
                                                             }
@@ -561,7 +565,16 @@ fun XlsxViewerScreen(
     // Material3 Bottom Sheet Editor dialog
     if (showBottomSheet && selectedCell != null) {
         val cell = selectedCell!!
+        val cellData = selectedCellData
         val cellName = "${getColHeaderString(cell.colIndex)}${cell.rowIndex + 1}"
+        
+        var cellTextValue by remember(cellData) { mutableStateOf(cellData?.text ?: "") }
+        var isBold by remember(cellData) { mutableStateOf(cellData?.isBold ?: false) }
+        var isItalic by remember(cellData) { mutableStateOf(cellData?.isItalic ?: false) }
+        var isUnderline by remember(cellData) { mutableStateOf(cellData?.isUnderline ?: false) }
+        var activeColorHex by remember(cellData) { mutableStateOf(cellData?.colorHex) }
+        var textColorHex by remember(cellData) { mutableStateOf(cellData?.textColorHex) }
+        var commentValue by remember(cellData) { mutableStateOf(cellData?.comment ?: "") }
         
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
@@ -572,6 +585,8 @@ fun XlsxViewerScreen(
                     .fillMaxWidth()
                     .padding(24.dp)
                     .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
                     text = "Edit Cell $cellName",
@@ -579,36 +594,88 @@ fun XlsxViewerScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = bottomSheetValue,
-                    onValueChange = { bottomSheetValue = it },
+                    value = cellTextValue,
+                    onValueChange = { cellTextValue = it },
                     label = { Text("Cell Content") },
                     placeholder = { Text("Enter text, formulas, or numbers...") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-                var activeColorHex by remember { mutableStateOf<String?>(null) }
-                Text("Cell Color:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Spacer(modifier = Modifier.height(8.dp))
+                // Text typography style chips
+                Text("Text Style:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf(null, "#EF4444", "#3B82F6", "#10B981", "#F59E0B").forEach { colorHex ->
+                    FilterChip(
+                        selected = isBold,
+                        onClick = { isBold = !isBold },
+                        label = { Text("Bold") }
+                    )
+                    FilterChip(
+                        selected = isItalic,
+                        onClick = { isItalic = !isItalic },
+                        label = { Text("Italic") }
+                    )
+                    FilterChip(
+                        selected = isUnderline,
+                        onClick = { isUnderline = !isUnderline },
+                        label = { Text("Underline") }
+                    )
+                }
+
+                // Text color presets circular swatches row
+                Text("Text Color Preset:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    listOf(null to "Default", "#EF4444" to "Red", "#3B82F6" to "Blue", "#10B981" to "Green", "#F59E0B" to "Orange").forEach { (hex, name) ->
+                        val isSelected = (textColorHex?.lowercase() == hex?.lowercase())
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(28.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(if (hex == null) MaterialTheme.colorScheme.surfaceVariant else Color(android.graphics.Color.parseColor(hex)))
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
+                                .clickable { textColorHex = hex }
+                                .padding(2.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (hex == null) {
+                                Text("A", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            } else if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    }
+                }
+
+                // Background fill Color swatches row
+                Text("Cell Fill Color:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    listOf(null, "#EF4444", "#3B82F6", "#10B981", "#F59E0B").forEach { colorHex ->
+                        val isSelected = (activeColorHex?.lowercase() == colorHex?.lowercase())
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
                                 .clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(if (colorHex == null) Color.Transparent else Color(android.graphics.Color.parseColor(colorHex)))
-                                .border(1.dp, if (colorHex == null) MaterialTheme.colorScheme.outline else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
+                                .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
                                 .clickable { activeColorHex = colorHex }
                                 .padding(2.dp)
                         ) {
-                            if (activeColorHex == colorHex) {
+                            if (isSelected) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -620,10 +687,18 @@ fun XlsxViewerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                // Cell Comment input
+                OutlinedTextField(
+                    value = commentValue,
+                    onValueChange = { commentValue = it },
+                    label = { Text("Cell Comment Annotation") },
+                    placeholder = { Text("Enter cell review note...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     TextButton(
@@ -638,8 +713,13 @@ fun XlsxViewerScreen(
                                 sheetIndex = activeSheetIndex,
                                 rowIndex = cell.rowIndex,
                                 colIndex = cell.colIndex,
-                                valueString = bottomSheetValue,
-                                colorHex = activeColorHex
+                                valueString = cellTextValue,
+                                colorHex = activeColorHex,
+                                isBold = isBold,
+                                isItalic = isItalic,
+                                isUnderline = isUnderline,
+                                textColorHex = textColorHex,
+                                commentText = commentValue
                             )
                             showBottomSheet = false
                         },
@@ -705,6 +785,7 @@ fun DataCell(
     colorHex: String? = null,
     isSelected: Boolean,
     isSearchResult: Boolean = false,
+    comment: String? = null,
     onClick: () -> Unit
 ) {
     Box(
@@ -737,6 +818,18 @@ fun DataCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+
+        if (!comment.isNullOrBlank()) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()) {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width, 0f)
+                    lineTo(size.width - 12f, 0f)
+                    lineTo(size.width, 12f)
+                    close()
+                }
+                drawPath(path, Color.Red)
+            }
+        }
     }
 }
 

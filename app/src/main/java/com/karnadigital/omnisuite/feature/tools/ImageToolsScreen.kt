@@ -269,24 +269,33 @@ fun ImageToolsScreen(
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
 
-                                // Rotation degrees
-                                EditingControlCard(title = "Rotation Angle") {
+                                // Rotation & Crop
+                                EditingControlCard(title = "Crop & Rotation Tools") {
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Button(
+                                            onClick = { viewModel.cropToSquare() },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                        ) {
+                                            Text("Crop to Square ✂️")
+                                        }
                                         Button(
                                             onClick = { viewModel.rotateImage() },
                                             modifier = Modifier.weight(1f),
                                             shape = RoundedCornerShape(10.dp)
                                         ) {
-                                            Text("Rotate 90°")
+                                            Text("Rotate 90° 🔄")
                                         }
-                                        if (uiState.rotationDegrees != 0f) {
-                                            OutlinedButton(
-                                                onClick = { viewModel.resetRotation() },
-                                                modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(10.dp)
-                                            ) {
-                                                Text("Reset")
-                                            }
+                                    }
+                                    if (uiState.rotationDegrees != 0f) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedButton(
+                                            onClick = { viewModel.resetRotation() },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("Reset Rotation")
                                         }
                                     }
                                 }

@@ -28,7 +28,8 @@ class QrGeneratorViewModel @Inject constructor(
                     fileName = "Generated QR: ${content.take(30)}${if (content.length > 30) "..." else ""}",
                     mimeType = "application/x-qrcode",
                     fileSize = content.length.toLong(),
-                    lastOpened = System.currentTimeMillis()
+                    lastOpened = System.currentTimeMillis(),
+                    isOperation = true
                 )
             )
         }

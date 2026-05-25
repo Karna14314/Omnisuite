@@ -17,10 +17,21 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
 import java.io.File
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Info
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.net.Uri
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontFamily
+import android.graphics.BitmapFactory
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Image
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -93,6 +104,26 @@ fun DocxViewerScreen(
 
     var searchExpanded by remember { mutableStateOf(false) }
     val lazyListState = rememberLazyListState()
+
+    var activeIndexToEdit by remember { mutableStateOf(-1) }
+    var paragraphToEdit by remember { mutableStateOf<DocxParagraph?>(null) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            uri?.let {
+                coroutineScope.launch {
+                    val cachedFile = com.karnadigital.omnisuite.core.util.UriCacheUtils.cacheUriToFile(context, it)
+                    if (cachedFile != null) {
+                        viewModel.insertImageIntoParagraph(activeIndexToEdit, cachedFile.absolutePath)
+                        paragraphToEdit = null
+                        activeIndexToEdit = -1
+                        Toast.makeText(context, "Image inserted successfully!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    )
 
     // Scroll to active search match paragraph index
     LaunchedEffect(currentMatchIndex) {
@@ -445,7 +476,7 @@ fun DocxViewerScreen(
                                     
                                     document.paragraphs.forEach { paragraph ->
                                         val textLength = paragraph.runs.sumOf { it.text.length }
-                                        if (charCount + textLength > 1200 || currentGroup.size >= 8) {
+                                        if (charCount + textLength > 2000 || currentGroup.size >= 12) {
                                             if (currentGroup.isNotEmpty()) {
                                                 result.add(currentGroup)
                                                 currentGroup = mutableListOf()
@@ -484,7 +515,10 @@ fun DocxViewerScreen(
                                                     .padding(24.dp)
                                             ) {
                                                 Column(
-                                                    modifier = Modifier.fillMaxSize(),
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(bottom = 20.dp)
+                                                        .verticalScroll(rememberScrollState()),
                                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
                                                     pageParagraphs.forEach { paragraph ->
@@ -502,7 +536,8 @@ fun DocxViewerScreen(
                                                     color = Color.Gray,
                                                     modifier = Modifier
                                                         .align(Alignment.BottomCenter)
-                                                        .padding(bottom = 4.dp)
+                                                        .background(Color.White.copy(alpha = 0.8f))
+                                                        .padding(horizontal = 8.dp, vertical = 2.dp)
                                                 )
                                             }
                                         }
@@ -518,16 +553,23 @@ fun DocxViewerScreen(
                                 ) {
                                     itemsIndexed(document.paragraphs) { index, paragraph ->
                                         val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
-                                        if (isEditMode) {
-                                            DocxParagraphEditorItem(
-                                                index = index,
-                                                paragraph = paragraph,
-                                                isHighlighted = isHighlighted,
-                                                onTextChange = { updatedText ->
-                                                    viewModel.updateParagraph(index, updatedText)
+                                        val clickableModifier = if (isEditMode) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    activeIndexToEdit = index
+                                                    paragraphToEdit = paragraph
                                                 }
-                                            )
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(6.dp)
                                         } else {
+                                            Modifier
+                                        }
+                                        Box(modifier = clickableModifier) {
                                             DocxParagraphItem(
                                                 paragraph = paragraph,
                                                 isHighlighted = isHighlighted,
@@ -626,6 +668,176 @@ fun DocxViewerScreen(
             }
         )
     }
+
+    if (paragraphToEdit != null && activeIndexToEdit >= 0) {
+        val paragraph = paragraphToEdit!!
+        var textValue by remember(paragraph) { mutableStateOf(paragraph.runs.joinToString("") { it.text }) }
+        var commentValue by remember(paragraph) { mutableStateOf(paragraph.comment ?: "") }
+        var isBold by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isBold ?: false) }
+        var isItalic by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isItalic ?: false) }
+        var isUnderline by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isUnderline ?: false) }
+        var textColorHex by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.color) }
+
+        AlertDialog(
+            onDismissRequest = { 
+                paragraphToEdit = null
+                activeIndexToEdit = -1
+            },
+            title = { Text("Edit Paragraph Content & Format", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Paragraph Text Field
+                    OutlinedTextField(
+                        value = textValue,
+                        onValueChange = { textValue = it },
+                        label = { Text("Paragraph Text") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 6
+                    )
+
+                    // Text Formatting Options Row
+                    Text("Typography Style:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        FilterChip(
+                            selected = isBold,
+                            onClick = { isBold = !isBold },
+                            label = { Text("Bold") },
+                            leadingIcon = if (isBold) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
+                        )
+                        FilterChip(
+                            selected = isItalic,
+                            onClick = { isItalic = !isItalic },
+                            label = { Text("Italic") },
+                            leadingIcon = if (isItalic) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
+                        )
+                        FilterChip(
+                            selected = isUnderline,
+                            onClick = { isUnderline = !isUnderline },
+                            label = { Text("Underline") },
+                            leadingIcon = if (isUnderline) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
+                        )
+                    }
+
+                    // Text Color Swatches Row
+                    Text("Text Color Preset:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        listOf(null to "Default", "EF4444" to "Red", "3B82F6" to "Blue", "10B981" to "Green", "F59E0B" to "Orange").forEach { (hex, name) ->
+                            val isSelected = (textColorHex?.lowercase()?.replace("#", "") == hex?.lowercase())
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (hex == null) MaterialTheme.colorScheme.surfaceVariant else Color(android.graphics.Color.parseColor("#$hex")))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { textColorHex = hex }
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (hex == null) {
+                                    Text("A", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                } else if (isSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    // Annotation / Comment Field
+                    OutlinedTextField(
+                        value = commentValue,
+                        onValueChange = { commentValue = it },
+                        label = { Text("Add Comment Annotation Note") },
+                        placeholder = { Text("Type an offline review note...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    // Image Insertion Launcher Button
+                    Button(
+                        onClick = {
+                            imagePickerLauncher.launch("image/*")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Insert Picture Run")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updateParagraph(
+                            index = activeIndexToEdit,
+                            newText = textValue,
+                            isBold = isBold,
+                            isItalic = isItalic,
+                            isUnderline = isUnderline,
+                            colorHex = textColorHex,
+                            comment = commentValue
+                        )
+                        paragraphToEdit = null
+                        activeIndexToEdit = -1
+                    }
+                ) {
+                    Text("Apply & Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        paragraphToEdit = null
+                        activeIndexToEdit = -1
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+private fun parseHexColor(hex: String?): Color? {
+    if (hex == null) return null
+    val cleanHex = hex.trim().replace("#", "")
+    return try {
+        if (cleanHex.length == 6) {
+            Color(android.graphics.Color.parseColor("#$cleanHex"))
+        } else if (cleanHex.length == 8) {
+            Color(android.graphics.Color.parseColor("#$cleanHex"))
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun mapFontFamily(name: String?): FontFamily {
+    if (name == null) return FontFamily.Default
+    val lower = name.lowercase().trim()
+    return when {
+        lower.contains("times") || lower.contains("georgia") || lower.contains("serif") || lower.contains("cambria") -> FontFamily.Serif
+        lower.contains("courier") || lower.contains("consolas") || lower.contains("monospace") || lower.contains("code") -> FontFamily.Monospace
+        lower.contains("cursive") || lower.contains("comic") -> FontFamily.Cursive
+        else -> FontFamily.SansSerif
+    }
 }
 
 @Composable
@@ -641,28 +853,68 @@ fun DocxParagraphEditorItem(
 
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.1f) else Color.Transparent
 
-    OutlinedTextField(
-        value = textState,
-        onValueChange = {
-            textState = it
-            onTextChange(it)
-        },
+    val textStyle = if (paragraph.isHeading) {
+        MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+    } else {
+        MaterialTheme.typography.bodyLarge.copy(
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(backgroundColor)
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        textStyle = if (paragraph.isHeading) {
-            MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        } else {
-            MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        },
-        label = { Text("Paragraph ${index + 1}") }
-    )
+    ) {
+        TextField(
+            value = textState,
+            onValueChange = {
+                textState = it
+                onTextChange(it)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 4.dp),
+            textStyle = textStyle,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            singleLine = false
+        )
+
+        // Render embedded images in editor mode too
+        paragraph.runs.forEach { run ->
+            if (run.imageUrl != null) {
+                val bitmap = remember(run.imageUrl) {
+                    try {
+                        BitmapFactory.decodeFile(run.imageUrl)
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Embedded Image",
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .padding(vertical = 8.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -671,7 +923,7 @@ fun DocxParagraphItem(
     isHighlighted: Boolean = false,
     searchQuery: String = ""
 ) {
-    SelectionContainer {
+    val context = LocalContext.current
     val annotatedString = remember(paragraph, searchQuery) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
@@ -679,17 +931,38 @@ fun DocxParagraphItem(
                 append(run.text)
                 val end = length
 
+                val isLink = run.hyperlinkUrl != null
+                val runColor = if (isLink) {
+                    Color(0xFF1A73E8)
+                } else {
+                    parseHexColor(run.color) ?: Color.Unspecified
+                }
+
+                val runTextDecoration = when {
+                    isLink -> TextDecoration.Underline
+                    run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
+                    run.isUnderline -> TextDecoration.Underline
+                    run.isStrike -> TextDecoration.LineThrough
+                    else -> TextDecoration.None
+                }
+
                 val spanStyle = SpanStyle(
                     fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = when {
-                        run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
-                        run.isUnderline -> TextDecoration.Underline
-                        run.isStrike -> TextDecoration.LineThrough
-                        else -> TextDecoration.None
-                    }
+                    textDecoration = runTextDecoration,
+                    color = runColor,
+                    fontFamily = mapFontFamily(run.fontFamily)
                 )
                 addStyle(spanStyle, start, end)
+
+                if (run.hyperlinkUrl != null) {
+                    addStringAnnotation(
+                        tag = "URL",
+                        annotation = run.hyperlinkUrl,
+                        start = start,
+                        end = end
+                    )
+                }
             }
 
             if (searchQuery.isNotEmpty()) {
@@ -733,15 +1006,85 @@ fun DocxParagraphItem(
     val verticalPadding = if (paragraph.isHeading) 12.dp else 6.dp
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
-    Text(
-        text = annotatedString,
-        style = style,
-        textAlign = textAlign,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(backgroundColor)
-            .padding(horizontal = 20.dp, vertical = verticalPadding)
-    )
+    ) {
+        SelectionContainer {
+            ClickableText(
+                text = annotatedString,
+                style = style.copy(textAlign = textAlign),
+                onClick = { offset ->
+                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Cannot open link: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = verticalPadding)
+            )
+        }
+
+        // Render embedded images
+        paragraph.runs.forEach { run ->
+            if (run.imageUrl != null) {
+                val bitmap = remember(run.imageUrl) {
+                    try {
+                        BitmapFactory.decodeFile(run.imageUrl)
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Embedded Image",
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .padding(vertical = 8.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                }
+            }
+        }
+
+        // Render comments if present
+        if (!paragraph.comment.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .align(Alignment.CenterHorizontally)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Comment note",
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = paragraph.comment,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 }
 

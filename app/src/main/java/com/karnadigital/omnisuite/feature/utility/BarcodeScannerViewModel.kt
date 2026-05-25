@@ -28,7 +28,8 @@ class BarcodeScannerViewModel @Inject constructor(
                     fileName = "Scanned Barcode: ${barcode.take(30)}${if (barcode.length > 30) "..." else ""}",
                     mimeType = "application/x-barcode",
                     fileSize = barcode.length.toLong(),
-                    lastOpened = System.currentTimeMillis()
+                    lastOpened = System.currentTimeMillis(),
+                    isOperation = true
                 )
             )
         }

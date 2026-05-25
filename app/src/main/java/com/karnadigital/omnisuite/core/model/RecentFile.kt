@@ -22,5 +22,6 @@ data class RecentFile(
     val fileName: String,
     val mimeType: String,
     val fileSize: Long,
-    val lastOpened: Long
+    val lastOpened: Long,
+    val isOperation: Boolean = false
 )

@@ -28,6 +28,7 @@ import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
 import com.karnadigital.omnisuite.feature.tools.BatchToolsScreen
 import com.karnadigital.omnisuite.feature.tools.ZipMakerScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfScreen
 
 
 /**
@@ -105,6 +106,9 @@ fun OmniNavGraph(
                 },
                 onNavigateToZipMaker = {
                     navController.navigate(Screen.ZipMaker.route)
+                },
+                onNavigateToImagesToPdf = {
+                    navController.navigate(Screen.ImagesToPdf.route)
                 },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
@@ -345,6 +349,18 @@ fun OmniNavGraph(
             ZipMakerScreen(
                 onBack = {
                     navController.popBackStack()
+                }
+            )
+        }
+
+        // 13. Offline Images to PDF Screen
+        composable(route = Screen.ImagesToPdf.route) {
+            ImagesToPdfScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }

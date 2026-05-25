@@ -365,8 +365,9 @@ fun ArchiveViewerScreen(
                                     Checkbox(
                                         checked = entry.isSelected,
                                         onCheckedChange = { selected ->
-                                            entry.isSelected = selected
-                                            entries = entries.toList()
+                                            entries = entries.map {
+                                                if (it.name == entry.name) it.copy(isSelected = selected) else it
+                                            }
                                         },
                                         colors = CheckboxDefaults.colors(checkedColor = Color(0xFFEF4444))
                                     )

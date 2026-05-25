@@ -100,8 +100,10 @@ fun PdfViewerScreen(
     var searchExpanded by remember { mutableStateOf(false) }
 
     // Annotations Active Modes
+    var isPdfEditingActive by remember { mutableStateOf(false) }
     var annotationMode by remember { mutableStateOf(AnnotationMode.NONE) }
     var selectedMarkerColor by remember { mutableStateOf(Color.Red) }
+    var selectedStrokeWidth by remember { mutableStateOf(8f) }
     
     // Page level active overlays
     val pagePaths = remember { mutableStateMapOf<Int, List<DrawingPath>>() }
@@ -181,83 +183,263 @@ fun PdfViewerScreen(
                     }
                 }
             } else {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = when (val s = state) {
-                                    is PdfLoadState.Success -> s.fileName
-                                    else -> "Loading PDF..."
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (state is PdfLoadState.Success) {
-                                val successState = state as PdfLoadState.Success
+                Column {
+                    TopAppBar(
+                        title = {
+                            Column {
                                 Text(
-                                    text = "Page $currentPageIndex of ${successState.pageCount}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    text = when (val s = state) {
+                                        is PdfLoadState.Success -> s.fileName
+                                        else -> "Loading PDF..."
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                if (state is PdfLoadState.Success) {
+                                    val successState = state as PdfLoadState.Success
+                                    Text(
+                                        text = "Page $currentPageIndex of ${successState.pageCount}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Navigate back")
-                        }
-                    },
-                    actions = {
-                        if (state is PdfLoadState.Success) {
-                            // Highlights toggle
-                            IconButton(
-                                onClick = {
-                                    annotationMode = if (annotationMode == AnnotationMode.HIGHLIGHT) AnnotationMode.NONE else AnnotationMode.HIGHLIGHT
-                                },
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = if (annotationMode == AnnotationMode.HIGHLIGHT) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
-                                )
-                            ) {
-                                Icon(Icons.Default.Create, contentDescription = "Highlight", tint = if (annotationMode == AnnotationMode.HIGHLIGHT) Color.Yellow else MaterialTheme.colorScheme.onSurface)
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Navigate back")
                             }
+                        },
+                        actions = {
+                            if (state is PdfLoadState.Success) {
+                                // Unified Premium Annotations Toggle
+                                IconButton(
+                                    onClick = {
+                                        isPdfEditingActive = !isPdfEditingActive
+                                        if (!isPdfEditingActive) {
+                                            annotationMode = AnnotationMode.NONE
+                                        } else {
+                                            annotationMode = AnnotationMode.MARKER // Default to marker pen mode
+                                        }
+                                    },
+                                    colors = IconButtonDefaults.iconButtonColors(
+                                        containerColor = if (isPdfEditingActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Annotation",
+                                        tint = if (isPdfEditingActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
 
-                            // Marker toggle
-                            IconButton(
-                                onClick = {
-                                    annotationMode = if (annotationMode == AnnotationMode.MARKER) AnnotationMode.NONE else AnnotationMode.MARKER
-                                },
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = if (annotationMode == AnnotationMode.MARKER) selectedMarkerColor.copy(alpha = 0.15f) else Color.Transparent
-                                )
-                            ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Marker Pen", tint = if (annotationMode == AnnotationMode.MARKER) selectedMarkerColor else MaterialTheme.colorScheme.onSurface)
+                                // Search
+                                IconButton(onClick = { searchExpanded = true }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
                             }
-
-                            // Text Note toggle
-                            IconButton(
-                                onClick = {
-                                    annotationMode = if (annotationMode == AnnotationMode.TEXT_NOTE) AnnotationMode.NONE else AnnotationMode.TEXT_NOTE
-                                },
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = if (annotationMode == AnnotationMode.TEXT_NOTE) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent
-                                )
-                            ) {
-                                Icon(Icons.Default.AddComment, contentDescription = "Text Note", tint = if (annotationMode == AnnotationMode.TEXT_NOTE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                            }
-
-                            // Search
-                            IconButton(onClick = { searchExpanded = true }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search")
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     )
-                )
+
+                    // Sliding Premium Formatting and Customization Toolbar
+                    AnimatedVisibility(
+                        visible = isPdfEditingActive,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = 4.dp
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // 🎨 Highlight mode chip
+                                        val isHighlightSelected = annotationMode == AnnotationMode.HIGHLIGHT
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isHighlightSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isHighlightSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable { annotationMode = AnnotationMode.HIGHLIGHT }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Create,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isHighlightSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Highlight",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isHighlightSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+
+                                        // ✒️ Draw Pen mode chip
+                                        val isMarkerSelected = annotationMode == AnnotationMode.MARKER
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isMarkerSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isMarkerSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable { annotationMode = AnnotationMode.MARKER }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Gesture,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isMarkerSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Draw Pen",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isMarkerSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+
+                                        // 💬 Comment text note chip
+                                        val isCommentSelected = annotationMode == AnnotationMode.TEXT_NOTE
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isCommentSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isCommentSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable { annotationMode = AnnotationMode.TEXT_NOTE }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AddComment,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isCommentSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Comment",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCommentSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            isPdfEditingActive = false
+                                            annotationMode = AnnotationMode.NONE
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close edit toolbar", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+
+                                // Secondary Customizer Panel if Draw Pen is selected
+                                if (annotationMode == AnnotationMode.MARKER) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Colors Picker preset swatches
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text("Pen:", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            listOf(Color.Red, Color.Blue, Color.Black, Color(0xFF10B981), Color(0xFFFF9800)).forEach { color ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(22.dp)
+                                                        .clip(CircleShape)
+                                                        .background(color)
+                                                        .clickable { selectedMarkerColor = color }
+                                                        .padding(2.dp)
+                                                ) {
+                                                    if (selectedMarkerColor == color) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .clip(CircleShape)
+                                                                .background(Color.White.copy(alpha = 0.4f))
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Stroke Width Presets
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text("Size:", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            listOf(4f to "Thin", 8f to "Med", 16f to "Thick", 24f to "X-Thick").forEach { (widthValue, label) ->
+                                                val isSelected = selectedStrokeWidth == widthValue
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                        .clickable { selectedStrokeWidth = widthValue }
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         bottomBar = {
@@ -505,6 +687,7 @@ fun PdfViewerScreen(
                                         isHighlighted = isHighlighted,
                                         annotationMode = annotationMode,
                                         selectedColor = selectedMarkerColor,
+                                        selectedStrokeWidth = selectedStrokeWidth,
                                         pagePaths = pagePaths,
                                         pageTextNotes = pageTextNotes,
                                         onAddTextNoteTap = { offset ->
@@ -578,6 +761,7 @@ fun InteractivePdfPageItem(
     isHighlighted: Boolean,
     annotationMode: AnnotationMode,
     selectedColor: Color,
+    selectedStrokeWidth: Float,
     pagePaths: MutableMap<Int, List<DrawingPath>>,
     pageTextNotes: MutableMap<Int, List<TextNote>>,
     onAddTextNoteTap: (DrawingPoint) -> Unit
@@ -625,7 +809,7 @@ fun InteractivePdfPageItem(
                             onDrag = { change, _ ->
                                 change.consume()
                                 val offset = change.position
-                                val normX = offset.x / size.width.toFloat()
+                                  val normX = offset.x / size.width.toFloat()
                                 val normY = offset.y / size.height.toFloat()
                                 currentPathPoints.add(DrawingPoint(normX, normY))
                             },
@@ -633,7 +817,7 @@ fun InteractivePdfPageItem(
                                 if (currentPathPoints.isNotEmpty()) {
                                     val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
                                     val color = if (isHighlight) Color.Yellow else selectedColor
-                                    val width = if (isHighlight) 24f else 8f
+                                    val width = if (isHighlight) 24f else selectedStrokeWidth
                                     val newPath = DrawingPath(
                                         points = currentPathPoints.toList(),
                                         color = color,
@@ -699,7 +883,7 @@ fun InteractivePdfPageItem(
                             val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
                             val color = if (isHighlight) Color.Yellow else selectedColor
                             val alpha = if (isHighlight) 0.4f else 1.0f
-                            val widthStroke = if (isHighlight) 24f else 8f
+                            val widthStroke = if (isHighlight) 24f else selectedStrokeWidth
                             val path = Path()
                             path.moveTo(currentPathPoints.first().x * width, currentPathPoints.first().y * height)
                             for (i in 1 until currentPathPoints.size) {

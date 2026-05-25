@@ -41,7 +41,8 @@ sealed class Screen(val route: String) {
      */
     object ViewerDispatcher : Screen("viewer_dispatcher?fileUri={fileUri}") {
         fun createRoute(fileUri: String): String {
-            return "viewer_dispatcher?fileUri=$fileUri"
+            val encodedUri = android.net.Uri.encode(fileUri)
+            return "viewer_dispatcher?fileUri=$encodedUri"
         }
     }
 
@@ -134,6 +135,11 @@ sealed class Screen(val route: String) {
      * Standalone ZIP File Maker Screen.
      */
     object ZipMaker : Screen("zip_maker")
+
+    /**
+     * Standalone Images to PDF Compiler Screen.
+     */
+    object ImagesToPdf : Screen("images_to_pdf")
 }
 
 

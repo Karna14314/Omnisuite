@@ -6,6 +6,11 @@
     <!-- Internet permission to handle and download documents from external URLs -->
     <uses-permission android:name="android.permission.INTERNET" />
     
+    <!-- Storage Permissions for local file explorer -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    
     <!-- Declare camera hardware feature as optional so it compiles and runs universally -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

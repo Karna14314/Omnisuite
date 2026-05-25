@@ -1,6 +1,58 @@
 package com.karnadigital.omnisuite.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+
+/**
+ * Redesign Design System Tokens (OmniColors)
+ * A dynamic, theme-aware offline productivity palette.
+ */
+object OmniColors {
+    // Backgrounds & Core Surfaces
+    val Bg: Color
+        @Composable
+        get() = MaterialTheme.colorScheme.background
+
+    val Surface: Color
+        @Composable
+        get() = MaterialTheme.colorScheme.surface
+
+    val Surface2: Color
+        @Composable
+        get() = MaterialTheme.colorScheme.surfaceVariant
+
+    val Border: Color
+        @Composable
+        get() = if (MaterialTheme.colorScheme.background == LightBackground) Color(0x1F000000) else Color(0x0FFFFFFF)
+
+    // Text
+    val TextPrimary: Color
+        @Composable
+        get() = MaterialTheme.colorScheme.onBackground
+
+    val TextMuted: Color
+        @Composable
+        get() = MaterialTheme.colorScheme.onSurfaceVariant
+
+    // Semantic category colors
+    val PdfRed      = Color(0xFFEF4444)
+    val PdfRedBg    = Color(0x1FEF4444)   // 12% opacity
+    val DocBlue     = Color(0xFF3B82F6)
+    val DocBlueBg   = Color(0x1F3B82F6)
+    val XlsGreen    = Color(0xFF10B981)
+    val XlsGreenBg  = Color(0x1F10B981)
+    val ImgPurple   = Color(0xFF8B5CF6)
+    val ImgPurpleBg = Color(0x1F8B5CF6)
+    val ArcCyan     = Color(0xFF06B6D4)
+    val ArcCyanBg   = Color(0x1F06B6D4)
+    
+    // Main Brand Accent
+    val Accent      = Color(0xFF6366F1)
+    val AccentGlow: Color
+        @Composable
+        get() = if (MaterialTheme.colorScheme.background == LightBackground) Color(0x1A6366F1) else Color(0x406366F1)   // 10% vs 25% opacity glow
+}
 
 // Light Theme curated Slate-Indigo & Warm Gold palette
 val LightPrimary = Color(0xFF1E3A8A)        // Deep Royal Slate
@@ -26,24 +78,24 @@ val LightSurfaceVariant = Color(0xFFE2E8F0)  // Mild Gray border
 val LightOnSurfaceVariant = Color(0xFF64748B)
 
 // Dark Theme premium Deep Space Slate & Ice Blue palette
-val DarkPrimary = Color(0xFF93C5FD)         // Ice Indigo
-val DarkOnPrimary = Color(0xFF1E3A8A)
-val DarkPrimaryContainer = Color(0xFF1E40AF)
-val DarkOnPrimaryContainer = Color(0xFFDBEAFE)
+val DarkPrimary = Color(0xFF6366F1)
+val DarkOnPrimary = Color(0xFFFFFFFF)
+val DarkPrimaryContainer = Color(0x406366F1)
+val DarkOnPrimaryContainer = Color(0xFFF0F2F7)
 
-val DarkSecondary = Color(0xFF38BDF8)       // Vivid Electric Cyan
-val DarkOnSecondary = Color(0xFF0F172A)
-val DarkSecondaryContainer = Color(0xFF0369A1)
-val DarkOnSecondaryContainer = Color(0xFFE0F2FE)
+val DarkSecondary = Color(0xFF06B6D4)
+val DarkOnSecondary = Color(0xFF0D0F14)
+val DarkSecondaryContainer = Color(0x1F06B6D4)
+val DarkOnSecondaryContainer = Color(0xFFF0F2F7)
 
-val DarkTertiary = Color(0xFFF59E0B)        // Vivid Amber
-val DarkOnTertiary = Color(0xFF78350F)
-val DarkTertiaryContainer = Color(0xFF92400E)
-val DarkOnTertiaryContainer = Color(0xFFFEF3C7)
+val DarkTertiary = Color(0xFF10B981)
+val DarkOnTertiary = Color(0xFF0D0F14)
+val DarkTertiaryContainer = Color(0x1F10B981)
+val DarkOnTertiaryContainer = Color(0xFFF0F2F7)
 
-val DarkBackground = Color(0xFF0B132B)       // Rich Deep Navy Charcoal
-val DarkOnBackground = Color(0xFFF1F5F9)     // Soft Cream
-val DarkSurface = Color(0xFF1C2541)          // Raised Navy Slate Card
-val DarkOnSurface = Color(0xFFF1F5F9)
-val DarkSurfaceVariant = Color(0xFF3A506B)
-val DarkOnSurfaceVariant = Color(0xFFCBD5E1)
+val DarkBackground = Color(0xFF0D0F14)
+val DarkOnBackground = Color(0xFFF0F2F7)
+val DarkSurface = Color(0xFF161922)
+val DarkOnSurface = Color(0xFFF0F2F7)
+val DarkSurfaceVariant = Color(0xFF1E2330)
+val DarkOnSurfaceVariant = Color(0xFF7A8299)

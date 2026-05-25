@@ -172,6 +172,49 @@ class ImageToolsViewModel @Inject constructor(
     }
 
     /**
+     * Center-crops the active image bitmap to a 1:1 perfect square offline.
+     */
+    fun cropToSquare() {
+        val bitmap = originalBitmap ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Center-cropping image to square..."
+            )
+            withContext(Dispatchers.Default) {
+                try {
+                    val size = Math.min(bitmap.width, bitmap.height)
+                    val x = (bitmap.width - size) / 2
+                    val y = (bitmap.height - size) / 2
+                    val cropped = Bitmap.createBitmap(bitmap, x, y, size, size)
+                    if (cropped != bitmap) {
+                        originalBitmap = cropped
+                        _uiState.value = _uiState.value.copy(
+                            originalWidth = cropped.width,
+                            originalHeight = cropped.height,
+                            isProcessing = false,
+                            processingMessage = "Image center-cropped to square successfully!",
+                            isSuccess = false
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isProcessing = false,
+                            processingMessage = "Image is already a perfect square."
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    _uiState.value = _uiState.value.copy(
+                        isProcessing = false,
+                        processingMessage = "Crop operation failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+
+    /**
      * Changes target file extension output format.
      */
     fun updateFormat(format: OutputFormat) {

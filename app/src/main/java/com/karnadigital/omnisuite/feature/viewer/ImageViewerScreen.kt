@@ -15,12 +15,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Save
 import java.io.File
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -48,21 +58,53 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 
 /**
  * Aesthetic, high-performance offline Image Viewer screen.
  * Supports pinch-to-zoom, panning, double-tap reset, image sharing, and viewing file metadata.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ImageViewerScreen(
     fileUri: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: ImageViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val imageFile = remember(fileUri) { File(fileUri) }
-    val fileName = remember(fileUri) { imageFile.name }
+
+    var activeUriList by remember(fileUri) {
+        mutableStateOf(
+            if (fileUri.contains("|")) {
+                fileUri.split("|").filter { it.isNotBlank() }
+            } else {
+                listOf(fileUri)
+            }
+        )
+    }
+
+    val pagerState = if (activeUriList.size > 1) {
+        rememberPagerState(pageCount = { activeUriList.size })
+    } else {
+        null
+    }
+
+    val activeUriString = pagerState?.let { activeUriList.getOrNull(it.currentPage) } ?: activeUriList.firstOrNull() ?: fileUri
+    val activeUri = remember(activeUriString) { Uri.parse(activeUriString) }
+    val isContentUri = activeUriString.startsWith("content://") || activeUriString.startsWith("file://")
+    val activeFileName = remember(activeUriString) {
+        if (isContentUri) {
+            activeUri.path?.substringAfterLast('/') ?: "extracted_image.png"
+        } else {
+            File(activeUriString).name
+        }
+    }
+    val activeFile = remember(activeUriString) {
+        if (isContentUri) null else File(activeUriString)
+    }
 
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -72,13 +114,55 @@ fun ImageViewerScreen(
     }
 
     var showInfoDialog by remember { mutableStateOf(false) }
+    var showEditSheet by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    // Offline editing states
+    var editRotation by remember { mutableStateOf(0f) }
+    var editSquareCrop by remember { mutableStateOf(false) }
+    var editCompressQuality by remember { mutableStateOf(80f) }
+    var editOutputFormat by remember { mutableStateOf("JPEG") }
+
+    var imageWidth by remember { mutableStateOf(0) }
+    var imageHeight by remember { mutableStateOf(0) }
+    var customWidth by remember { mutableStateOf("") }
+    var customHeight by remember { mutableStateOf("") }
+
+    LaunchedEffect(showEditSheet, activeUriString) {
+        if (showEditSheet) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    if (isContentUri) {
+                        context.contentResolver.openInputStream(activeUri).use { stream ->
+                            android.graphics.BitmapFactory.decodeStream(stream, null, options)
+                        }
+                    } else {
+                        android.graphics.BitmapFactory.decodeFile(activeUriString, options)
+                    }
+                    imageWidth = options.outWidth
+                    imageHeight = options.outHeight
+                    customWidth = options.outWidth.toString()
+                    customHeight = options.outHeight.toString()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = fileName,
+                        text = if (activeUriList.size > 1 && pagerState != null) {
+                            "Image ${pagerState.currentPage + 1} of ${activeUriList.size}"
+                        } else {
+                            activeFileName
+                        },
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -99,7 +183,12 @@ fun ImageViewerScreen(
                         try {
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "image/*"
-                                putExtra(Intent.EXTRA_STREAM, Uri.fromFile(imageFile))
+                                if (isContentUri) {
+                                    putExtra(Intent.EXTRA_STREAM, activeUri)
+                                } else {
+                                    val providerUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
+                                    putExtra(Intent.EXTRA_STREAM, providerUri)
+                                }
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
@@ -141,8 +230,11 @@ fun ImageViewerScreen(
                 ) {
                     ImageActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
                         try {
-                            val file = File(fileUri)
-                            val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                            val fileUriProvider = if (isContentUri) {
+                                activeUri
+                            } else {
+                                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
+                            }
                             val openIntent = Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(fileUriProvider, "image/*")
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -151,6 +243,14 @@ fun ImageViewerScreen(
                         } catch (e: Exception) {
                             Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                         }
+                    }
+
+                    ImageActionColumnButton(icon = Icons.Default.Edit, title = "Edit Image") {
+                        editRotation = 0f
+                        editSquareCrop = false
+                        editCompressQuality = 80f
+                        editOutputFormat = "JPEG"
+                        showEditSheet = true
                     }
 
                     ImageActionColumnButton(icon = Icons.Default.Print, title = "Print") {
@@ -162,7 +262,14 @@ fun ImageViewerScreen(
                                     val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
                                     pdf.addPage(page)
                                     val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
-                                    val bitmap = android.graphics.BitmapFactory.decodeFile(fileUri)
+                                    
+                                    val bitmap = if (isContentUri) {
+                                        context.contentResolver.openInputStream(activeUri).use { stream ->
+                                            android.graphics.BitmapFactory.decodeStream(stream)
+                                        }
+                                    } else {
+                                        android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                    }
                                     val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
                                     
                                     val pageWidth = page.mediaBox.width
@@ -196,8 +303,11 @@ fun ImageViewerScreen(
 
                     ImageActionColumnButton(icon = Icons.Default.Share, title = "Share") {
                         try {
-                            val file = File(fileUri)
-                            val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                            val fileUriProvider = if (isContentUri) {
+                                activeUri
+                            } else {
+                                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
+                            }
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "image/*"
                                 putExtra(Intent.EXTRA_STREAM, fileUriProvider)
@@ -230,7 +340,14 @@ fun ImageViewerScreen(
                                                 val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
                                                 pdf.addPage(page)
                                                 val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
-                                                val bitmap = android.graphics.BitmapFactory.decodeFile(fileUri)
+                                                
+                                                val bitmap = if (isContentUri) {
+                                                    context.contentResolver.openInputStream(activeUri).use { stream ->
+                                                        android.graphics.BitmapFactory.decodeStream(stream)
+                                                    }
+                                                } else {
+                                                    android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                                }
                                                 val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
                                                 
                                                 val pageWidth = page.mediaBox.width
@@ -253,7 +370,7 @@ fun ImageViewerScreen(
                                             val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
                                                 context = context,
                                                 bytes = tempPdfFile.readBytes(),
-                                                filename = File(fileUri).name.substringBeforeLast(".") + "_image.pdf",
+                                                filename = activeFileName.substringBeforeLast(".") + "_image.pdf",
                                                 mimeType = "application/pdf",
                                                 subfolder = ""
                                             )
@@ -285,31 +402,87 @@ fun ImageViewerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            scale = if (scale > 1f) 1f else 2.5f
-                            offset = Offset.Zero
-                        }
-                    )
-                }
-                .transformable(state = transformState),
+                .padding(innerPadding),
             contentAlignment = Alignment.Center
         ) {
-            AsyncImage(
-                model = imageFile,
-                contentDescription = "Loaded image view",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y
+            if (activeUriList.size > 1 && pagerState != null) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { pageIndex ->
+                    val pageUri = activeUriList[pageIndex]
+                    val pageModel = remember(pageUri) {
+                        if (pageUri.startsWith("content://") || pageUri.startsWith("file://")) {
+                            Uri.parse(pageUri)
+                        } else {
+                            File(pageUri)
+                        }
+                    }
+                    var pageScale by remember { mutableStateOf(1f) }
+                    var pageOffset by remember { mutableStateOf(Offset.Zero) }
+                    val pageTransformState = rememberTransformableState { zoomChange, offsetChange, _ ->
+                        pageScale = (pageScale * zoomChange).coerceIn(1f, 5f)
+                        pageOffset += offsetChange * pageScale
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        pageScale = if (pageScale > 1f) 1f else 2.5f
+                                        pageOffset = Offset.Zero
+                                    }
+                                )
+                            }
+                            .transformable(state = pageTransformState),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = pageModel,
+                            contentDescription = "Loaded image view page ${pageIndex + 1}",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(
+                                    scaleX = pageScale,
+                                    scaleY = pageScale,
+                                    translationX = pageOffset.x,
+                                    translationY = pageOffset.y
+                                )
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    scale = if (scale > 1f) 1f else 2.5f
+                                    offset = Offset.Zero
+                                }
+                            )
+                        }
+                        .transformable(state = transformState),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = if (isContentUri) activeUri else File(fileUri),
+                        contentDescription = "Loaded image view",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y
+                            )
                     )
-            )
+                }
+            }
         }
     }
 
@@ -334,12 +507,14 @@ fun ImageViewerScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    MetadataRow(label = "Filename", value = fileName)
-                    MetadataRow(label = "Absolute Path", value = imageFile.absolutePath)
-                    MetadataRow(
-                        label = "File Size",
-                        value = formatFileSize(if (imageFile.exists()) imageFile.length() else 0L)
-                    )
+                    MetadataRow(label = "Filename", value = activeFileName)
+                    MetadataRow(label = "Path / Uri", value = activeUriString)
+                    if (activeFile != null) {
+                        MetadataRow(
+                            label = "File Size",
+                            value = formatFileSize(if (activeFile.exists()) activeFile.length() else 0L)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { showInfoDialog = false },
@@ -349,6 +524,334 @@ fun ImageViewerScreen(
                         Text("Close")
                     }
                 }
+            }
+        }
+    }
+
+    if (showEditSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showEditSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Tools",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Image Lab Editor",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Section 1: Basic Editing Tools
+                Text(
+                    text = "Basic Corrections",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = { editRotation = (editRotation + 90f) % 360f },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Rotate")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Rotate 90° (${editRotation.toInt()}°)")
+                    }
+
+                    FilterChip(
+                        selected = editSquareCrop,
+                        onClick = { editSquareCrop = !editSquareCrop },
+                        label = { Text("1:1 Center Crop") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Crop,
+                                contentDescription = "Crop 1:1",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Section 2: Dimension Control
+                Text(
+                    text = "Pixel Resizer (Resolution)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Original: ${imageWidth}x${imageHeight} px",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = customWidth,
+                        onValueChange = { customWidth = it.filter { char -> char.isDigit() } },
+                        label = { Text("Width (px)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = customHeight,
+                        onValueChange = { customHeight = it.filter { char -> char.isDigit() } },
+                        label = { Text("Height (px)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        customWidth = imageWidth.toString()
+                        customHeight = imageHeight.toString()
+                    },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Reset to Original")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Section 3: Compressor Settings
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Compressor Quality",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${editCompressQuality.toInt()}%",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Slider(
+                    value = editCompressQuality,
+                    onValueChange = { editCompressQuality = it },
+                    valueRange = 10f..100f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Section 4: Format conversion
+                Text(
+                    text = "Save/Transcode Format",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val formats = listOf("JPEG", "PNG", "WEBP")
+                    formats.forEach { fmt ->
+                        FilterChip(
+                            selected = editOutputFormat == fmt,
+                            onClick = { editOutputFormat = fmt },
+                            label = { Text(fmt) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Apply Transformations Button
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            isSaving = true
+                            try {
+                                val result = withContext(Dispatchers.IO) {
+                                    val originalBitmap = if (isContentUri) {
+                                        context.contentResolver.openInputStream(activeUri).use { stream ->
+                                            android.graphics.BitmapFactory.decodeStream(stream)
+                                        }
+                                    } else {
+                                        android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                    } ?: throw Exception("Failed to decode bitmap")
+
+                                    var bitmap = originalBitmap
+
+                                    // Rotate
+                                    if (editRotation != 0f) {
+                                        val matrix = android.graphics.Matrix().apply { postRotate(editRotation) }
+                                        val rotated = android.graphics.Bitmap.createBitmap(
+                                            bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                                        )
+                                        if (rotated != bitmap) {
+                                            bitmap.recycle()
+                                            bitmap = rotated
+                                        }
+                                    }
+
+                                    // Center Crop
+                                    if (editSquareCrop) {
+                                        val size = Math.min(bitmap.width, bitmap.height)
+                                        val x = (bitmap.width - size) / 2
+                                        val y = (bitmap.height - size) / 2
+                                        val cropped = android.graphics.Bitmap.createBitmap(
+                                            bitmap, x, y, size, size
+                                        )
+                                        if (cropped != bitmap) {
+                                            bitmap.recycle()
+                                            bitmap = cropped
+                                        }
+                                    }
+
+                                    // Scale Resize
+                                    val targetWidth = customWidth.toIntOrNull() ?: bitmap.width
+                                    val targetHeight = customHeight.toIntOrNull() ?: bitmap.height
+                                    if (targetWidth != bitmap.width || targetHeight != bitmap.height) {
+                                        val scaled = android.graphics.Bitmap.createScaledBitmap(
+                                            bitmap, targetWidth, targetHeight, true
+                                        )
+                                        if (scaled != bitmap) {
+                                            bitmap.recycle()
+                                            bitmap = scaled
+                                        }
+                                    }
+
+                                    // Format Transcoding
+                                    val format = when (editOutputFormat) {
+                                        "PNG" -> android.graphics.Bitmap.CompressFormat.PNG
+                                        "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                                        } else {
+                                            android.graphics.Bitmap.CompressFormat.WEBP
+                                        }
+                                        else -> android.graphics.Bitmap.CompressFormat.JPEG
+                                    }
+                                    val mimeType = when (editOutputFormat) {
+                                        "PNG" -> "image/png"
+                                        "WEBP" -> "image/webp"
+                                        else -> "image/jpeg"
+                                    }
+                                    val ext = editOutputFormat.lowercase(java.util.Locale.ROOT)
+
+                                    val stream = java.io.ByteArrayOutputStream()
+                                    bitmap.compress(format, editCompressQuality.toInt(), stream)
+                                    val bytes = stream.toByteArray()
+                                    bitmap.recycle()
+
+                                    val newName = activeFileName.substringBeforeLast(".") + "_edited." + ext
+                                    val savedUri = FileOutputManager.saveToDefault(
+                                        context = context,
+                                        bytes = bytes,
+                                        filename = newName,
+                                        mimeType = mimeType,
+                                        subfolder = "Images"
+                                    )
+                                    Pair(savedUri, bytes.size.toLong())
+                                }
+
+                                val resultUri = result.first
+                                val fileSize = result.second
+
+                                if (resultUri != null) {
+                                    val filename = resultUri.path?.substringAfterLast('/') ?: "edited_image.${editOutputFormat.lowercase()}"
+                                    val mime = when (editOutputFormat) {
+                                        "PNG" -> "image/png"
+                                        "WEBP" -> "image/webp"
+                                        else -> "image/jpeg"
+                                    }
+                                    viewModel.registerRecentFile(
+                                        com.karnadigital.omnisuite.core.model.RecentFile(
+                                            fileUri = resultUri.toString(),
+                                            fileName = filename,
+                                            mimeType = mime,
+                                            fileSize = fileSize,
+                                            lastOpened = System.currentTimeMillis(),
+                                            isOperation = true
+                                        )
+                                    )
+
+                                    Toast.makeText(context, "Image successfully saved under Documents/OmniSuite/Images!", Toast.LENGTH_LONG).show()
+                                    showEditSheet = false
+                                    
+                                    val newList = activeUriList.toMutableList()
+                                    newList.add(resultUri.toString())
+                                    activeUriList = newList
+                                    pagerState?.scrollToPage(newList.size - 1)
+                                } else {
+                                    Toast.makeText(context, "Failed to save edited image", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isSaving = false
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Icon(imageVector = Icons.Default.Save, contentDescription = "Save")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Apply Transformations",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

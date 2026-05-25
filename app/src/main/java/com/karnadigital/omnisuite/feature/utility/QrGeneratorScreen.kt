@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -77,6 +78,30 @@ val gradientPresets = listOf(
     GradientPreset("Cyberpunk Pink", AndroidColor.rgb(255, 0, 128), AndroidColor.rgb(128, 0, 255), Color(0xFFFF0080), Color(0xFF8000FF))
 )
 
+data class CustomColorOption(
+    val name: String,
+    val androidColor: Int,
+    val composeColor: Color
+)
+
+val customColorPalette = listOf(
+    CustomColorOption("Black", AndroidColor.BLACK, Color.Black),
+    CustomColorOption("Blue", AndroidColor.rgb(10, 80, 180), Color(0xFF0A50B4)),
+    CustomColorOption("Teal", AndroidColor.rgb(16, 120, 80), Color(0xFF107850)),
+    CustomColorOption("Purple", AndroidColor.rgb(150, 0, 180), Color(0xFF9600B4)),
+    CustomColorOption("Crimson", AndroidColor.rgb(220, 20, 60), Color(0xFFDC143C)),
+    CustomColorOption("Orange", AndroidColor.rgb(255, 100, 0), Color(0xFFFF6400)),
+    CustomColorOption("Gold", AndroidColor.rgb(212, 175, 55), Color(0xFFD4AF37))
+)
+
+val customBgPalette = listOf(
+    CustomColorOption("White", AndroidColor.WHITE, Color.White),
+    CustomColorOption("Cream", AndroidColor.rgb(255, 253, 240), Color(0xFFFFFDF0)),
+    CustomColorOption("Mint Glow", AndroidColor.rgb(232, 248, 245), Color(0xFFE8F8F5)),
+    CustomColorOption("Soft Slate", AndroidColor.rgb(236, 240, 241), Color(0xFFECEFF1)),
+    CustomColorOption("Ice Blue", AndroidColor.rgb(240, 244, 248), Color(0xFFF0F4F8))
+)
+
 fun Modifier.glassmorphic(): Modifier = this.then(
     Modifier
         .clip(RoundedCornerShape(20.dp))
@@ -105,9 +130,12 @@ fun QrGeneratorScreen(
 
     // Customization States
     var selectedGradientPreset by remember { mutableStateOf(gradientPresets[0]) }
+    var customStartColor by remember { mutableStateOf(gradientPresets[0].startColor) }
+    var customEndColor by remember { mutableStateOf(gradientPresets[0].endColor) }
+    var customBgColor by remember { mutableStateOf(AndroidColor.WHITE) }
+    var qrMargin by remember { mutableStateOf(1) }
     var qrSize by remember { mutableStateOf(512f) }
     var errorCorrection by remember { mutableStateOf("M") } // L, M, Q, H
-    var embedLogo by remember { mutableStateOf(true) }
     var isCustomizationExpanded by remember { mutableStateOf(false) }
 
     // --- QR Payload States ---
@@ -211,7 +239,7 @@ fun QrGeneratorScreen(
 
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(compiledPayload, selectedGradientPreset, qrSize, errorCorrection, embedLogo, activeTabState, selectedBarcodeFormat) {
+    LaunchedEffect(compiledPayload, selectedGradientPreset, qrSize, errorCorrection, activeTabState, selectedBarcodeFormat, customStartColor, customEndColor, customBgColor, qrMargin) {
         qrBitmap = if (compiledPayload.isNotBlank()) {
             val format = if (activeTabState == 0) BarcodeFormat.QR_CODE else selectedBarcodeFormat
             val width = if (format == BarcodeFormat.QR_CODE || format == BarcodeFormat.PDF_417) qrSize.toInt() else (qrSize.toInt() * 1.6f).toInt()
@@ -219,13 +247,13 @@ fun QrGeneratorScreen(
             
             generateQrCodeBitmap(
                 content = compiledPayload,
-                startColor = selectedGradientPreset.startColor,
-                endColor = selectedGradientPreset.endColor,
+                startColor = customStartColor,
+                endColor = customEndColor,
+                bgColor = customBgColor,
                 width = width,
                 height = height,
                 errorCorrection = errorCorrection,
-                embedLogo = embedLogo && format == BarcodeFormat.QR_CODE,
-                context = context,
+                qrMargin = qrMargin,
                 format = format
             )
         } else {
@@ -726,7 +754,11 @@ fun QrGeneratorScreen(
                                                                 colors = listOf(preset.startCompose, preset.endCompose)
                                                             )
                                                         )
-                                                        .clickable { selectedGradientPreset = preset }
+                                                        .clickable {
+                                                            selectedGradientPreset = preset
+                                                            customStartColor = preset.startColor
+                                                            customEndColor = preset.endColor
+                                                        }
                                                         .border(
                                                             width = if (isSelected) 3.dp else 1.dp,
                                                             color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.5f),
@@ -737,26 +769,123 @@ fun QrGeneratorScreen(
                                         }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "Selected: ${selectedGradientPreset.name}",
+                                            text = "Preset: ${selectedGradientPreset.name}",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 
-                                    // EMBED CENTER LOGO
-                                    if (activeTabState == 0) {
+                                    // Custom Start Color Picker
+                                    Column {
+                                        Text("Custom Foreground Start Color", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(8.dp))
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("Embed Brand Badge", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                                Text("Overlays OmniSuite logo in the center.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            customColorPalette.forEach { option ->
+                                                val isSelected = customStartColor == option.androidColor
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(CircleShape)
+                                                        .background(option.composeColor)
+                                                        .clickable {
+                                                            customStartColor = option.androidColor
+                                                        }
+                                                        .border(
+                                                            width = if (isSelected) 3.dp else 1.dp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
+                                                            shape = CircleShape
+                                                        )
+                                                )
                                             }
-                                            Switch(
-                                                checked = embedLogo,
-                                                onCheckedChange = { embedLogo = it }
-                                            )
+                                        }
+                                    }
+
+                                    // Custom End Color Picker
+                                    Column {
+                                        Text("Custom Foreground End Color (Gradient)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            customColorPalette.forEach { option ->
+                                                val isSelected = customEndColor == option.androidColor
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(CircleShape)
+                                                        .background(option.composeColor)
+                                                        .clickable {
+                                                            customEndColor = option.androidColor
+                                                        }
+                                                        .border(
+                                                            width = if (isSelected) 3.dp else 1.dp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
+                                                            shape = CircleShape
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Custom Background Color Picker
+                                    Column {
+                                        Text("Custom Background Color", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            customBgPalette.forEach { option ->
+                                                val isSelected = customBgColor == option.androidColor
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(CircleShape)
+                                                        .background(option.composeColor)
+                                                        .clickable {
+                                                            customBgColor = option.androidColor
+                                                        }
+                                                        .border(
+                                                            width = if (isSelected) 3.dp else 1.dp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
+                                                            shape = CircleShape
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Dynamic Quiet Zone Margin Selector
+                                    Column {
+                                        Text("Quiet Zone Margin Size", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            listOf(0 to "None (0)", 1 to "Compact (1)", 2 to "Medium (2)", 4 to "Wide (4)").forEach { (marginVal, label) ->
+                                                val isSelected = qrMargin == marginVal
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                                        .clickable { qrMargin = marginVal }
+                                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
 
@@ -804,7 +933,7 @@ fun QrGeneratorScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.White)
+                                .background(Color(customBgColor))
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -813,7 +942,8 @@ fun QrGeneratorScreen(
                                 Image(
                                     bitmap = bitmap.asImageBitmap(),
                                     contentDescription = "Live custom layout output",
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = if (isSquare) ContentScale.Fit else ContentScale.FillWidth
                                 )
                             } else {
                                 Column(
@@ -1013,11 +1143,11 @@ private fun generateQrCodeBitmap(
     content: String,
     startColor: Int,
     endColor: Int,
+    bgColor: Int = AndroidColor.WHITE,
     width: Int = 512,
     height: Int = 512,
     errorCorrection: String = "M",
-    embedLogo: Boolean = false,
-    context: Context? = null,
+    qrMargin: Int = 1,
     format: BarcodeFormat = BarcodeFormat.QR_CODE
 ): Bitmap? {
     if (content.isBlank()) return null
@@ -1032,60 +1162,57 @@ private fun generateQrCodeBitmap(
             }
             hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = ecLevel
         }
-        hints[com.google.zxing.EncodeHintType.MARGIN] = 1 // Sleek, thin margin
+        hints[com.google.zxing.EncodeHintType.MARGIN] = qrMargin // Dynamic quiet-zone margin!
         
         val writer = MultiFormatWriter()
         val bitMatrix = writer.encode(content, format, width, height, hints)
         val w = bitMatrix.width
         val h = bitMatrix.height
-        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         
-        for (x in 0 until w) {
+        var startX = 0
+        var endX = w - 1
+        
+        if (format != BarcodeFormat.QR_CODE) {
+            // Find active columns to eliminate ZXing's huge default remainder padding spaces
+            var firstActiveX = -1
+            var lastActiveX = -1
+            for (col in 0 until w) {
+                var hasBlack = false
+                for (row in 0 until h) {
+                    if (bitMatrix.get(col, row)) {
+                        hasBlack = true
+                        break
+                    }
+                }
+                if (hasBlack) {
+                    if (firstActiveX == -1) firstActiveX = col
+                    lastActiveX = col
+                }
+            }
+            if (firstActiveX != -1 && lastActiveX != -1 && firstActiveX < lastActiveX) {
+                // Add a small aesthetic quiet zone margin (e.g., 10 pixels) on each side
+                val quietZone = 12
+                startX = Math.max(0, firstActiveX - quietZone)
+                endX = Math.min(w - 1, lastActiveX + quietZone)
+            }
+        }
+        
+        val croppedW = endX - startX + 1
+        val bitmap = Bitmap.createBitmap(croppedW, h, Bitmap.Config.ARGB_8888)
+        
+        for (x in 0 until croppedW) {
             for (y in 0 until h) {
-                if (bitMatrix.get(x, y)) {
+                if (bitMatrix.get(startX + x, y)) {
                     // Apply gorgeous diagonal gradient interpolation
-                    val ratio = (x.toFloat() + y.toFloat()) / (w + h).toFloat()
+                    val ratio = (x.toFloat() + y.toFloat()) / (croppedW + h).toFloat()
                     val r = ((1 - ratio) * AndroidColor.red(startColor) + ratio * AndroidColor.red(endColor)).toInt()
                     val g = ((1 - ratio) * AndroidColor.green(startColor) + ratio * AndroidColor.green(endColor)).toInt()
                     val b = ((1 - ratio) * AndroidColor.blue(startColor) + ratio * AndroidColor.blue(endColor)).toInt()
                     bitmap.setPixel(x, y, AndroidColor.rgb(r, g, b))
                 } else {
-                    bitmap.setPixel(x, y, AndroidColor.WHITE)
+                    bitmap.setPixel(x, y, bgColor)
                 }
             }
-        }
-        
-        if (embedLogo && context != null && format == BarcodeFormat.QR_CODE) {
-            val canvas = android.graphics.Canvas(bitmap)
-            val centerSize = w / 5
-            val startX = (w - centerSize) / 2
-            val startY = (h - centerSize) / 2
-            
-            // Draw rounded white background badge card for logo
-            val paintBg = android.graphics.Paint().apply {
-                color = android.graphics.Color.WHITE
-                style = android.graphics.Paint.Style.FILL
-                isAntiAlias = true
-            }
-            val rect = android.graphics.RectF(
-                startX.toFloat() - 4f,
-                startY.toFloat() - 4f,
-                (startX + centerSize).toFloat() + 4f,
-                (startY + centerSize).toFloat() + 4f
-            )
-            canvas.drawRoundRect(rect, 10f, 10f, paintBg)
-            
-            // Draw a high-aesthetics bold red "O" representing OmniSuite branding in the center
-            val paintText = android.graphics.Paint().apply {
-                color = android.graphics.Color.rgb(239, 68, 68) // Material Red
-                textSize = centerSize.toFloat() * 0.7f
-                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                textAlign = android.graphics.Paint.Align.CENTER
-                isAntiAlias = true
-            }
-            val textX = w / 2f
-            val textY = h / 2f - (paintText.descent() + paintText.ascent()) / 2
-            canvas.drawText("O", textX, textY, paintText)
         }
         
         bitmap

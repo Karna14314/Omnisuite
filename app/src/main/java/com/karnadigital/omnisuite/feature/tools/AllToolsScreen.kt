@@ -1,29 +1,28 @@
 package com.karnadigital.omnisuite.feature.tools
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.karnadigital.omnisuite.ui.component.ToolListRow
+import com.karnadigital.omnisuite.ui.theme.OmniColors
 
+/**
+ * Redesigned Categorized All Tools cockpit dashboard.
+ * Compliant with tab row emojis, active semantic indicator colors,
+ * and high-scannability full-width ToolListRow listings.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllToolsScreen(
@@ -42,6 +41,7 @@ fun AllToolsScreen(
     onNavigateToPdfToPpt: () -> Unit,
     onNavigateToPdfToExcel: () -> Unit,
     onNavigateToPdfFormFiller: () -> Unit,
+    onNavigateToImagesToPdf: () -> Unit,
     onNavigateToImageTools: () -> Unit,
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
@@ -50,8 +50,19 @@ fun AllToolsScreen(
     onNavigateToZipMaker: () -> Unit,
     onSelectFileForType: (String) -> Unit // Resolves picking files for viewers
 ) {
-    var selectedTabState by remember { mutableStateOf(0) }
-    val tabs = listOf("PDF", "Documents", "Image", "Archive & QR")
+    var selectedTabState by rememberSaveable { mutableStateOf(0) }
+    val tabs = listOf("📋 PDF", "📝 Word", "📊 Excel", "🖼️ Slides", "🖼 Image", "📦 Archive")
+    
+    // Resolve dynamic active indicator color based on current tab selection
+    val activeIndicatorColor = when (selectedTabState) {
+        0 -> OmniColors.PdfRed
+        1 -> OmniColors.DocBlue
+        2 -> OmniColors.XlsGreen
+        3 -> Color(0xFFF59E0B)
+        4 -> OmniColors.ImgPurple
+        5 -> OmniColors.ArcCyan
+        else -> OmniColors.Accent
+    }
 
     Scaffold(
         topBar = {
@@ -61,40 +72,42 @@ fun AllToolsScreen(
                         Text(
                             text = "All Tools Suite",
                             fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleLarge
+                            color = OmniColors.TextPrimary
                         )
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(
                                 imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back"
+                                contentDescription = "Navigate back",
+                                tint = OmniColors.TextPrimary
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
+                        containerColor = OmniColors.Bg
                     )
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = OmniColors.Bg,
+        modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(if (isInline) PaddingValues(0.dp) else innerPadding)
         ) {
-            // Horizontal scrolling category headers
+            // Horizontal scrolling tab selectors with dynamic indicator coloring
             ScrollableTabRow(
                 selectedTabIndex = selectedTabState,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary,
+                containerColor = OmniColors.Surface,
+                contentColor = OmniColors.TextPrimary,
                 edgePadding = 16.dp,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabState]),
-                        color = MaterialTheme.colorScheme.primary
+                        color = activeIndicatorColor
                     )
                 }
             ) {
@@ -106,7 +119,8 @@ fun AllToolsScreen(
                             Text(
                                 text = title,
                                 fontWeight = if (selectedTabState == index) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 15.sp
+                                fontSize = 14.sp,
+                                color = if (selectedTabState == index) activeIndicatorColor else OmniColors.TextMuted
                             )
                         }
                     )
@@ -115,6 +129,7 @@ fun AllToolsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Sub-grids replaced with linear list layouts for enhanced reading flow
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -122,7 +137,7 @@ fun AllToolsScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 when (selectedTabState) {
-                    0 -> PdfToolsGrid(
+                    0 -> PdfToolsList(
                         onNavigateToPdfMerge = onNavigateToPdfMerge,
                         onNavigateToPdfSplit = onNavigateToPdfSplit,
                         onNavigateToPdfLock = onNavigateToPdfLock,
@@ -135,17 +150,24 @@ fun AllToolsScreen(
                         onNavigateToPdfToWord = onNavigateToPdfToWord,
                         onNavigateToPdfToPpt = onNavigateToPdfToPpt,
                         onNavigateToPdfToExcel = onNavigateToPdfToExcel,
-                        onNavigateToPdfFormFiller = onNavigateToPdfFormFiller
+                        onNavigateToPdfFormFiller = onNavigateToPdfFormFiller,
+                        onNavigateToImagesToPdf = onNavigateToImagesToPdf
                     )
-                    1 -> DocumentsToolsGrid(
+                    1 -> WordToolsList(
                         onSelectFileForType = onSelectFileForType
                     )
-                    2 -> ImageToolsGrid(
+                    2 -> ExcelToolsList(
+                        onSelectFileForType = onSelectFileForType
+                    )
+                    3 -> SlidesToolsList(
+                        onSelectFileForType = onSelectFileForType
+                    )
+                    4 -> ImageToolsList(
                         onNavigateToImageTools = onNavigateToImageTools,
                         onNavigateToOcr = onNavigateToOcr,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner
                     )
-                    3 -> ArchiveQrToolsGrid(
+                    5 -> ArchiveQrToolsList(
                         onNavigateToQrGenerator = onNavigateToQrGenerator,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
                         onNavigateToBatchTools = onNavigateToBatchTools,
@@ -159,7 +181,7 @@ fun AllToolsScreen(
 }
 
 @Composable
-fun PdfToolsGrid(
+fun PdfToolsList(
     onNavigateToPdfMerge: () -> Unit,
     onNavigateToPdfSplit: () -> Unit,
     onNavigateToPdfLock: () -> Unit,
@@ -172,145 +194,105 @@ fun PdfToolsGrid(
     onNavigateToPdfToWord: () -> Unit,
     onNavigateToPdfToPpt: () -> Unit,
     onNavigateToPdfToExcel: () -> Unit,
-    onNavigateToPdfFormFiller: () -> Unit
+    onNavigateToPdfFormFiller: () -> Unit,
+    onNavigateToImagesToPdf: () -> Unit
 ) {
-    val items = listOf(
-        ToolItem("Merge PDFs", "Combine multiple files", "🥞", Color(0xFFEF4444), onNavigateToPdfMerge),
-        ToolItem("Split PDF", "Extract page ranges", "✂️", Color(0xFFEF4444), onNavigateToPdfSplit),
-        ToolItem("Encrypt PDF", "Lock with secure password", "🔒", Color(0xFFEF4444), onNavigateToPdfLock),
-        ToolItem("Digital Sign", "Stamp digital signature", "✍️", Color(0xFFEF4444), onNavigateToSignaturePad),
-        ToolItem("Watermark", "Add security stamp overlay", "🎨", Color(0xFFEF4444), onNavigateToWatermark),
-        ToolItem("Doc to PDF", "Transcode Word files to PDF", "💾", Color(0xFFEF4444), onNavigateToDocToPdf),
-        ToolItem("Slides to PDF", "Transcode PPTX files to PDF", "🖼️", Color(0xFFEF4444), onNavigateToPptToPdf),
-        ToolItem("Scan to PDF", "Compile camera scans to PDF", "📷", Color(0xFFEF4444), onNavigateToScanToPdf),
-        ToolItem("PDF to Images", "Extract PDF pages to PNGs", "📸", Color(0xFFEF4444), onNavigateToPdfToImages),
-        ToolItem("PDF to Word", "Convert PDF to Word offline", "📝", Color(0xFFEF4444), onNavigateToPdfToWord),
-        ToolItem("PDF to PPT", "Convert PDF to Slides offline", "🖼️", Color(0xFFEF4444), onNavigateToPdfToPpt),
-        ToolItem("PDF to Excel", "Convert PDF to Sheets offline", "📊", Color(0xFFEF4444), onNavigateToPdfToExcel),
-        ToolItem("Fill Form", "Fill PDF interactive form fields", "✍️", Color(0xFFEF4444), onNavigateToPdfFormFiller)
-    )
-
-    ToolsLazyGrid(items)
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("🥞", "Merge PDFs", "Combine multiple files", OmniColors.PdfRed, onNavigateToPdfMerge) }
+        item { ToolListRow("✂️", "Split PDF", "Extract page ranges", OmniColors.PdfRed, onNavigateToPdfSplit) }
+        item { ToolListRow("🔒", "Encrypt PDF", "Lock with secure password", OmniColors.PdfRed, onNavigateToPdfLock) }
+        item { ToolListRow("✍️", "Digital Sign", "Stamp digital signature", OmniColors.PdfRed, onNavigateToSignaturePad) }
+        item { ToolListRow("💧", "Watermark", "Add security stamp overlay", OmniColors.PdfRed, onNavigateToWatermark) }
+        item { ToolListRow("📕", "Images to PDF", "Compile multiple photos into PDF", OmniColors.PdfRed, onNavigateToImagesToPdf) }
+        item { ToolListRow("📑", "Doc to PDF", "Transcode Word files to PDF", OmniColors.PdfRed, onNavigateToDocToPdf) }
+        item { ToolListRow("🖼️", "Slides to PDF", "Transcode PPTX files to PDF", OmniColors.PdfRed, onNavigateToPptToPdf) }
+        item { ToolListRow("📷", "Scan to PDF", "Compile camera scans to PDF", OmniColors.PdfRed, onNavigateToScanToPdf) }
+        item { ToolListRow("🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, onNavigateToPdfToImages) }
+        item { ToolListRow("📝", "PDF to Word", "Convert PDF to Word offline", OmniColors.PdfRed, onNavigateToPdfToWord) }
+        item { ToolListRow("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, onNavigateToPdfToPpt) }
+        item { ToolListRow("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, onNavigateToPdfToExcel) }
+        item { ToolListRow("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, onNavigateToPdfFormFiller) }
+    }
 }
 
 @Composable
-fun DocumentsToolsGrid(
+fun WordToolsList(
     onSelectFileForType: (String) -> Unit
 ) {
-    val items = listOf(
-        ToolItem("Word Viewer", "Open and read DOCX files", "📝", Color(0xFF3B82F6)) { onSelectFileForType("word") },
-        ToolItem("Excel Viewer", "View spreadsheet XLSX cells", "📊", Color(0xFF10B981)) { onSelectFileForType("excel") },
-        ToolItem("Slides Viewer", "Launch PPTX presentation", "🖼️", Color(0xFFF59E0B)) { onSelectFileForType("slides") },
-        ToolItem("Text Editor", "Read and edit local TXT files", "📄", Color(0xFF64748B)) { onSelectFileForType("text") },
-        ToolItem("Word Count", "Analyze document metrics", "🧮", Color(0xFF3B82F6)) { onSelectFileForType("word") },
-        ToolItem("CSV Editor", "Edit and parse CSV grids", "📅", Color(0xFF10B981)) { onSelectFileForType("csv") }
-    )
-
-    ToolsLazyGrid(items)
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }) }
+        item { ToolListRow("📄", "Text Editor", "Read and edit local TXT files", OmniColors.TextMuted, { onSelectFileForType("text") }) }
+        item { ToolListRow("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }) }
+    }
 }
 
 @Composable
-fun ImageToolsGrid(
+fun ExcelToolsList(
+    onSelectFileForType: (String) -> Unit
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }) }
+        item { ToolListRow("📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }) }
+    }
+}
+
+@Composable
+fun SlidesToolsList(
+    onSelectFileForType: (String) -> Unit
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }) }
+    }
+}
+
+@Composable
+fun ImageToolsList(
     onNavigateToImageTools: () -> Unit,
     onNavigateToOcr: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit
 ) {
-    val items = listOf(
-        ToolItem("Image Lab", "Compress & format convert", "🖼️", Color(0xFF8B5CF6), onNavigateToImageTools),
-        ToolItem("Text OCR", "Extract text offline with ML Kit", "🔬", Color(0xFF8B5CF6), onNavigateToOcr),
-        ToolItem("Smart Scan", "Auto edge-detect page camera", "📷", Color(0xFF8B5CF6), onNavigateToBarcodeScanner),
-        ToolItem("Crop Image", "Adjust custom proportions", "✂️", Color(0xFF8B5CF6), onNavigateToImageTools),
-        ToolItem("Format Transcoder", "PNG, JPEG, WEBP conversions", "🔄", Color(0xFF8B5CF6), onNavigateToImageTools),
-        ToolItem("Lossless Resize", "Fine-grain dimension control", "📐", Color(0xFF8B5CF6), onNavigateToImageTools)
-    )
-
-    ToolsLazyGrid(items)
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("🖼️", "Image Lab", "Compress & format convert", OmniColors.ImgPurple, onNavigateToImageTools) }
+        item { ToolListRow("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, onNavigateToOcr) }
+        item { ToolListRow("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, onNavigateToBarcodeScanner) }
+        item { ToolListRow("✂️", "Crop Image", "Adjust custom proportions", OmniColors.ImgPurple, onNavigateToImageTools) }
+        item { ToolListRow("🔄", "Format Transcoder", "PNG, JPEG, WEBP conversions", OmniColors.ImgPurple, onNavigateToImageTools) }
+        item { ToolListRow("📐", "Lossless Resize", "Fine-grain dimension control", OmniColors.ImgPurple, onNavigateToImageTools) }
+    }
 }
 
 @Composable
-fun ArchiveQrToolsGrid(
+fun ArchiveQrToolsList(
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onNavigateToZipMaker: () -> Unit,
     onSelectFileForType: (String) -> Unit
 ) {
-    val items = listOf(
-        ToolItem("ZIP Maker", "Compress multiple files to ZIP", "🗜️", Color(0xFF06B6D4), onNavigateToZipMaker),
-        ToolItem("ZIP Extractor", "Extract local ZIP archives", "🔓", Color(0xFF06B6D4)) { onSelectFileForType("zip") },
-        ToolItem("QR Generator", "Compile WiFi/vCard QR codes", "🧬", Color(0xFF06B6D4), onNavigateToQrGenerator),
-        ToolItem("QR Scanner", "Live viewfinder decoding", "📷", Color(0xFF06B6D4), onNavigateToBarcodeScanner),
-        ToolItem("Barcode Builder", "Generate EAN/UPC barcodes", "📊", Color(0xFF06B6D4), onNavigateToQrGenerator),
-        ToolItem("Batch Toolkit", "Optimize multiple actions", "⚡", Color(0xFF06B6D4), onNavigateToBatchTools)
-    )
-
-    ToolsLazyGrid(items)
-}
-
-@Composable
-fun ToolsLazyGrid(items: List<ToolItem>) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize()
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        items(items.size) { index ->
-            val item = items[index]
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { item.onClick() }
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(item.color.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = item.iconText,
-                            fontSize = 18.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.description,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
+        item { ToolListRow("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, onNavigateToZipMaker) }
+        item { ToolListRow("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }) }
+        item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, onNavigateToQrGenerator) }
+        item { ToolListRow("📷", "QR Scanner", "Live viewfinder decoding", OmniColors.ArcCyan, onNavigateToBarcodeScanner) }
+        item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", OmniColors.ArcCyan, onNavigateToQrGenerator) }
+        item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", OmniColors.ArcCyan, onNavigateToBatchTools) }
     }
 }
-
-data class ToolItem(
-    val title: String,
-    val description: String,
-    val iconText: String,
-    val color: Color,
-    val onClick: () -> Unit
-)

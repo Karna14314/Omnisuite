@@ -51,6 +51,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.AsyncImage
+import com.karnadigital.omnisuite.core.util.ZoomableBox
+
 /**
  * Slide-deck Presentation Viewer (PPTX) mobile screen engine.
  * Renders slides in a distraction-free swipeable HorizontalPager.
@@ -69,8 +74,36 @@ fun PptxViewerScreen(
         viewModel.loadPptxFile(fileUri)
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.saveStatus.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val state by viewModel.loadState.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
+
+    var activeIndexToEdit by remember { mutableStateOf<Int?>(null) }
+    var blockToEdit by remember { mutableStateOf<PptxTextBlock?>(null) }
+    var isTitleEdit by remember { mutableStateOf(false) }
+    var blockIndexToEdit by remember { mutableStateOf(-1) }
+    var showFormatter by remember { mutableStateOf(false) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            uri?.let {
+                coroutineScope.launch {
+                    val cachedFile = com.karnadigital.omnisuite.core.util.UriCacheUtils.cacheUriToFile(context, it)
+                    if (cachedFile != null) {
+                        val slideIndex = activeIndexToEdit ?: 0
+                        viewModel.insertImageIntoSlide(slideIndex, cachedFile.absolutePath)
+                        Toast.makeText(context, "Picture inserted successfully!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    )
 
     Scaffold(
         topBar = {
@@ -97,9 +130,14 @@ fun PptxViewerScreen(
                 },
                 actions = {
                     if (state is PptxLoadState.Success) {
-                        IconButton(onClick = { isEditMode = !isEditMode }) {
+                        IconButton(onClick = {
+                            if (isEditMode) {
+                                viewModel.commitChanges()
+                            }
+                            isEditMode = !isEditMode
+                        }) {
                             Icon(
-                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Build,
+                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
                                 contentDescription = "Toggle Edit Mode",
                                 tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
@@ -298,7 +336,19 @@ fun PptxViewerScreen(
                                 pageSpacing = 16.dp
                             ) { pageIndex ->
                                 val slide = presentation.slides[pageIndex]
-                                SlideCardItem(slide = slide, isEditMode = isEditMode, onTitleUpdate = { newTitle -> viewModel.updateSlideText(pageIndex, newTitle) })
+                                ZoomableBox(modifier = Modifier.fillMaxSize()) {
+                                    SlideCardItem(
+                                        slide = slide,
+                                        isEditMode = isEditMode,
+                                        onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                            blockToEdit = textBlock
+                                            activeIndexToEdit = pageIndex
+                                            isTitleEdit = isTitle
+                                            blockIndexToEdit = blockIdx
+                                            showFormatter = true
+                                        }
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -331,6 +381,92 @@ fun PptxViewerScreen(
                                             )
                                     )
                                 }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Render slide comment note at the bottom
+                            val currentSlide = presentation.slides[pagerState.currentPage]
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Comment Notes",
+                                            tint = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Slide Notes & Comments",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val displayComment = currentSlide.comment
+                                    if (!displayComment.isNullOrBlank()) {
+                                        Text(
+                                            text = displayComment,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "No slide notes recorded.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Text Formatter dialog overlay
+                            if (showFormatter && blockToEdit != null && activeIndexToEdit != null) {
+                                val slide = presentation.slides[activeIndexToEdit!!]
+                                PptxTextFormatterDialog(
+                                    slideIndex = activeIndexToEdit!!,
+                                    textBlock = blockToEdit!!,
+                                    isTitle = isTitleEdit,
+                                    blockIndex = blockIndexToEdit,
+                                    initialComment = slide.comment,
+                                    onDismiss = { showFormatter = false },
+                                    onSave = { newText, isBold, isItalic, isUnderline, textColorHex, comment ->
+                                        viewModel.updateSlideTextShape(
+                                            slideIndex = activeIndexToEdit!!,
+                                            isTitle = isTitleEdit,
+                                            blockIndex = blockIndexToEdit,
+                                            newText = newText,
+                                            isBold = isBold,
+                                            isItalic = isItalic,
+                                            isUnderline = isUnderline,
+                                            textColorHex = textColorHex,
+                                            comment = comment
+                                        )
+                                        showFormatter = false
+                                    },
+                                    onInsertImageClick = {
+                                        imagePickerLauncher.launch("image/*")
+                                        showFormatter = false
+                                    }
+                                )
                             }
                         }
                     }
@@ -370,38 +506,182 @@ fun PptxViewerScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PptxTextFormatterDialog(
+    slideIndex: Int,
+    textBlock: PptxTextBlock,
+    isTitle: Boolean,
+    blockIndex: Int,
+    initialComment: String?,
+    onDismiss: () -> Unit,
+    onSave: (
+        newText: String,
+        isBold: Boolean,
+        isItalic: Boolean,
+        isUnderline: Boolean,
+        textColorHex: String?,
+        comment: String?
+    ) -> Unit,
+    onInsertImageClick: () -> Unit
+) {
+    var text by remember { mutableStateOf(textBlock.text) }
+    var isBold by remember { mutableStateOf(textBlock.isBold) }
+    var isItalic by remember { mutableStateOf(textBlock.isItalic) }
+    var isUnderline by remember { mutableStateOf(textBlock.isUnderline) }
+    var textColorHex by remember { mutableStateOf(textBlock.textColorHex) }
+    var comment by remember { mutableStateOf(initialComment ?: "") }
+
+    val colors = listOf(
+        "#000000", // Black
+        "#2196F3", // Blue
+        "#4CAF50", // Green
+        "#F44336", // Red
+        "#FFEB3B", // Yellow
+        "#9C27B0", // Purple
+        "#FF9800", // Orange
+        "#00BCD4"  // Cyan
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (isTitle) "Format Slide Title" else "Format Text Bullet",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Text input
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Text Content") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 4
+                )
+
+                // Formatting toggles
+                Text(
+                    text = "Text Styling",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilledIconToggleButton(
+                        checked = isBold,
+                        onCheckedChange = { isBold = it },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Text("B", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+
+                    FilledIconToggleButton(
+                        checked = isItalic,
+                        onCheckedChange = { isItalic = it },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Text("I", style = MaterialTheme.typography.bodyLarge.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), fontSize = 16.sp)
+                    }
+
+                    FilledIconToggleButton(
+                        checked = isUnderline,
+                        onCheckedChange = { isUnderline = it },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Text("U", style = MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline), fontSize = 16.sp)
+                    }
+                }
+
+                // Color picker swatches
+                Text(
+                    text = "Text Color",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    colors.forEach { hex ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val isSelected = textColorHex?.lowercase() == hex.lowercase()
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (isSelected) 3.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
+                                .clickable {
+                                    textColorHex = if (isSelected) null else hex
+                                }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                // Comment input
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Slide Notes / Comment") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                // Insert Picture Button
+                Button(
+                    onClick = onInsertImageClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Icon(imageVector = Icons.Default.Share, contentDescription = "Insert Image", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Insert Picture Run")
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSave(text, isBold, isItalic, isUnderline, textColorHex, comment)
+            }) { Text("Apply") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
 @Composable
 fun SlideCardItem(
     slide: PptxSlide,
     isEditMode: Boolean = false,
-    onTitleUpdate: (String) -> Unit = {}
+    onTextBlockClick: (PptxTextBlock, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
-    var showEditDialog by remember { mutableStateOf(false) }
-    var editTitleText by remember { mutableStateOf(slide.title) }
-
-    if (showEditDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditDialog = false },
-            title = { Text("Edit Slide Title") },
-            text = {
-                OutlinedTextField(
-                    value = editTitleText,
-                    onValueChange = { editTitleText = it },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    onTitleUpdate(editTitleText)
-                    showEditDialog = false
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -423,19 +703,31 @@ fun SlideCardItem(
                 .padding(24.dp)
         ) {
             // Slide Title
+            val titleColor = slide.title.textColorHex?.let {
+                try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.primary }
+            } ?: MaterialTheme.colorScheme.primary
+
             Text(
-                text = slide.title,
+                text = slide.title.text,
                 style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = if (slide.title.isBold) FontWeight.ExtraBold else FontWeight.Bold,
+                    fontStyle = if (slide.title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                    textDecoration = if (slide.title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
                     lineHeight = 32.sp
                 ),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.fillMaxWidth()
+                color = titleColor,
+                modifier = Modifier
+                    .fillMaxWidth()
                     .clickable(enabled = isEditMode) {
-                        editTitleText = slide.title
-                        showEditDialog = true
+                        onTextBlockClick(slide.title, true, -1)
                     }
-                    .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha=0.1f) else Color.Transparent)
+                    .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                    .border(
+                        width = if (isEditMode) 1.dp else 0.dp,
+                        color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(if (isEditMode) 8.dp else 0.dp)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -443,9 +735,11 @@ fun SlideCardItem(
             Spacer(modifier = Modifier.height(20.dp))
 
             // Slide text points / bullet points
-            if (slide.textBlocks.isEmpty()) {
+            if (slide.textBlocks.isEmpty() && slide.imageUrls.isEmpty()) {
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -459,8 +753,26 @@ fun SlideCardItem(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    slide.textBlocks.forEach { text ->
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                    slide.textBlocks.forEachIndexed { idx, block ->
+                        val blockColor = block.textColorHex?.let {
+                            try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
+                        } ?: MaterialTheme.colorScheme.onSurface
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = isEditMode) {
+                                    onTextBlockClick(block, false, idx)
+                                }
+                                .background(if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f) else Color.Transparent)
+                                .border(
+                                    width = if (isEditMode) 1.dp else 0.dp,
+                                    color = if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(if (isEditMode) 8.dp else 0.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
                             Text(
                                 text = "• ",
                                 style = MaterialTheme.typography.bodyLarge.copy(
@@ -470,13 +782,44 @@ fun SlideCardItem(
                                 color = MaterialTheme.colorScheme.secondary
                             )
                             Text(
-                                text = text,
+                                text = block.text,
                                 style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
+                                    fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                                    textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
                                     lineHeight = 24.sp
                                 ),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = blockColor
                             )
                         }
+                    }
+                }
+            }
+
+            // Slide images
+            if (slide.imageUrls.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "Slide Images",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    slide.imageUrls.forEach { imgPath ->
+                        AsyncImage(
+                            model = File(imgPath),
+                            contentDescription = "Slide Image",
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
                     }
                 }
             }

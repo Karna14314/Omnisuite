@@ -26,7 +26,15 @@ import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
 
-data class CellData(val text: String, val colorHex: String? = null)
+data class CellData(
+    val text: String,
+    val colorHex: String? = null,
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val textColorHex: String? = null,
+    val comment: String? = null
+)
 data class ExcelSheet(val name: String, val rows: List<List<CellData>>)
 data class ExcelWorkbook(val sheets: List<ExcelSheet>)
 
@@ -195,12 +203,12 @@ class XlsxViewerViewModel @Inject constructor(
     private fun parseWorkbook(wb: XSSFWorkbook): ExcelWorkbook {
         val sheetList = mutableListOf<ExcelSheet>()
         val numberOfSheets = wb.numberOfSheets
-
+ 
         for (s in 0 until numberOfSheets) {
             val sheet = wb.getSheetAt(s)
             val sheetName = sheet.sheetName ?: "Sheet ${s + 1}"
             val rowList = mutableListOf<List<CellData>>()
-
+ 
             // Track maximum columns to normalize grid headers
             var maxCols = 0
             val rawRows = mutableListOf<Row>()
@@ -219,7 +227,7 @@ class XlsxViewerViewModel @Inject constructor(
                     rawRows.add(sheet.createRow(r)) 
                 }
             }
-
+ 
             // Normalize grid rows to equal length
             for (row in rawRows) {
                 val rowCells = mutableListOf<CellData>()
@@ -229,6 +237,11 @@ class XlsxViewerViewModel @Inject constructor(
                         rowCells.add(CellData(""))
                     } else {
                         var colorHex: String? = null
+                        var isBold = false
+                        var isItalic = false
+                        var isUnderline = false
+                        var textColorHex: String? = null
+                        
                         val style = cell.cellStyle as? org.apache.poi.xssf.usermodel.XSSFCellStyle
                         if (style != null) {
                             val fgColor = style.fillForegroundXSSFColor
@@ -238,13 +251,40 @@ class XlsxViewerViewModel @Inject constructor(
                                     colorHex = "#" + rgb.substring(rgb.length - 6)
                                 }
                             }
+                            
+                            val fontIndex = style.fontIndexAsInt
+                            val font = wb.getFontAt(fontIndex)
+                            isBold = font.bold
+                            isItalic = font.italic
+                            isUnderline = font.underline != org.apache.poi.ss.usermodel.Font.U_NONE
+                            
+                            val xssfFont = font as? org.apache.poi.xssf.usermodel.XSSFFont
+                            if (xssfFont != null) {
+                                val fontColor = xssfFont.xssfColor
+                                if (fontColor != null) {
+                                    val rgb = fontColor.argbHex
+                                    if (rgb != null && rgb.length >= 6) {
+                                        textColorHex = "#" + rgb.substring(rgb.length - 6)
+                                    }
+                                }
+                            }
                         }
-                        rowCells.add(CellData(getFormattedCellValue(cell), colorHex))
+                        
+                        val cellComment = cell.cellComment?.string?.string
+                        rowCells.add(CellData(
+                            text = getFormattedCellValue(cell),
+                            colorHex = colorHex,
+                            isBold = isBold,
+                            isItalic = isItalic,
+                            isUnderline = isUnderline,
+                            textColorHex = textColorHex,
+                            comment = cellComment
+                        ))
                     }
                 }
                 rowList.add(rowCells)
             }
-
+ 
             sheetList.add(ExcelSheet(sheetName, rowList))
         }
         return ExcelWorkbook(sheetList)
@@ -254,7 +294,18 @@ class XlsxViewerViewModel @Inject constructor(
      * Updates an active Excel cell, converting double values safely, and
      * re-running formulas evaluations downstream instantly.
      */
-    fun updateCell(sheetIndex: Int, rowIndex: Int, colIndex: Int, valueString: String, colorHex: String? = null) {
+    fun updateCell(
+        sheetIndex: Int,
+        rowIndex: Int,
+        colIndex: Int,
+        valueString: String,
+        colorHex: String? = null,
+        isBold: Boolean = false,
+        isItalic: Boolean = false,
+        isUnderline: Boolean = false,
+        textColorHex: String? = null,
+        commentText: String? = null
+    ) {
         val wb = activeWorkbook ?: return
         val sheet = wb.getSheetAt(sheetIndex) ?: return
         var row = sheet.getRow(rowIndex)
@@ -266,20 +317,19 @@ class XlsxViewerViewModel @Inject constructor(
             cell = row.createCell(colIndex)
         }
 
-                val doubleValue = valueString.toDoubleOrNull()
+        val doubleValue = valueString.toDoubleOrNull()
         if (doubleValue != null) {
             cell.setCellValue(doubleValue)
         } else {
             cell.setCellValue(valueString)
         }
 
-        // Handle Background Color Styling
+        // Create style or get existing to merge formatting
+        val style = wb.createCellStyle()
+        
+        // Background Color Fill
         if (colorHex != null) {
-            val style = wb.createCellStyle()
-            // In Apache POI, setting solid foreground needs pattern set
             style.fillPattern = org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND
-
-            // XSSFColor parsing
             val xssfColor = org.apache.poi.xssf.usermodel.XSSFColor(
                 byteArrayOf(
                     Integer.parseInt(colorHex.substring(1, 3), 16).toByte(),
@@ -289,7 +339,55 @@ class XlsxViewerViewModel @Inject constructor(
                 null
             )
             (style as org.apache.poi.xssf.usermodel.XSSFCellStyle).setFillForegroundColor(xssfColor)
-            cell.cellStyle = style
+        } else {
+            // Keep default style
+            val cellStyle = cell.cellStyle as? org.apache.poi.xssf.usermodel.XSSFCellStyle
+            if (cellStyle != null) {
+                style.cloneStyleFrom(cellStyle)
+            }
+        }
+
+        // Font formatting (Bold, Italic, Underline, Text Color)
+        val font = wb.createFont()
+        font.bold = isBold
+        font.italic = isItalic
+        font.underline = if (isUnderline) org.apache.poi.ss.usermodel.Font.U_SINGLE else org.apache.poi.ss.usermodel.Font.U_NONE
+        if (textColorHex != null) {
+            val xssfFont = font as? org.apache.poi.xssf.usermodel.XSSFFont
+            if (xssfFont != null) {
+                val colorBytes = byteArrayOf(
+                    Integer.parseInt(textColorHex.substring(1, 3), 16).toByte(),
+                    Integer.parseInt(textColorHex.substring(3, 5), 16).toByte(),
+                    Integer.parseInt(textColorHex.substring(5, 7), 16).toByte()
+                )
+                val xColor = org.apache.poi.xssf.usermodel.XSSFColor(colorBytes, null)
+                xssfFont.setColor(xColor)
+            }
+        }
+        style.setFont(font)
+        cell.cellStyle = style
+
+        // Cell Comment Annotation patriarch drawing
+        if (commentText != null) {
+            try {
+                cell.removeCellComment()
+                if (commentText.isNotBlank()) {
+                    var patriarch = sheet.drawingPatriarch
+                    if (patriarch == null) {
+                        patriarch = sheet.createDrawingPatriarch()
+                    }
+                    val anchor = wb.creationHelper.createClientAnchor()
+                    anchor.setCol1(colIndex)
+                    anchor.setCol2(colIndex + 2)
+                    anchor.row1 = rowIndex
+                    anchor.row2 = rowIndex + 2
+                    val cellComment = patriarch.createCellComment(anchor)
+                    cellComment.string = wb.creationHelper.createRichTextString(commentText)
+                    cell.cellComment = cellComment
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         // Instantly force downstream formula recalculations

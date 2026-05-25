@@ -29,6 +29,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.util.concurrent.Executors
+import android.widget.Toast
 
 /**
  * CameraX hardware viewfinder screen that performs real-time offline barcode parsing.
@@ -120,12 +121,38 @@ fun BarcodeScannerScreen(
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
 
-                                // Executor for the analyzer stream
                                 val executor = Executors.newSingleThreadExecutor()
+                                val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
+
                                 imageAnalysis.setAnalyzer(executor) { imageProxy ->
-                                    // ML Kit Analysis goes here when hardware context is bound.
-                                    // For placeholder/safeguards we close the stream.
-                                    imageProxy.close()
+                                    @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                    val mediaImage = imageProxy.image
+                                    if (mediaImage != null) {
+                                        val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                        scanner.process(image)
+                                            .addOnSuccessListener { barcodes ->
+                                                val firstBarcode = barcodes.firstOrNull()
+                                                if (firstBarcode != null) {
+                                                    val rawValue = firstBarcode.rawValue
+                                                    if (rawValue != null) {
+                                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                            if (scannedText != rawValue) {
+                                                                scannedText = rawValue
+                                                                viewModel.logScannedBarcode(rawValue)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            .addOnFailureListener {
+                                                it.printStackTrace()
+                                            }
+                                            .addOnCompleteListener {
+                                                imageProxy.close()
+                                            }
+                                    } else {
+                                        imageProxy.close()
+                                    }
                                 }
 
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -183,7 +210,52 @@ fun BarcodeScannerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            val galleryLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri ->
+                uri?.let {
+                    try {
+                        val image = com.google.mlkit.vision.common.InputImage.fromFilePath(context, it)
+                        val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
+                        scanner.process(image)
+                            .addOnSuccessListener { barcodes ->
+                                val firstBarcode = barcodes.firstOrNull()
+                                if (firstBarcode != null) {
+                                    val rawValue = firstBarcode.rawValue
+                                    if (rawValue != null) {
+                                        scannedText = rawValue
+                                        viewModel.logScannedBarcode(rawValue)
+                                        Toast.makeText(context, "QR / Barcode scanned successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "No readable QR/Barcode content found.", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    Toast.makeText(context, "No QR/Barcode found in this image.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .addOnFailureListener { e ->
+                                Toast.makeText(context, "Scan failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Failed to load image: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = { galleryLauncher.launch("image/*") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Text("🖼️ Scan from Photo Gallery", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Scanned payload card
             if (scannedText != null) {
