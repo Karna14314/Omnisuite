@@ -433,56 +433,72 @@ fun XlsxViewerScreen(
                                 ZoomableBox(
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .horizontalScroll(horizontalScrollState)
+                                    Column(
+                                        modifier = Modifier.fillMaxSize()
                                     ) {
-                                        LazyColumn(
-                                            state = lazyListState,
-                                            modifier = Modifier.fillMaxHeight(),
-                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        // 1. Column headers index (A, B, C...) - pinned vertically, scrolls horizontally
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                         ) {
-                                            // 1. Column headers index (A, B, C...)
-                                            item {
-                                                Row(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
-                                                    HeaderCell("", isIntersection = true)
+                                            HeaderCell("", isIntersection = true)
+                                            Box(
+                                                modifier = Modifier.horizontalScroll(horizontalScrollState)
+                                            ) {
+                                                Row {
                                                     val colCount = if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0
                                                     for (c in 0 until colCount) {
                                                         HeaderCell(getColHeaderString(c))
                                                     }
                                                 }
                                             }
+                                        }
 
-                                            // 2. Row cells
+                                        // 2. Scrollable LazyColumn - scrolls vertically
+                                        LazyColumn(
+                                            state = lazyListState,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
                                             items(activeSheet.rows.size) { rowIndex ->
                                                 val rowCells = activeSheet.rows[rowIndex]
-                                                Row {
-                                                    // Row Number Header Index
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    // Row Number Header Index - pinned horizontally
                                                     HeaderCell((rowIndex + 1).toString(), isRowHeader = true)
                                                     
-                                                    // Data Row Values
-                                                    rowCells.forEachIndexed { colIndex, cellData ->
-                                                        val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
-                                                        val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                            match.pageIndex == activeSheetIndex &&
-                                                            match.extraData?.split(",")?.let { parts ->
-                                                                parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
-                                                            } ?: false
-                                                        } ?: false
-                                                        DataCell(
-                                                            text = cellData.text,
-                                                            colorHex = cellData.colorHex,
-                                                            isSelected = isSelected,
-                                                            isSearchResult = isSearchResult,
-                                                            comment = cellData.comment,
-                                                            onClick = {
-                                                                selectedCell = CellCoords(rowIndex, colIndex)
-                                                                selectedCellData = cellData
-                                                                bottomSheetValue = cellData.text
-                                                                showBottomSheet = true
+                                                    // Data Row Cells - scrolls horizontally in sync
+                                                    Box(
+                                                        modifier = Modifier.horizontalScroll(horizontalScrollState)
+                                                    ) {
+                                                        Row {
+                                                            rowCells.forEachIndexed { colIndex, cellData ->
+                                                                val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
+                                                                val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                                    match.pageIndex == activeSheetIndex &&
+                                                                    match.extraData?.split(",")?.let { parts ->
+                                                                        parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
+                                                                    } ?: false
+                                                                } ?: false
+                                                                DataCell(
+                                                                    text = cellData.text,
+                                                                    colorHex = cellData.colorHex,
+                                                                    isSelected = isSelected,
+                                                                    isSearchResult = isSearchResult,
+                                                                    comment = cellData.comment,
+                                                                    onClick = {
+                                                                        selectedCell = CellCoords(rowIndex, colIndex)
+                                                                        selectedCellData = cellData
+                                                                        bottomSheetValue = cellData.text
+                                                                        showBottomSheet = true
+                                                                    }
+                                                                )
                                                             }
-                                                        )
+                                                        }
                                                     }
                                                 }
                                             }

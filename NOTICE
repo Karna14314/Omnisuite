@@ -1,0 +1,32 @@
+OmniSuite productivity workspace
+
+Copyright 2026 Karna Digital. All Rights Reserved.
+
+This product includes software developed by Karna Digital and third-party
+open-source components.
+
+=========================================================================
+1. Apache POI (v5.2.5)
+   - Copyright (c) 2001-2024 The Apache Software Foundation
+   - Licensed under the Apache License 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+
+2. PDFBox-Android
+   - Copyright (c) Apache PDFBox Project / Birdbrain2
+   - Licensed under the Apache License 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+
+3. Google ML Kit Barcode Scanning & OCR APIs
+   - Distributed under Google APIs Terms of Service
+   - Integrated offline inside the application bundle
+
+4. Android Jetpack Suite (CameraX, Room SQLite DB, Hilt, Compose)
+   - Copyright (c) The Android Open Source Project
+   - Licensed under the Apache License 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+
+5. ZXing Barcode Scanning Library
+   - Copyright (c) ZXing authors
+   - Licensed under the Apache License 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+
+6. Coil Image Loading Library
+   - Copyright (c) 2023 Coil Contributors
+   - Licensed under the Apache License 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+=========================================================================

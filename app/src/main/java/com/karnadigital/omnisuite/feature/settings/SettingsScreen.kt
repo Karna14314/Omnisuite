@@ -2,11 +2,13 @@ package com.karnadigital.omnisuite.feature.settings
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,7 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.util.ThemeMode
+import com.karnadigital.omnisuite.core.util.AccentColor
 import com.karnadigital.omnisuite.core.util.ThemePreferences
 import com.karnadigital.omnisuite.ui.component.SectionHeader
 import com.karnadigital.omnisuite.ui.component.SettingToggleRow
@@ -40,14 +44,20 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
+    viewModel: SettingsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val themeMode by ThemePreferences.currentThemeState
+    val accentColor by ThemePreferences.currentAccentState
     
     var hardwareAcceleration by remember { mutableStateOf(true) }
     var autoSaveEnabled by remember { mutableStateOf(false) }
     
+    var outputFolderText by remember { mutableStateOf(ThemePreferences.currentOutputFolderState.value) }
+    var pdfDpiText by remember { mutableStateOf(ThemePreferences.currentPdfDpiState.value) }
+    var showDpiDropdown by remember { mutableStateOf(false) }
+
     // Dynamic cache size calculation
     var cacheSizeStr by remember { mutableStateOf("0.0 B") }
     
@@ -233,6 +243,222 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // 3. Dynamic Accent Selector swatches
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = OmniColors.Surface2
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(OmniColors.Border),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "🎨", fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Brand Accent Color",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OmniColors.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Customize application highlight accent.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OmniColors.TextMuted
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AccentColor.values().forEach { color ->
+                            val isSelected = accentColor == color
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(android.graphics.Color.parseColor(color.hex)))
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) OmniColors.TextPrimary else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .clickable { ThemePreferences.setAccentColor(context, color) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 4. Default Output Folder Selector Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = OmniColors.Surface2
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(OmniColors.Border),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "📁", fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Default Output Folder",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OmniColors.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Subfolder inside Documents to save conversions.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OmniColors.TextMuted
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = outputFolderText,
+                        onValueChange = {
+                            outputFolderText = it
+                            ThemePreferences.setOutputFolder(context, it)
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = OmniColors.TextPrimary,
+                            unfocusedTextColor = OmniColors.TextPrimary,
+                            focusedBorderColor = OmniColors.Accent,
+                            unfocusedBorderColor = OmniColors.Border
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("e.g. OmniSuite") }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 5. PDF DPI Resolution Scale Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = OmniColors.Surface2
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(OmniColors.Border),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "🖨️", fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "PDF Rendering Resolution (DPI)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OmniColors.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Configure conversion rendering quality.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OmniColors.TextMuted
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { showDpiDropdown = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = OmniColors.TextPrimary
+                            ),
+                            border = BorderStroke(1.dp, OmniColors.Border)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when (pdfDpiText) {
+                                        72 -> "72 DPI (Draft / Fast)"
+                                        300 -> "300 DPI (High Definition)"
+                                        else -> "150 DPI (Balanced)"
+                                    }
+                                )
+                                Text("▼", fontSize = 10.sp, color = OmniColors.TextMuted)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showDpiDropdown,
+                            onDismissRequest = { showDpiDropdown = false },
+                            modifier = Modifier.fillMaxWidth(0.9f).background(OmniColors.Surface2)
+                        ) {
+                            listOf(72, 150, 300).forEach { dpi ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = when (dpi) {
+                                                72 -> "72 DPI (Draft / Fast)"
+                                                300 -> "300 DPI (High Definition)"
+                                                else -> "150 DPI (Balanced)"
+                                            },
+                                            color = OmniColors.TextPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        pdfDpiText = dpi
+                                        ThemePreferences.setPdfDpi(context, dpi)
+                                        showDpiDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Hardware acceleration switch card
             SettingToggleRow(
                 icon = "⚡",
@@ -257,7 +483,7 @@ fun SettingsScreen(
             SectionHeader(title = "Maintenance")
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Clear Cache Action Card
+            // Wipe Database & Cache Card
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
@@ -268,11 +494,15 @@ fun SettingsScreen(
                     .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
                     .clickable {
                         try {
+                            // Clear temp cache dir
                             context.cacheDir.deleteRecursively()
                             cacheSizeStr = getCacheSize(context)
-                            Toast.makeText(context, "Local SAF cache cleared successfully.", Toast.LENGTH_SHORT).show()
+                            // Clear history logs DB
+                            viewModel.clearAllRecentFiles {
+                                Toast.makeText(context, "Local cache & SQLite history logs purged successfully.", Toast.LENGTH_SHORT).show()
+                            }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Clear failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Purge failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                         }
                     }
             ) {
@@ -294,19 +524,19 @@ fun SettingsScreen(
                                 .background(OmniColors.PdfRedBg),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "🗑", fontSize = 14.sp)
+                            Text(text = "🔥", fontSize = 14.sp)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Clear SAF Cache",
+                                text = "Wipe Database & Cache",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = OmniColors.TextPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Delete copied SAF document payload streams.",
+                                text = "Purge local cache payload streams & history logs.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = OmniColors.TextMuted
                             )
@@ -315,7 +545,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear Cache",
+                        contentDescription = "Purge DB & Cache",
                         tint = OmniColors.PdfRed
                     )
                 }

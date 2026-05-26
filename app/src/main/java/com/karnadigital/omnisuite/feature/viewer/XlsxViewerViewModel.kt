@@ -317,11 +317,19 @@ class XlsxViewerViewModel @Inject constructor(
             cell = row.createCell(colIndex)
         }
 
-        val doubleValue = valueString.toDoubleOrNull()
-        if (doubleValue != null) {
-            cell.setCellValue(doubleValue)
+        if (valueString.startsWith("=")) {
+            try {
+                cell.cellFormula = valueString.substring(1)
+            } catch (e: Exception) {
+                cell.setCellValue(valueString)
+            }
         } else {
-            cell.setCellValue(valueString)
+            val doubleValue = valueString.toDoubleOrNull()
+            if (doubleValue != null) {
+                cell.setCellValue(doubleValue)
+            } else {
+                cell.setCellValue(valueString)
+            }
         }
 
         // Create style or get existing to merge formatting

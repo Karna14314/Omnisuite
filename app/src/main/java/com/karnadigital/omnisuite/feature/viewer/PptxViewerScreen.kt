@@ -32,6 +32,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
@@ -326,7 +329,7 @@ fun PptxViewerScreen(
                                 .padding(vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // Swipable Slides horizontal pager
+                            // Swipable Slides horizontal pager with premium scale/fade transitions
                             HorizontalPager(
                                 state = pagerState,
                                 modifier = Modifier
@@ -336,24 +339,40 @@ fun PptxViewerScreen(
                                 pageSpacing = 16.dp
                             ) { pageIndex ->
                                 val slide = presentation.slides[pageIndex]
-                                ZoomableBox(modifier = Modifier.fillMaxSize()) {
-                                    SlideCardItem(
-                                        slide = slide,
-                                        isEditMode = isEditMode,
-                                        onTextBlockClick = { textBlock, isTitle, blockIdx ->
-                                            blockToEdit = textBlock
-                                            activeIndexToEdit = pageIndex
-                                            isTitleEdit = isTitle
-                                            blockIndexToEdit = blockIdx
-                                            showFormatter = true
+
+                                // Smooth scale and opacity transformation during page swipes
+                                val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
+                                val scale = 1f - (Math.abs(pageOffset) * 0.12f).coerceIn(0f, 0.12f)
+                                val alpha = 1f - (Math.abs(pageOffset) * 0.4f).coerceIn(0f, 0.4f)
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                            this.alpha = alpha
                                         }
-                                    )
+                                ) {
+                                    ZoomableBox(modifier = Modifier.fillMaxSize()) {
+                                        SlideCardItem(
+                                            slide = slide,
+                                            isEditMode = isEditMode,
+                                            onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                                blockToEdit = textBlock
+                                                activeIndexToEdit = pageIndex
+                                                isTitleEdit = isTitle
+                                                blockIndexToEdit = blockIdx
+                                                showFormatter = true
+                                            }
+                                        )
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                            // Dynamic Page counter slide indicators
+                            // Slide counter
                             Text(
                                 text = "Slide ${pagerState.currentPage + 1} of ${presentation.slides.size}",
                                 style = MaterialTheme.typography.labelLarge,
@@ -363,23 +382,48 @@ fun PptxViewerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Mini Horizontal Dot Indicators
-                            Row(
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxWidth()
+                            // Scrollable horizontal slide thumbnail strip drawer
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                repeat(presentation.slides.size) { index ->
+                                items(presentation.slides.size) { index ->
                                     val isActive = pagerState.currentPage == index
-                                    Box(
+                                    val borderStroke = if (isActive) {
+                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    }
+                                    val opacity = if (isActive) 1f else 0.6f
+
+                                    Card(
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = borderStroke,
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                         modifier = Modifier
-                                            .padding(horizontal = 4.dp)
-                                            .size(width = if (isActive) 16.dp else 6.dp, height = 6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(
-                                                if (isActive) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.outlineVariant
+                                            .width(72.dp)
+                                            .height(48.dp)
+                                            .clickable {
+                                                coroutineScope.launch {
+                                                    pagerState.animateScrollToPage(index)
+                                                }
+                                            }
+                                            .graphicsLayer { this.alpha = opacity }
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Text(
+                                                text = "${index + 1}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                             )
-                                    )
+                                        }
+                                    }
                                 }
                             }
 

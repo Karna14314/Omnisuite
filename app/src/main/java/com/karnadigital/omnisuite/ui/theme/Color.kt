@@ -3,6 +3,7 @@ package com.karnadigital.omnisuite.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.karnadigital.omnisuite.core.util.ThemePreferences
 
 /**
  * Redesign Design System Tokens (OmniColors)
@@ -48,10 +49,15 @@ object OmniColors {
     val ArcCyanBg   = Color(0x1F06B6D4)
     
     // Main Brand Accent
-    val Accent      = Color(0xFF6366F1)
+    val Accent: Color
+        get() = try {
+            Color(android.graphics.Color.parseColor(ThemePreferences.currentAccentState.value.hex))
+        } catch (e: Exception) {
+            Color(0xFF6366F1)
+        }
     val AccentGlow: Color
         @Composable
-        get() = if (MaterialTheme.colorScheme.background == LightBackground) Color(0x1A6366F1) else Color(0x406366F1)   // 10% vs 25% opacity glow
+        get() = Accent.copy(alpha = if (MaterialTheme.colorScheme.background == LightBackground) 0.1f else 0.25f)
 }
 
 // Light Theme curated Slate-Indigo & Warm Gold palette
