@@ -55,6 +55,8 @@ object UriCacheUtils {
                 connection.connectTimeout = 15000
                 connection.readTimeout = 15000
                 connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 connection.connect()
                 
                 if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {

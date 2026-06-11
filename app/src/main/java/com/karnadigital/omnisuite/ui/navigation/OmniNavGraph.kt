@@ -155,7 +155,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
             ViewerDispatcherScreen(
                 fileUri = fileUri,
                 onOpenFile = { targetUri ->
@@ -214,7 +214,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
             PdfLockScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = {
@@ -342,7 +342,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
             SignaturePadScreen(
                 initialPdfUri = fileUri,
                 onBack = {
@@ -362,7 +362,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
             WatermarkScreen(
                 initialPdfUri = fileUri,
                 onBack = {

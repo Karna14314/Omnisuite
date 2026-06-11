@@ -20,6 +20,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material.icons.filled.Info
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
@@ -462,119 +466,139 @@ fun DocxViewerScreen(
                 }
                 is DocxLoadState.Success -> {
                     val document = currentState.document
-                    if (document.paragraphs.isEmpty()) {
+                    if (document.elements.isEmpty()) {
                         EmptyDocumentState()
                     } else {
-                        ZoomableBox(
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            if (isPrintLayout) {
-                                val pages = remember(document.paragraphs) {
-                                    val result = mutableListOf<List<DocxParagraph>>()
-                                    var currentGroup = mutableListOf<DocxParagraph>()
-                                    var charCount = 0
-                                    
-                                    document.paragraphs.forEach { paragraph ->
-                                        val textLength = paragraph.runs.sumOf { it.text.length }
-                                        if (charCount + textLength > 2000 || currentGroup.size >= 12) {
-                                            if (currentGroup.isNotEmpty()) {
-                                                result.add(currentGroup)
-                                                currentGroup = mutableListOf()
-                                                charCount = 0
+                        if (isPrintLayout) {
+                            val pages = remember(document.elements) {
+                                // A4 at 11pt body = ~55 body lines per page
+                                // Heading 1 = ~3 body-line equivalents, Heading 2 = ~2, body = 1 per line
+                                // Image = 8 line equivalents minimum
+                                val PAGE_LINE_BUDGET = 55
+
+                                val result = mutableListOf<List<DocxBodyElement>>()
+                                var currentPage = mutableListOf<DocxBodyElement>()
+                                var currentLines = 0
+
+                                fun estimateLines(element: DocxBodyElement): Int {
+                                    return when (element) {
+                                        is DocxBodyElement.Para -> {
+                                            val para = element.paragraph
+                                            val hasImage = para.runs.any { it.imageUrl != null }
+                                            if (hasImage) return 10
+                                            val text = para.runs.joinToString("") { it.text }
+                                            if (text.isBlank()) return 1  // empty spacer
+                                            val charsPerLine = 65  // approx chars per line at body size
+                                            val lineCount = (text.length / charsPerLine).coerceAtLeast(1)
+                                            val headingWeight = when (para.headingLevel) {
+                                                1 -> 3; 2 -> 2; 3 -> 2; else -> 1
                                             }
+                                            (lineCount * headingWeight) + 1  // +1 for paragraph spacing
                                         }
-                                        currentGroup.add(paragraph)
-                                        charCount += textLength
+                                        is DocxBodyElement.Table -> {
+                                            val maxCellLines = element.rows.sumOf { row ->
+                                                row.cells.maxOfOrNull { cell ->
+                                                    cell.paragraphs.sumOf { para ->
+                                                        val text = para.runs.joinToString("") { it.text }
+                                                        (text.length / 30).coerceAtLeast(1)  // narrower cols
+                                                    }
+                                                } ?: 2
+                                            }
+                                            maxCellLines + 2  // border overhead
+                                        }
                                     }
-                                    if (currentGroup.isNotEmpty()) {
-                                        result.add(currentGroup)
-                                    }
-                                    result
                                 }
 
-                                LazyColumn(
-                                    state = lazyListState,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
-                                ) {
-                                    itemsIndexed(pages) { pageIndex, pageParagraphs ->
-                                        Card(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .aspectRatio(1f / 1.4142f)
-                                                .padding(16.dp),
-                                            shape = RoundedCornerShape(8.dp),
-                                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-                                        ) {
-                                            Box(
+                                for (element in document.elements) {
+                                    val cost = estimateLines(element)
+                                    // If adding this element would overflow AND page isn't empty, start new page
+                                    if (currentLines + cost > PAGE_LINE_BUDGET && currentPage.isNotEmpty()) {
+                                        result.add(currentPage)
+                                        currentPage = mutableListOf()
+                                        currentLines = 0
+                                    }
+                                    currentPage.add(element)
+                                    currentLines += cost
+                                }
+                                if (currentPage.isNotEmpty()) result.add(currentPage)
+                                result
+                            }
+
+                            LazyColumn(
+                                state = lazyListState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                            ) {
+                                itemsIndexed(pages) { pageIndex, pageParagraphs ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f / 1.4142f)
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Column(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .padding(24.dp)
+                                                    .padding(start = 36.dp, end = 24.dp, top = 28.dp, bottom = 28.dp)
+                                                    .clip(RoundedCornerShape(0.dp)),  // clips overflow
+                                                verticalArrangement = Arrangement.Top
                                             ) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(bottom = 20.dp)
-                                                        .verticalScroll(rememberScrollState()),
-                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    pageParagraphs.forEach { paragraph ->
-                                                        DocxParagraphItem(
-                                                            paragraph = paragraph,
+                                                pageParagraphs.forEach { element ->
+                                                    when (element) {
+                                                        is DocxBodyElement.Para -> DocxParagraphItem(
+                                                            paragraph = element.paragraph,
                                                             isHighlighted = false,
                                                             searchQuery = searchQuery
                                                         )
+                                                        is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
                                                     }
                                                 }
-                                                
-                                                Text(
-                                                    text = "Page ${pageIndex + 1} of ${pages.size}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.Gray,
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomCenter)
-                                                        .background(Color.White.copy(alpha = 0.8f))
-                                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                                )
                                             }
+                                            // Page number footer
+                                            Text(
+                                                text = "— ${pageIndex + 1} —",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray,
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(bottom = 8.dp)
+                                            )
                                         }
                                     }
                                 }
-                            } else {
+                            }
+                        } else {
+                            ZoomableBox(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
                                 LazyColumn(
                                     state = lazyListState,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                                     contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
                                 ) {
-                                    itemsIndexed(document.paragraphs) { index, paragraph ->
-                                        val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
-                                        val clickableModifier = if (isEditMode) {
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    activeIndexToEdit = index
-                                                    paragraphToEdit = paragraph
+                                    itemsIndexed(document.elements) { index, element ->
+                                        when (element) {
+                                            is DocxBodyElement.Para -> {
+                                                val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
+                                                val clickableModifier = if (isEditMode) {
+                                                    Modifier.fillMaxWidth().clickable {
+                                                        activeIndexToEdit = index
+                                                        paragraphToEdit = element.paragraph
+                                                    }.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(6.dp)
+                                                } else Modifier
+                                                Box(modifier = clickableModifier) {
+                                                    DocxParagraphItem(element.paragraph, isHighlighted, searchQuery)
                                                 }
-                                                .border(
-                                                    width = 1.dp,
-                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                )
-                                                .padding(6.dp)
-                                        } else {
-                                            Modifier
-                                        }
-                                        Box(modifier = clickableModifier) {
-                                            DocxParagraphItem(
-                                                paragraph = paragraph,
-                                                isHighlighted = isHighlighted,
-                                                searchQuery = searchQuery
-                                            )
+                                            }
+                                            is DocxBodyElement.Table -> {
+                                                DocxTableItem(element, searchQuery)
+                                            }
                                         }
                                     }
                                 }
@@ -918,65 +942,118 @@ fun DocxParagraphEditorItem(
 }
 
 @Composable
+fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            table.rows.forEach { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawBehind {
+                            drawLine(
+                                color = Color.LightGray.copy(alpha = 0.4f),
+                                start = Offset(0f, size.height),
+                                end = Offset(size.width, size.height),
+                                strokeWidth = 0.5.dp.toPx()
+                            )
+                        },
+                    verticalAlignment = Alignment.Top
+                ) {
+                    row.cells.forEachIndexed { cellIdx, cell ->
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (cellIdx < row.cells.size - 1)
+                                        Modifier.drawBehind {
+                                            drawLine(
+                                                color = Color.LightGray.copy(alpha = 0.4f),
+                                                start = Offset(size.width, 0f),
+                                                end = Offset(size.width, size.height),
+                                                strokeWidth = 0.5.dp.toPx()
+                                            )
+                                        }
+                                    else Modifier
+                                )
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            cell.paragraphs.forEach { para ->
+                                DocxParagraphItem(
+                                    paragraph = para,
+                                    isHighlighted = false,
+                                    searchQuery = searchQuery
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DocxParagraphItem(
     paragraph: DocxParagraph,
     isHighlighted: Boolean = false,
     searchQuery: String = ""
 ) {
     val context = LocalContext.current
+    val isDarkTheme = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
+
     val annotatedString = remember(paragraph, searchQuery) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
+                if (run.text.isBlank() && run.imageUrl == null) return@forEach
                 val start = length
                 append(run.text)
                 val end = length
 
                 val isLink = run.hyperlinkUrl != null
-                val runColor = if (isLink) {
-                    Color(0xFF1A73E8)
-                } else {
-                    parseHexColor(run.color) ?: Color.Unspecified
+                val runColor: Color = when {
+                    isLink -> Color(0xFF1A73E8)
+                    run.color != null && run.color != "000000" && run.color != "auto" -> {
+                        try { Color(android.graphics.Color.parseColor("#${run.color}")) }
+                        catch (e: Exception) { Color.Unspecified }
+                    }
+                    else -> Color.Unspecified  // Let Material theme handle default text color
                 }
 
-                val runTextDecoration = when {
-                    isLink -> TextDecoration.Underline
-                    run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
-                    run.isUnderline -> TextDecoration.Underline
-                    run.isStrike -> TextDecoration.LineThrough
-                    else -> TextDecoration.None
-                }
+                val runFontSize = run.fontSizePt?.sp ?: 14.sp  // fallback to 14sp if not specified
 
                 val spanStyle = SpanStyle(
                     fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = runTextDecoration,
+                    textDecoration = when {
+                        isLink -> TextDecoration.Underline
+                        run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
+                        run.isUnderline -> TextDecoration.Underline
+                        run.isStrike -> TextDecoration.LineThrough
+                        else -> TextDecoration.None
+                    },
                     color = runColor,
+                    fontSize = runFontSize,
                     fontFamily = mapFontFamily(run.fontFamily)
                 )
                 addStyle(spanStyle, start, end)
 
                 if (run.hyperlinkUrl != null) {
-                    addStringAnnotation(
-                        tag = "URL",
-                        annotation = run.hyperlinkUrl,
-                        start = start,
-                        end = end
-                    )
+                    addStringAnnotation("URL", run.hyperlinkUrl, start, end)
                 }
             }
 
+            // Search highlight
             if (searchQuery.isNotEmpty()) {
                 val fullText = toString()
                 var idx = fullText.indexOf(searchQuery, ignoreCase = true)
                 while (idx != -1) {
-                    addStyle(
-                        style = SpanStyle(
-                            background = Color.Yellow,
-                            color = Color.Black
-                        ),
-                        start = idx,
-                        end = idx + searchQuery.length
-                    )
+                    addStyle(SpanStyle(background = Color.Yellow, color = Color.Black), idx, idx + searchQuery.length)
                     idx = fullText.indexOf(searchQuery, idx + searchQuery.length, ignoreCase = true)
                 }
             }
@@ -990,20 +1067,23 @@ fun DocxParagraphItem(
         else -> TextAlign.Left
     }
 
-    val style = if (paragraph.isHeading) {
-        MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.ExtraBold,
-            lineHeight = 28.sp,
-            color = MaterialTheme.colorScheme.primary
-        )
-    } else {
-        MaterialTheme.typography.bodyLarge.copy(
-            lineHeight = 24.sp,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+    // Heading styles based on level
+    val baseStyle = when (paragraph.headingLevel) {
+        1 -> MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+        2 -> MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        3 -> MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        4 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        5 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
+        else -> MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp)
     }
 
-    val verticalPadding = if (paragraph.isHeading) 12.dp else 6.dp
+    val verticalPadding = when (paragraph.headingLevel) {
+        1 -> 16.dp
+        2 -> 14.dp
+        3 -> 12.dp
+        else -> if (paragraph.spacingAfterPt > 0) (paragraph.spacingAfterPt / 2).dp.coerceIn(4.dp, 20.dp) else 6.dp
+    }
+
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
     Column(
@@ -1014,16 +1094,12 @@ fun DocxParagraphItem(
         SelectionContainer {
             ClickableText(
                 text = annotatedString,
-                style = style.copy(textAlign = textAlign),
+                style = baseStyle.copy(textAlign = textAlign),
                 onClick = { offset ->
-                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                        .firstOrNull()?.let { annotation ->
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Cannot open link: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                    annotatedString.getStringAnnotations("URL", offset, offset)
+                        .firstOrNull()?.let {
+                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) }
+                            catch (e: Exception) { }
                         }
                 },
                 modifier = Modifier
@@ -1032,32 +1108,28 @@ fun DocxParagraphItem(
             )
         }
 
-        // Render embedded images
+        // Render embedded images with proper sizing
         paragraph.runs.forEach { run ->
             if (run.imageUrl != null) {
                 val bitmap = remember(run.imageUrl) {
-                    try {
-                        BitmapFactory.decodeFile(run.imageUrl)
-                    } catch (e: Exception) {
-                        null
-                    }
+                    try { BitmapFactory.decodeFile(run.imageUrl) } catch (e: Exception) { null }
                 }
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = "Embedded Image",
                         modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .padding(vertical = 8.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
                     )
                 }
             }
         }
 
-        // Render comments if present
+        // Comment annotation
         if (!paragraph.comment.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
             Row(
@@ -1069,19 +1141,9 @@ fun DocxParagraphItem(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "Comment note",
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = paragraph.comment,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(paragraph.comment, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Spacer(modifier = Modifier.height(8.dp))
         }

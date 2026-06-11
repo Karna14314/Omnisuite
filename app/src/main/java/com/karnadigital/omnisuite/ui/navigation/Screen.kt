@@ -41,7 +41,7 @@ sealed class Screen(val route: String) {
      */
     object ViewerDispatcher : Screen("viewer_dispatcher?fileUri={fileUri}") {
         fun createRoute(fileUri: String): String {
-            val encodedUri = android.net.Uri.encode(fileUri)
+            val encodedUri = android.net.Uri.encode(android.net.Uri.encode(fileUri))
             return "viewer_dispatcher?fileUri=$encodedUri"
         }
     }
@@ -71,7 +71,7 @@ sealed class Screen(val route: String) {
      */
     object PdfLock : Screen("pdf_lock?fileUri={fileUri}") {
         fun createRoute(fileUri: String): String {
-            val encodedUri = android.net.Uri.encode(fileUri)
+            val encodedUri = android.net.Uri.encode(android.net.Uri.encode(fileUri))
             return "pdf_lock?fileUri=$encodedUri"
         }
     }
@@ -126,7 +126,7 @@ sealed class Screen(val route: String) {
      */
     object SignaturePad : Screen("signature_pad?fileUri={fileUri}") {
         fun createRoute(fileUri: String): String {
-            val encodedUri = android.net.Uri.encode(fileUri)
+            val encodedUri = android.net.Uri.encode(android.net.Uri.encode(fileUri))
             return "signature_pad?fileUri=$encodedUri"
         }
     }
@@ -136,7 +136,7 @@ sealed class Screen(val route: String) {
      */
     object Watermark : Screen("watermark?fileUri={fileUri}") {
         fun createRoute(fileUri: String): String {
-            val encodedUri = android.net.Uri.encode(fileUri)
+            val encodedUri = android.net.Uri.encode(android.net.Uri.encode(fileUri))
             return "watermark?fileUri=$encodedUri"
         }
     }

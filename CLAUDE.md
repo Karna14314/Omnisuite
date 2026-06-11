@@ -1,4 +1,30 @@
-# CLAUDE.md
+# CLAUDE.md - OmniSuite Onboarding & Guidelines
+
+This document details coding conventions and links to the codebase onboarding guides.
+
+---
+
+## 📖 Codebase Onboarding & File Map
+
+For comprehensive details on which file corresponds to which feature, engine specifications, or architecture flows, refer directly to the documentation:
+
+- **Primary Onboarding Hub**: [docs/agents.md](file:///c:/Users/chait/Projects/Omnisuite/docs/agents.md)
+  - Maps every feature to its corresponding files, ViewModels, and navigation routes.
+  - Contains quick-fix lookup indexes to locate code files in seconds.
+- **Architectural Reference**: [docs/architecture.md](file:///c:/Users/chait/Projects/Omnisuite/docs/architecture.md)
+  - Details clean architecture layers, reactive MVVM data flows, and SAF sandboxing caches.
+- **Complete File Directory Map**: [docs/file-map.md](file:///c:/Users/chait/Projects/Omnisuite/docs/file-map.md)
+  - Full catalog mapping every file to its specific purpose.
+- **Navigation Reference**: [docs/navigation.md](file:///c:/Users/chait/Projects/Omnisuite/docs/navigation.md)
+  - Mappings of sealed `Screen` classes and polymorphic MIME type resolution loops.
+- **Dependencies & ProGuard Rules**: [docs/dependencies.md](file:///c:/Users/chait/Projects/Omnisuite/docs/dependencies.md)
+  - Library versions and rules for R8 optimization.
+- **Engine API Specifications**: [docs/engines.md](file:///c:/Users/chait/Projects/Omnisuite/docs/engines.md)
+  - APIs for conversion, search, and image processing engines.
+
+---
+
+## 🤖 Behavioral Guidelines to Reduce LLM Coding Mistakes
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 

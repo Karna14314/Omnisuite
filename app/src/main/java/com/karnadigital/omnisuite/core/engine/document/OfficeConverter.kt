@@ -2,6 +2,7 @@ package com.karnadigital.omnisuite.core.engine.document
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.RectF
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -66,56 +67,208 @@ object OfficeConverter {
 
             var yPosition = pageBounds.height - margin
 
-            for (paragraph in docx.paragraphs) {
-                val isHeading = paragraph.styleID?.lowercase()?.contains("heading") == true ||
-                        paragraph.runs.firstOrNull()?.fontSize ?: 0 > 14
-                
-                val font = if (isHeading) fontBold else fontNormal
-                val fontSize = if (isHeading) fontSizeHeading else fontSizeNormal
-                val leading = if (isHeading) leadingHeading else leadingNormal
+            for (bodyElement in docx.bodyElements) {
+                if (bodyElement is org.apache.poi.xwpf.usermodel.XWPFTable) {
+                    for (row in bodyElement.rows) {
+                        val cells = row.tableCells
+                        val cellCount = cells.size
+                        if (cellCount == 0) continue
+                        val colWidth = printableWidth / cellCount.toFloat()
 
-                // Combine paragraph runs text
-                val fullText = paragraph.runs.joinToString("") { it.getText(0) ?: "" }
-                if (fullText.isEmpty()) {
-                    // Empty paragraph serves as spacer
-                    yPosition -= leading
-                    if (yPosition < margin) {
+                        // Store lines of text for each cell
+                        class CellLine(val text: String, val font: PDType1Font, val fontSize: Float, val leading: Float)
+                        val cellLinesList = mutableListOf<List<CellLine>>()
+                        var maxCellHeight = 0f
+
+                        for (cell in cells) {
+                            val lines = mutableListOf<CellLine>()
+                            for (para in cell.paragraphs) {
+                                val isHeading = para.styleID?.lowercase()?.contains("heading") == true ||
+                                        para.runs.firstOrNull()?.fontSize ?: 0 > 14
+                                val font = if (isHeading) fontBold else fontNormal
+
+                                for (run in para.runs) {
+                                    val fontSizeHalfPoints = run.fontSize
+                                    val fontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat() / 2f) else (if (isHeading) fontSizeHeading else fontSizeNormal)
+                                    val leading = fontSize * 1.4f
+                                    val runText = run.getText(0) ?: ""
+                                    if (runText.isNotEmpty()) {
+                                        val wrapped = wrapText(runText, font, fontSize, colWidth - 10f)
+                                        for (line in wrapped) {
+                                            lines.add(CellLine(line, font, fontSize, leading))
+                                        }
+                                    }
+                                }
+                            }
+                            val cellHeight = lines.sumOf { it.leading.toDouble() }.toFloat()
+                            if (cellHeight > maxCellHeight) {
+                                maxCellHeight = cellHeight
+                            }
+                            cellLinesList.add(lines)
+                        }
+
+                        // Check page bound break for the entire row height
+                        if (yPosition - maxCellHeight < margin) {
+                            contentStream?.close()
+                            currentPage = PDPage(pageBounds)
+                            pdf.addPage(currentPage)
+                            contentStream = PDPageContentStream(pdf, currentPage)
+                            yPosition = pageBounds.height - margin
+                        }
+
+                        val startY = yPosition
+                        var rowBottomY = startY - maxCellHeight
+                        if (maxCellHeight == 0f) {
+                            rowBottomY = startY - 15f
+                        }
+
+                        for (cellIdx in 0 until cellCount) {
+                            val cellX = margin + (cellIdx.toFloat() * colWidth)
+                            val lines = cellLinesList[cellIdx]
+                            var currentCellY = startY
+
+                            for (line in lines) {
+                                currentCellY -= line.leading
+                                val sanitizedLine = sanitizeText(line.text)
+                                contentStream?.beginText()
+                                contentStream?.setFont(line.font, line.fontSize)
+                                contentStream?.newLineAtOffset(cellX + 5f, currentCellY)
+                                contentStream?.showText(sanitizedLine)
+                                contentStream?.endText()
+                            }
+
+                            // Draw borders for this cell
+                            contentStream?.setStrokingColor(200, 200, 200)
+                            contentStream?.setLineWidth(0.5f)
+                            contentStream?.moveTo(cellX, startY)
+                            contentStream?.lineTo(cellX + colWidth, startY)
+                            contentStream?.lineTo(cellX + colWidth, rowBottomY)
+                            contentStream?.lineTo(cellX, rowBottomY)
+                            contentStream?.lineTo(cellX, startY)
+                            contentStream?.stroke()
+                        }
+
+                        yPosition = rowBottomY
+                    }
+                }
+
+                if (bodyElement is org.apache.poi.xwpf.usermodel.XWPFParagraph) {
+                    val paragraph = bodyElement
+                    val isHeading = paragraph.styleID?.lowercase()?.contains("heading") == true ||
+                            paragraph.runs.firstOrNull()?.fontSize ?: 0 > 14
+                    
+                    var xCursor = margin
+
+                    // Check if paragraph needs a page break before starting if yPosition is too low
+                    if (yPosition - 15f < margin) {
                         contentStream?.close()
                         currentPage = PDPage(pageBounds)
                         pdf.addPage(currentPage)
                         contentStream = PDPageContentStream(pdf, currentPage)
                         yPosition = pageBounds.height - margin
                     }
-                    continue
-                }
 
-                // Wrap text
-                val lines = wrapText(fullText, font, fontSize, printableWidth)
-
-                for (line in lines) {
-                    val sanitizedLine = sanitizeText(line)
-
-                    // Check page bound break
-                    if (yPosition - leading < margin) {
-                        contentStream?.close()
-                        currentPage = PDPage(pageBounds)
-                        pdf.addPage(currentPage)
-                        contentStream = PDPageContentStream(pdf, currentPage)
-                        yPosition = pageBounds.height - margin
+                    // Check if paragraph has text or images
+                    val hasTextOrImage = paragraph.runs.any { (it.getText(0) ?: "").isNotEmpty() || it.embeddedPictures.isNotEmpty() }
+                    if (!hasTextOrImage) {
+                        val actualFontSize = if (isHeading) fontSizeHeading else fontSizeNormal
+                        val leading = actualFontSize * 1.4f
+                        yPosition -= leading
+                        if (yPosition < margin) {
+                            contentStream?.close()
+                            currentPage = PDPage(pageBounds)
+                            pdf.addPage(currentPage)
+                            contentStream = PDPageContentStream(pdf, currentPage)
+                            yPosition = pageBounds.height - margin
+                        }
+                        continue
                     }
 
-                    // Paint line onto canvas stream
-                    contentStream?.beginText()
-                    contentStream?.setFont(font, fontSize)
-                    contentStream?.newLineAtOffset(margin, yPosition)
-                    contentStream?.showText(sanitizedLine)
-                    contentStream?.endText()
+                    for (run in paragraph.runs) {
+                        // Check for images
+                        val pictures = run.embeddedPictures
+                        if (pictures.isNotEmpty()) {
+                            for (pic in pictures) {
+                                try {
+                                    val picData = pic.pictureData.data
+                                    val bitmap = BitmapFactory.decodeByteArray(picData, 0, picData.size)
+                                    if (bitmap != null) {
+                                        val originalWidth = bitmap.width.toFloat()
+                                        val originalHeight = bitmap.height.toFloat()
+                                        val targetWidth = Math.min(printableWidth, originalWidth)
+                                        val targetHeight = (targetWidth / originalWidth) * originalHeight
 
-                    yPosition -= leading
+                                        if (xCursor > margin) {
+                                            yPosition -= (if (isHeading) fontSizeHeading else fontSizeNormal) * 1.4f
+                                            xCursor = margin
+                                        }
+
+                                        if (yPosition - targetHeight < margin) {
+                                            contentStream?.close()
+                                            currentPage = PDPage(pageBounds)
+                                            pdf.addPage(currentPage)
+                                            contentStream = PDPageContentStream(pdf, currentPage)
+                                            yPosition = pageBounds.height - margin
+                                        }
+
+                                        val pdImage = LosslessFactory.createFromImage(pdf, bitmap)
+                                        contentStream?.drawImage(pdImage, margin, yPosition - targetHeight, targetWidth, targetHeight)
+                                        yPosition -= targetHeight
+                                        bitmap.recycle()
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+
+                        // Check for text
+                        val runText = run.getText(0) ?: ""
+                        if (runText.isNotEmpty()) {
+                            val fontSizeHalfPoints = run.fontSize
+                            val actualFontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints / 2f) else (if (isHeading) fontSizeHeading else fontSizeNormal)
+                            val leading = actualFontSize * 1.4f
+                            val font = if (run.isBold) fontBold else fontNormal
+
+                            // Split runText into words
+                            val words = runText.split(Regex("(?<=\\s)|(?=\\s)"))
+                            for (word in words) {
+                                if (word.isEmpty()) continue
+                                val sanitizedWord = sanitizeText(word)
+                                val wordWidth = try {
+                                    font.getStringWidth(sanitizedWord) / 1000f * actualFontSize
+                                } catch (e: Exception) {
+                                    0f
+                                }
+
+                                if (xCursor + wordWidth > pageBounds.width - margin) {
+                                    yPosition -= leading
+                                    xCursor = margin
+
+                                    if (yPosition < margin) {
+                                        contentStream?.close()
+                                        currentPage = PDPage(pageBounds)
+                                        pdf.addPage(currentPage)
+                                        contentStream = PDPageContentStream(pdf, currentPage)
+                                        yPosition = pageBounds.height - margin
+                                    }
+                                }
+
+                                if (sanitizedWord.trim().isNotEmpty()) {
+                                    contentStream?.beginText()
+                                    contentStream?.setFont(font, actualFontSize)
+                                    contentStream?.newLineAtOffset(xCursor, yPosition)
+                                    contentStream?.showText(sanitizedWord)
+                                    contentStream?.endText()
+                                }
+                                xCursor += wordWidth
+                            }
+                        }
+                    }
+
+                    val lastLeading = (if (isHeading) fontSizeHeading else fontSizeNormal) * 1.4f
+                    yPosition -= (lastLeading + 6f)
                 }
-
-                // Paragraph separation spacing
-                yPosition -= 6f
             }
 
             contentStream?.close()

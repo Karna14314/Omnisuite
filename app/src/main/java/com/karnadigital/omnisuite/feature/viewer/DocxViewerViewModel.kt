@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.XWPFDocument
+import org.apache.poi.xwpf.usermodel.IBodyElement
 import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
@@ -31,18 +32,31 @@ data class DocxRun(
     val isStrike: Boolean,
     val color: String? = null,
     val fontFamily: String? = null,
+    val fontSizePt: Int? = null,
     val hyperlinkUrl: String? = null,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val widthEmu: Long? = null,
+    val heightEmu: Long? = null
 )
 
 data class DocxParagraph(
     val runs: List<DocxRun>,
     val alignment: String, // "LEFT", "CENTER", "RIGHT", "JUSTIFY"
+    val headingLevel: Int, // 0 = body, 1-6 = heading level
     val isHeading: Boolean,
-    val comment: String? = null
+    val comment: String? = null,
+    val spacingAfterPt: Int = 10
 )
 
-data class DocxDocument(val paragraphs: List<DocxParagraph>)
+data class DocxTableCell(val paragraphs: List<DocxParagraph>)
+data class DocxTableRow(val cells: List<DocxTableCell>)
+
+sealed class DocxBodyElement {
+    data class Para(val paragraph: DocxParagraph) : DocxBodyElement()
+    data class Table(val rows: List<DocxTableRow>) : DocxBodyElement()
+}
+
+data class DocxDocument(val elements: List<DocxBodyElement>)
 
 sealed class DocxLoadState {
     object Loading : DocxLoadState()
@@ -179,55 +193,114 @@ class DocxViewerViewModel @Inject constructor(
     }
 
     private fun parseDocument(doc: XWPFDocument): DocxDocument {
-        val paragraphs = mutableListOf<DocxParagraph>()
+        val elements = mutableListOf<DocxBodyElement>()
         val commentsMap = activeFilePath?.let { loadParagraphComments(it) } ?: emptyMap()
-        for ((index, paragraph) in doc.paragraphs.withIndex()) {
-            val runs = mutableListOf<DocxRun>()
-            for (run in paragraph.runs) {
-                val text = run.getText(0) ?: ""
-                val isBold = run.isBold
-                val isItalic = run.isItalic
-                val isUnderline = run.underline != org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
-                val isStrike = run.isStrikeThrough
-                val color = run.color
-                val fontFamily = run.fontFamily
-                
-                val hyperlinkUrl = if (run is org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun) {
-                    run.getHyperlink(doc)?.url
-                } else null
+        var globalParaIndex = 0
 
-                var imageUrl: String? = null
-                val pictures = run.embeddedPictures
-                if (pictures.isNotEmpty()) {
+        for (bodyElement in doc.bodyElements) {
+            when (bodyElement) {
+                is org.apache.poi.xwpf.usermodel.XWPFParagraph -> {
+                    val parsed = parseParagraph(bodyElement, commentsMap[globalParaIndex])
+                    elements.add(DocxBodyElement.Para(parsed))
+                    globalParaIndex++
+                }
+                is org.apache.poi.xwpf.usermodel.XWPFTable -> {
+                    val rows = mutableListOf<DocxTableRow>()
+                    for (row in bodyElement.rows) {
+                        val cells = mutableListOf<DocxTableCell>()
+                        for (cell in row.tableCells) {
+                            val cellParas = cell.paragraphs.map { parseParagraph(it, null) }
+                            cells.add(DocxTableCell(cellParas))
+                        }
+                        rows.add(DocxTableRow(cells))
+                    }
+                    elements.add(DocxBodyElement.Table(rows))
+                }
+            }
+        }
+        return DocxDocument(elements)
+    }
+
+    private fun parseParagraph(
+        paragraph: org.apache.poi.xwpf.usermodel.XWPFParagraph,
+        comment: String?
+    ): DocxParagraph {
+        val runs = mutableListOf<DocxRun>()
+        for (run in paragraph.runs) {
+            val text = run.getText(0) ?: ""
+            val isBold = run.isBold
+            val isItalic = run.isItalic
+            val isUnderline = run.underline != org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
+            val isStrike = run.isStrikeThrough
+            val color = run.color
+            val fontFamily = run.fontFamily
+            val fontSize = run.fontSize  // in half-points; divide by 2 for pt
+            val hyperlinkUrl = if (run is org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun) {
+                run.getHyperlink(paragraph.document)?.url
+            } else null
+
+            var imageUrl: String? = null
+            var emuWidth: Long? = null
+            var emuHeight: Long? = null
+            val pictures = run.embeddedPictures
+            if (pictures.isNotEmpty()) {
+                try {
+                    val pic = pictures[0]
+                    val picData = pic.pictureData.data
+                    val ext = pic.pictureData.suggestFileExtension() ?: "png"
                     try {
-                        val pic = pictures[0]
-                        val picData = pic.pictureData.data
-                        val ext = pic.pictureData.suggestFileExtension() ?: "png"
-                        val tempPicFile = File(context.cacheDir, "docx_img_${System.currentTimeMillis()}_${pic.hashCode()}.$ext")
-                        tempPicFile.writeBytes(picData)
-                        imageUrl = tempPicFile.absolutePath
+                        val ctPic = pic.javaClass.getMethod("getCTPic").invoke(pic)
+                        val spPr = ctPic.javaClass.getMethod("getSpPr").invoke(ctPic)
+                        val xfrm = spPr.javaClass.getMethod("getXfrm").invoke(spPr)
+                        val extVal = xfrm.javaClass.getMethod("getExt").invoke(xfrm)
+                        emuWidth = (extVal.javaClass.getMethod("getCx").invoke(extVal) as Number).toLong()
+                        emuHeight = (extVal.javaClass.getMethod("getCy").invoke(extVal) as Number).toLong()
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                }
-                
-                runs.add(DocxRun(text, isBold, isItalic, isUnderline, isStrike, color, fontFamily, hyperlinkUrl, imageUrl))
+                    val tempPicFile = File(context.cacheDir, "docx_img_${System.currentTimeMillis()}_${pic.hashCode()}.$ext")
+                    tempPicFile.writeBytes(picData)
+                    imageUrl = tempPicFile.absolutePath
+                } catch (e: Exception) { e.printStackTrace() }
             }
 
-            val alignment = when (paragraph.alignment) {
-                ParagraphAlignment.CENTER -> "CENTER"
-                ParagraphAlignment.RIGHT -> "RIGHT"
-                ParagraphAlignment.BOTH -> "JUSTIFY"
-                else -> "LEFT"
-            }
-
-            val isHeading = paragraph.styleID?.lowercase()?.contains("heading") == true ||
-                    paragraph.runs.firstOrNull()?.fontSize ?: 0 > 14
-
-            val comment = commentsMap[index]
-            paragraphs.add(DocxParagraph(runs, alignment, isHeading, comment))
+            runs.add(DocxRun(
+                text = text, isBold = isBold, isItalic = isItalic,
+                isUnderline = isUnderline, isStrike = isStrike,
+                color = color, fontFamily = fontFamily,
+                fontSizePt = if (fontSize > 0) fontSize / 2 else null,
+                hyperlinkUrl = hyperlinkUrl, imageUrl = imageUrl,
+                widthEmu = emuWidth, heightEmu = emuHeight
+            ))
         }
-        return DocxDocument(paragraphs)
+
+        val alignment = when (paragraph.alignment) {
+            org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER -> "CENTER"
+            org.apache.poi.xwpf.usermodel.ParagraphAlignment.RIGHT -> "RIGHT"
+            org.apache.poi.xwpf.usermodel.ParagraphAlignment.BOTH -> "JUSTIFY"
+            else -> "LEFT"
+        }
+
+        val styleId = paragraph.styleID?.lowercase() ?: ""
+        val headingLevel = when {
+            styleId.contains("heading1") || styleId == "title" -> 1
+            styleId.contains("heading2") -> 2
+            styleId.contains("heading3") -> 3
+            styleId.contains("heading4") -> 4
+            styleId.contains("heading5") || styleId.contains("heading6") -> 5
+            else -> 0
+        }
+
+        val spacingAfterPt = paragraph.spacingAfter / 20
+
+        return DocxParagraph(
+            runs = runs,
+            alignment = alignment,
+            headingLevel = headingLevel,
+            isHeading = headingLevel > 0,
+            comment = comment,
+            spacingAfterPt = spacingAfterPt
+        )
     }
 
     /**
@@ -243,53 +316,48 @@ class DocxViewerViewModel @Inject constructor(
         comment: String? = null
     ) {
         val doc = activeDocument ?: return
+        val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
+        if (index < 0 || index >= elements.size) return
+        if (elements[index] !is DocxBodyElement.Para) return
+        val paraIndex = elements.take(index).count { it is DocxBodyElement.Para }
         val paragraphs = doc.paragraphs
-        if (index in paragraphs.indices) {
-            val p = paragraphs[index]
-            // Overwrite all run content
-            while (p.runs.isNotEmpty()) {
-                p.removeRun(0)
+        if (paraIndex in paragraphs.indices) {
+            val p = paragraphs[paraIndex]
+            val runCount = p.runs.size
+            for (i in runCount - 1 downTo 0) {
+                try { p.removeRun(i) } catch (e: Exception) { }
             }
             val run = p.createRun()
             run.setText(newText)
             run.isBold = isBold
             run.isItalic = isItalic
-            if (isUnderline) {
-                run.underline = org.apache.poi.xwpf.usermodel.UnderlinePatterns.SINGLE
-            } else {
-                run.underline = org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
-            }
+            run.underline = if (isUnderline) org.apache.poi.xwpf.usermodel.UnderlinePatterns.SINGLE
+                            else org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
             if (!colorHex.isNullOrBlank()) {
-                val cleanHex = colorHex.replace("#", "")
-                run.setColor(cleanHex)
+                run.setColor(colorHex.replace("#", ""))
             }
 
-            // Save comment to sidecar list
             val filePath = activeFilePath
             if (filePath != null) {
                 val commentsMap = loadParagraphComments(filePath).toMutableMap()
-                if (comment.isNullOrBlank()) {
-                    commentsMap.remove(index)
-                } else {
-                    commentsMap[index] = comment
-                }
+                if (comment.isNullOrBlank()) commentsMap.remove(paraIndex) else commentsMap[paraIndex] = comment
                 saveParagraphComments(filePath, commentsMap)
             }
 
-            // Re-parse and update screen state
             val parsedDoc = parseDocument(doc)
             _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
         }
     }
 
-    /**
-     * Inserts an image natively into a paragraph.
-     */
     fun insertImageIntoParagraph(index: Int, imagePath: String) {
         val doc = activeDocument ?: return
+        val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
+        if (index < 0 || index >= elements.size) return
+        if (elements[index] !is DocxBodyElement.Para) return
+        val paraIndex = elements.take(index).count { it is DocxBodyElement.Para }
         val paragraphs = doc.paragraphs
-        if (index in paragraphs.indices) {
-            val p = paragraphs[index]
+        if (paraIndex in paragraphs.indices) {
+            val p = paragraphs[paraIndex]
             val run = p.createRun()
             var fis: java.io.FileInputStream? = null
             try {
@@ -310,7 +378,6 @@ class DocxViewerViewModel @Inject constructor(
                 try { fis?.close() } catch(e: Exception) {}
             }
 
-            // Re-parse and update screen state
             val parsedDoc = parseDocument(doc)
             _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
         }

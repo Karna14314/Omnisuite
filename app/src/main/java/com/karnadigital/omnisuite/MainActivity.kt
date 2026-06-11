@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         ThemePreferences.initialize(this)
-        val externalUriString = getExternalFileUri(intent)
+        val externalUriString = if (savedInstanceState == null) getExternalFileUri(intent) else null
         
         setContent {
             val themeMode = ThemePreferences.currentThemeState.value
@@ -29,17 +29,16 @@ class MainActivity : ComponentActivity() {
                 val controller = rememberNavController()
                 navController = controller
                 
-                // If there's an external file open intent, set it as start destination or navigate immediately!
-                val startDestination = if (externalUriString != null) {
-                    Screen.ViewerDispatcher.createRoute(externalUriString)
-                } else {
-                    Screen.MainShell.route
-                }
-                
                 OmniNavGraph(
                     navController = controller,
-                    startDestination = startDestination
+                    startDestination = Screen.MainShell.route
                 )
+                
+                androidx.compose.runtime.LaunchedEffect(externalUriString) {
+                    if (externalUriString != null) {
+                        controller.navigate(Screen.ViewerDispatcher.createRoute(externalUriString))
+                    }
+                }
             }
         }
     }
@@ -63,9 +62,26 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return null
         val action = intent.action
         val data = intent.data
-        if (action == Intent.ACTION_VIEW && data != null) {
+        
+        if ((action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) && data != null) {
             return data.toString()
         }
+        
+        val clipData = intent.clipData
+        if (clipData != null && clipData.itemCount > 0) {
+            val uri = clipData.getItemAt(0).uri
+            if (uri != null) {
+                return uri.toString()
+            }
+        }
+        
+        if (action == Intent.ACTION_SEND) {
+            val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+            if (uri != null) {
+                return uri.toString()
+            }
+        }
+        
         return null
     }
 }
