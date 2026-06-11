@@ -56,8 +56,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
-import com.karnadigital.omnisuite.core.util.ZoomableBox
 
 /**
  * Slide-deck Presentation Viewer (PPTX) mobile screen engine.
@@ -167,15 +170,21 @@ fun PptxViewerScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val dynamicMimeType = if (fileUri.endsWith(".ppt", ignoreCase = true)) {
+                            "application/vnd.ms-powerpoint"
+                        } else {
+                            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        }
+
                         PptxActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
                             try {
                                 val file = File(fileUri)
                                 val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                 val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(fileUriProvider, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                                    setDataAndType(fileUriProvider, dynamicMimeType)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
-                                context.startActivity(Intent.createChooser(openIntent, "Open PPTX In"))
+                                context.startActivity(Intent.createChooser(openIntent, "Open PowerPoint In"))
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                             }
@@ -206,7 +215,7 @@ fun PptxViewerScreen(
                                 val file = File(fileUri)
                                 val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                    type = dynamicMimeType
                                     putExtra(Intent.EXTRA_STREAM, fileUriProvider)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
@@ -326,7 +335,7 @@ fun PptxViewerScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(vertical = 16.dp),
+                                .padding(vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             // Swipable Slides horizontal pager with premium scale/fade transitions
@@ -340,7 +349,6 @@ fun PptxViewerScreen(
                             ) { pageIndex ->
                                 val slide = presentation.slides[pageIndex]
 
-                                // Smooth scale and opacity transformation during page swipes
                                 val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
                                 val scale = 1f - (Math.abs(pageOffset) * 0.12f).coerceIn(0f, 0.12f)
                                 val alpha = 1f - (Math.abs(pageOffset) * 0.4f).coerceIn(0f, 0.4f)
@@ -354,7 +362,28 @@ fun PptxViewerScreen(
                                             this.alpha = alpha
                                         }
                                 ) {
-                                    ZoomableBox(modifier = Modifier.fillMaxSize()) {
+                                    var slideScale by remember { mutableStateOf(1f) }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .pointerInput(Unit) {
+                                                awaitEachGesture {
+                                                    var event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                                    while (event.changes.any { it.pressed }) {
+                                                        if (event.changes.size >= 2) {
+                                                            val zoom = event.calculateZoom()
+                                                            slideScale = (slideScale * zoom).coerceIn(0.5f, 3f)
+                                                            event.changes.forEach { it.consume() }
+                                                        }
+                                                        event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                                    }
+                                                }
+                                            }
+                                            .graphicsLayer {
+                                                scaleX = slideScale
+                                                scaleY = slideScale
+                                            }
+                                    ) {
                                         SlideCardItem(
                                             slide = slide,
                                             isEditMode = isEditMode,
@@ -366,6 +395,40 @@ fun PptxViewerScreen(
                                                 showFormatter = true
                                             }
                                         )
+                                    }
+                                }
+                            }
+
+                            if (isEditMode) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.addSlide(pagerState.currentPage) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("+ Add Slide", fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { viewModel.duplicateSlide(pagerState.currentPage) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("📋 Duplicate", fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { viewModel.deleteSlide(pagerState.currentPage) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("🗑️ Delete", fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -389,22 +452,26 @@ fun PptxViewerScreen(
                                     .padding(horizontal = 24.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(presentation.slides.size) { index ->
+                                items(presentation.slides.size, key = { it }) { index ->
+                                    val slideItem = presentation.slides[index]
                                     val isActive = pagerState.currentPage == index
                                     val borderStroke = if (isActive) {
                                         BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                                     } else {
-                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                     }
                                     val opacity = if (isActive) 1f else 0.6f
 
                                     Card(
-                                        shape = RoundedCornerShape(8.dp),
+                                        shape = RoundedCornerShape(6.dp),
                                         border = borderStroke,
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = slideItem.bgColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
+                                                ?: MaterialTheme.colorScheme.surface
+                                        ),
                                         modifier = Modifier
-                                            .width(72.dp)
-                                            .height(48.dp)
+                                            .width(80.dp)
+                                            .height(45.dp)
                                             .clickable {
                                                 coroutineScope.launch {
                                                     pagerState.animateScrollToPage(index)
@@ -414,14 +481,31 @@ fun PptxViewerScreen(
                                     ) {
                                         Box(
                                             contentAlignment = Alignment.Center,
-                                            modifier = Modifier.fillMaxSize()
+                                            modifier = Modifier.fillMaxSize().padding(4.dp)
                                         ) {
-                                            Text(
-                                                text = "${index + 1}",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                Text(
+                                                    text = slideItem.title.text,
+                                                    fontSize = 5.sp,
+                                                    lineHeight = 6.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = slideItem.title.textColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
+                                                        ?: MaterialTheme.colorScheme.onSurface,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Text(
+                                                    text = "${index + 1}",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -434,7 +518,7 @@ fun PptxViewerScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                                    .padding(horizontal = 24.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -451,23 +535,23 @@ fun PptxViewerScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Edit,
-                                            contentDescription = "Comment Notes",
+                                            contentDescription = "Speaker Notes",
                                             tint = MaterialTheme.colorScheme.secondary,
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Slide Notes & Comments",
+                                            text = "Speaker Notes",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    val displayComment = currentSlide.comment
-                                    if (!displayComment.isNullOrBlank()) {
+                                    val displayNotes = currentSlide.speakerNotes
+                                    if (!displayNotes.isNullOrBlank()) {
                                         Text(
-                                            text = displayComment,
+                                            text = displayNotes,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -490,9 +574,10 @@ fun PptxViewerScreen(
                                     textBlock = blockToEdit!!,
                                     isTitle = isTitleEdit,
                                     blockIndex = blockIndexToEdit,
-                                    initialComment = slide.comment,
+                                    initialNotes = slide.speakerNotes,
+                                    initialBgColorHex = slide.bgColorHex,
                                     onDismiss = { showFormatter = false },
-                                    onSave = { newText, isBold, isItalic, isUnderline, textColorHex, comment ->
+                                    onSave = { newText, isBold, isItalic, isUnderline, textColorHex, notes, fontSize, bgColor ->
                                         viewModel.updateSlideTextShape(
                                             slideIndex = activeIndexToEdit!!,
                                             isTitle = isTitleEdit,
@@ -502,8 +587,12 @@ fun PptxViewerScreen(
                                             isItalic = isItalic,
                                             isUnderline = isUnderline,
                                             textColorHex = textColorHex,
-                                            comment = comment
+                                            comment = notes,
+                                            fontSizePt = fontSize
                                         )
+                                        if (bgColor != null) {
+                                            viewModel.setSlideBackground(activeIndexToEdit!!, bgColor)
+                                        }
                                         showFormatter = false
                                     },
                                     onInsertImageClick = {
@@ -557,7 +646,8 @@ fun PptxTextFormatterDialog(
     textBlock: PptxTextBlock,
     isTitle: Boolean,
     blockIndex: Int,
-    initialComment: String?,
+    initialNotes: String?,
+    initialBgColorHex: String?,
     onDismiss: () -> Unit,
     onSave: (
         newText: String,
@@ -565,7 +655,9 @@ fun PptxTextFormatterDialog(
         isItalic: Boolean,
         isUnderline: Boolean,
         textColorHex: String?,
-        comment: String?
+        notes: String?,
+        fontSizePt: Float,
+        bgColorHex: String?
     ) -> Unit,
     onInsertImageClick: () -> Unit
 ) {
@@ -574,10 +666,13 @@ fun PptxTextFormatterDialog(
     var isItalic by remember { mutableStateOf(textBlock.isItalic) }
     var isUnderline by remember { mutableStateOf(textBlock.isUnderline) }
     var textColorHex by remember { mutableStateOf(textBlock.textColorHex) }
-    var comment by remember { mutableStateOf(initialComment ?: "") }
+    var notes by remember { mutableStateOf(initialNotes ?: "") }
+    var fontSizePt by remember { mutableStateOf(textBlock.fontSizePt) }
+    var slideBgColorHex by remember { mutableStateOf(initialBgColorHex ?: "#FFFFFF") }
 
     val colors = listOf(
         "#000000", // Black
+        "#FFFFFF", // White
         "#2196F3", // Blue
         "#4CAF50", // Green
         "#F44336", // Red
@@ -587,11 +682,22 @@ fun PptxTextFormatterDialog(
         "#00BCD4"  // Cyan
     )
 
+    val bgColors = listOf(
+        "#FFFFFF", // White
+        "#F5F5F5", // Off-white
+        "#E0F7FA", // Light Cyan
+        "#FFF3E0", // Light Orange
+        "#E8F5E9", // Light Green
+        "#F3E5F5", // Light Purple
+        "#ECEFF1", // Slate
+        "#212121"  // Dark Grey
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (isTitle) "Format Slide Title" else "Format Text Bullet",
+                text = if (isTitle) "Format Slide Title" else "Format Text Shape",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -649,6 +755,20 @@ fun PptxTextFormatterDialog(
                     }
                 }
 
+                // Font Size Slider
+                Text(
+                    text = "Font Size: ${fontSizePt.toInt()} pt",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Slider(
+                    value = fontSizePt,
+                    onValueChange = { fontSizePt = it },
+                    valueRange = 8f..72f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 // Color picker swatches
                 Text(
                     text = "Text Color",
@@ -666,7 +786,7 @@ fun PptxTextFormatterDialog(
                         val isSelected = textColorHex?.lowercase() == hex.lowercase()
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(28.dp)
                                 .clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(color)
                                 .border(
@@ -683,11 +803,45 @@ fun PptxTextFormatterDialog(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
 
-                // Comment input
+                // Slide Background Color Picker
+                Text(
+                    text = "Slide Background Color",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    bgColors.forEach { hex ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val isSelected = slideBgColorHex.lowercase() == hex.lowercase()
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (isSelected) 3.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
+                                .clickable {
+                                    slideBgColorHex = hex
+                                }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                // Speaker Notes input
                 OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text("Slide Notes / Comment") },
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Speaker Notes") },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3
                 )
@@ -711,7 +865,7 @@ fun PptxTextFormatterDialog(
         },
         confirmButton = {
             Button(onClick = {
-                onSave(text, isBold, isItalic, isUnderline, textColorHex, comment)
+                onSave(text, isBold, isItalic, isUnderline, textColorHex, notes, fontSizePt, slideBgColorHex)
             }) { Text("Apply") }
         },
         dismissButton = {
@@ -727,145 +881,135 @@ fun SlideCardItem(
     onTextBlockClick: (PptxTextBlock, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = slide.bgColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
+                ?: MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(12.dp)
             )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp)
-        ) {
-            // Slide Title
-            val titleColor = slide.title.textColorHex?.let {
-                try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.primary }
-            } ?: MaterialTheme.colorScheme.primary
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val scaleFactor = (maxWidth.value / 720f).coerceIn(0.1f, 2f)
 
-            Text(
-                text = slide.title.text,
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = if (slide.title.isBold) FontWeight.ExtraBold else FontWeight.Bold,
-                    fontStyle = if (slide.title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                    textDecoration = if (slide.title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                    lineHeight = 32.sp
-                ),
-                color = titleColor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = isEditMode) {
-                        onTextBlockClick(slide.title, true, -1)
-                    }
-                    .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
-                    .border(
-                        width = if (isEditMode) 1.dp else 0.dp,
-                        color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(if (isEditMode) 8.dp else 0.dp)
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Slide text points / bullet points
-            if (slide.textBlocks.isEmpty() && slide.imageUrls.isEmpty()) {
+            // 1. Title Block
+            val title = slide.title
+            if (title.text.isNotBlank()) {
+                val titleColor = title.textColorHex?.let {
+                    try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.primary }
+                } ?: MaterialTheme.colorScheme.primary
+                
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth(title.shapeWidth.coerceIn(0.1f, 1f))
+                        .fillMaxHeight(title.shapeHeight.coerceIn(0.05f, 1f))
+                        .offset(
+                            x = (title.shapeLeft * maxWidth.value).dp,
+                            y = (title.shapeTop * maxHeight.value).dp
+                        )
+                        .clickable(enabled = isEditMode) {
+                            onTextBlockClick(title, true, -1)
+                        }
+                        .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                        .border(
+                            width = if (isEditMode) 1.dp else 0.dp,
+                            color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(if (isEditMode) 4.dp else 0.dp)
                 ) {
                     Text(
-                        text = "[Blank Slide]",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        text = title.text,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                            textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                            fontSize = (title.fontSizePt * scaleFactor).sp,
+                            lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp
+                        ),
+                        color = titleColor,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            } else {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    slide.textBlocks.forEachIndexed { idx, block ->
-                        val blockColor = block.textColorHex?.let {
-                            try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
-                        } ?: MaterialTheme.colorScheme.onSurface
+            }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = isEditMode) {
-                                    onTextBlockClick(block, false, idx)
-                                }
-                                .background(if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f) else Color.Transparent)
-                                .border(
-                                    width = if (isEditMode) 1.dp else 0.dp,
-                                    color = if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .padding(if (isEditMode) 8.dp else 0.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Text(
-                                text = "• ",
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    lineHeight = 24.sp
-                                ),
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                            Text(
-                                text = block.text,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
-                                    fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                                    textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                    lineHeight = 24.sp
-                                ),
-                                color = blockColor
-                            )
+            // 2. Body Text Blocks
+            slide.textBlocks.forEachIndexed { idx, block ->
+                val blockColor = block.textColorHex?.let {
+                    try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
+                } ?: MaterialTheme.colorScheme.onSurface
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(block.shapeWidth.coerceIn(0.1f, 1f))
+                        .fillMaxHeight(block.shapeHeight.coerceIn(0.05f, 1f))
+                        .offset(
+                            x = (block.shapeLeft * maxWidth.value).dp,
+                            y = (block.shapeTop * maxHeight.value).dp
+                        )
+                        .clickable(enabled = isEditMode) {
+                            onTextBlockClick(block, false, idx)
                         }
+                        .background(if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f) else Color.Transparent)
+                        .border(
+                            width = if (isEditMode) 1.dp else 0.dp,
+                            color = if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(if (isEditMode) 4.dp else 0.dp),
+                    contentAlignment = Alignment.TopStart
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        if (block.bulletLevel > 0) {
+                            Spacer(modifier = Modifier.width((block.bulletLevel * 8 * scaleFactor).dp))
+                        }
+                        Text(
+                            text = "• ",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = (block.fontSizePt * scaleFactor).sp
+                            ),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Text(
+                            text = block.text,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                                textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                                fontSize = (block.fontSizePt * scaleFactor).sp,
+                                lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp
+                            ),
+                            color = blockColor
+                        )
                     }
                 }
             }
 
-            // Slide images
-            if (slide.imageUrls.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "Slide Images",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    slide.imageUrls.forEach { imgPath ->
-                        AsyncImage(
-                            model = File(imgPath),
-                            contentDescription = "Slide Image",
-                            modifier = Modifier
-                                .size(100.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            // 3. Images
+            slide.images.forEach { img ->
+                AsyncImage(
+                    model = File(img.filePath),
+                    contentDescription = "Slide Image",
+                    modifier = Modifier
+                        .fillMaxWidth(img.width.coerceIn(0.05f, 1f))
+                        .fillMaxHeight(img.height.coerceIn(0.05f, 1f))
+                        .offset(
+                            x = (img.left * maxWidth.value).dp,
+                            y = (img.top * maxHeight.value).dp
                         )
-                    }
-                }
+                        .clip(RoundedCornerShape(4.dp))
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
             }
         }
     }
@@ -955,4 +1099,3 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
         }
     }
 }
-

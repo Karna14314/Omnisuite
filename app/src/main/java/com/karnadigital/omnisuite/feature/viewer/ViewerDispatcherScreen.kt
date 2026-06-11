@@ -31,7 +31,7 @@ sealed class DispatcherState {
 }
 
 enum class FileType {
-    PDF, TXT, DOCX, XLSX, PPTX, IMAGE, CSV, ARCHIVE
+    PDF, TXT, DOCX, XLSX, PPTX, PPT_LEGACY, IMAGE, CSV, ARCHIVE
 }
 
 /**
@@ -123,6 +123,17 @@ fun ViewerDispatcherScreen(
                     FileType.DOCX -> DocxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.XLSX -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.PPTX -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.PPT_LEGACY -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ErrorCard(
+                                message = "Legacy PowerPoint 97-2003 (.ppt) files are not fully supported. Please save as .pptx format to edit or view.",
+                                onBack = onBack
+                            )
+                        }
+                    }
                     FileType.IMAGE -> ImageViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.ARCHIVE -> ArchiveViewerScreen(
@@ -239,7 +250,7 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 return when {
                     originalName.endsWith(".doc") -> FileType.DOCX
                     originalName.endsWith(".xls") -> FileType.XLSX
-                    originalName.endsWith(".ppt") -> FileType.PPTX
+                    originalName.endsWith(".ppt") -> FileType.PPT_LEGACY
                     else -> FileType.DOCX
                 }
             }
@@ -252,6 +263,7 @@ private fun determineFileType(context: Context, originalUriString: String, cache
     try {
         val parsedUri = Uri.parse(originalUriString)
         val mimeType = context.contentResolver.getType(parsedUri)?.lowercase()
+        val originalName = getFileNameFromUri(context, parsedUri)?.lowercase() ?: ""
 
         if (mimeType != null) {
             when {
@@ -259,7 +271,12 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 mimeType == "text/plain" -> return FileType.TXT
                 mimeType.contains("word") || mimeType == "application/msword" || mimeType.contains("wordprocessingml") -> return FileType.DOCX
                 mimeType.contains("excel") || mimeType == "application/vnd.ms-excel" || mimeType.contains("spreadsheetml") -> return FileType.XLSX
-                mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> return FileType.PPTX
+                mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> {
+                    if (originalName.endsWith(".ppt") || mimeType == "application/vnd.ms-powerpoint") {
+                        return FileType.PPT_LEGACY
+                    }
+                    return FileType.PPTX
+                }
                 mimeType.startsWith("image/") -> return FileType.IMAGE
                 mimeType == "text/csv" || mimeType == "text/comma-separated-values" -> return FileType.CSV
                 mimeType == "application/zip" || mimeType == "application/x-zip-compressed" || mimeType == "application/x-zip" -> return FileType.ARCHIVE
@@ -276,7 +293,8 @@ private fun determineFileType(context: Context, originalUriString: String, cache
         nameToCheck.endsWith(".txt") -> return FileType.TXT
         nameToCheck.endsWith(".docx") || nameToCheck.endsWith(".doc") -> return FileType.DOCX
         nameToCheck.endsWith(".xlsx") || nameToCheck.endsWith(".xls") -> return FileType.XLSX
-        nameToCheck.endsWith(".pptx") || nameToCheck.endsWith(".ppt") -> return FileType.PPTX
+        nameToCheck.endsWith(".pptx") -> return FileType.PPTX
+        nameToCheck.endsWith(".ppt") -> return FileType.PPT_LEGACY
         nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> return FileType.IMAGE
         nameToCheck.endsWith(".csv") -> return FileType.CSV
         nameToCheck.endsWith(".zip") -> return FileType.ARCHIVE
