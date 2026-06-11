@@ -124,7 +124,7 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    val isCsv = file.name.endsWith(".csv", ignoreCase = true)
+                    val isCsv = file.name.endsWith(".csv", ignoreCase = true) || !isZipFile(file)
                     workbook = if (isCsv) {
                         loadCsvAsWorkbook(file)
                     } else {
@@ -133,20 +133,6 @@ class XlsxViewerViewModel @Inject constructor(
                     }
 
                     val parsedWb = parseWorkbook(workbook)
-
-                    // Update RecentFiles DB offline logger
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = if (isCsv) "text/csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
 
                     activeWorkbook = workbook
                     activeFilePath = filePath
@@ -172,6 +158,19 @@ class XlsxViewerViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    private fun isZipFile(file: File): Boolean {
+        if (!file.exists() || file.length() < 4) return false
+        return try {
+            val bytes = ByteArray(4)
+            FileInputStream(file).use { fis ->
+                fis.read(bytes)
+            }
+            bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()
+        } catch (e: Exception) {
+            false
         }
     }
 

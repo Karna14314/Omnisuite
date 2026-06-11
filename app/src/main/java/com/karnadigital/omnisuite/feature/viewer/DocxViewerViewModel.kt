@@ -119,20 +119,6 @@ class DocxViewerViewModel @Inject constructor(
 
                     val parsedDoc = parseDocument(doc)
 
-                    // Update RecentFiles DB offline logger
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
                     activeDocument = doc
                     activeFilePath = filePath
 

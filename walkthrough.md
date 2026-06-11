@@ -1,6 +1,14 @@
 # OmniSuite v1.1 Stabilization Walkthrough
 
 1. **WatermarkScreen Bug**: Resolved escaping Compose context via correct instantiation of `BorderStroke`.
+2.- **[HomeScreen.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/home/HomeScreen.kt)**: Added a dedicated **"Open Supported Document"** row that invokes `onSelectFileForType("any")` to select and view any compatible document.
+
+### 6. Recent Files / History Document Resolution
+- Resolved the "Format Unrecognized" / "Unable to load document" errors encountered when re-opening document history records (PDF, Word, Excel, Slides, and Text):
+  - **[FileBrowserScreen.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/home/FileBrowserScreen.kt)**: Patched Storage Access Framework (SAF) picker to request persistent read/write permissions via `takePersistableUriPermission` and save the permanent original content URI to database history (rather than the temporary cached file URI).
+  - **[ViewerDispatcherScreen.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/ViewerDispatcherScreen.kt)**: Standardized dynamic file dispatcher to automatically register new history logs with the permanent original file URI upon successful document validation/type isolation.
+  - **View Models**: Removed history-logging try-catch blocks in **[PdfViewerViewModel.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/PdfViewerViewModel.kt)**, **[DocxViewerViewModel.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/DocxViewerViewModel.kt)**, **[XlsxViewerViewModel.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/XlsxViewerViewModel.kt)**, **[PptxViewerViewModel.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/PptxViewerViewModel.kt)**, and **[TxtViewerViewModel.kt](file:///c:/Users/chait/Projects/Omnisuite/app/src/main/java/com/karnadigital/omnisuite/feature/viewer/TxtViewerViewModel.kt)** to prevent them from overwriting the correct original URI entries in database history with temporary cache path URIs.
+
 2. **Stream Leak Stabilizations**: Patched `finally` blocks in Watermark & Signature operations using explicit non-cancellable coroutine lifecycles and cache document memory purging.
 3. **Modal Async UX**: Bound offline compiler jobs to interrupt-safe Material3 `Dialog` configurations, rejecting accidental background tapping lockups.
 4. **Compile Integrity**: Overhauled annotation compiler mappings, injected missing Proguard instructions preventing Apache POI Reflection crashes. Output verified structurally sound.

@@ -75,30 +75,32 @@ fun FileBrowserScreen(
     var isLoadingFiles by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Reusable Storage Access Framework picker launcher
     val pickLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             coroutineScope.launch {
                 try {
-                    // Cache the file immediately to local sandbox!
-                    val cachedFile = UriCacheUtils.cacheUriToFile(context, it)
-                    if (cachedFile != null && cachedFile.exists()) {
-                        val fileName = getFileName(context, it) ?: cachedFile.name
-                        val fileSize = getFileSize(context, it)
-                        val mimeType = context.contentResolver.getType(it) ?: getMimeFromName(fileName)
-                        
-                        viewModel.addRecentFile(
-                            fileUri = Uri.fromFile(cachedFile).toString(), // Save local cache file URI!
-                            fileName = fileName,
-                            mimeType = mimeType,
-                            fileSize = fileSize
-                        )
-                        onOpenFile(Uri.fromFile(cachedFile).toString())
-                    } else {
-                        Toast.makeText(context, "Failed to import file.", Toast.LENGTH_SHORT).show()
+                    // Persist access permission
+                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or 
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    try {
+                        context.contentResolver.takePersistableUriPermission(it, takeFlags)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
+
+                    val fileName = getFileName(context, it)
+                    val fileSize = getFileSize(context, it)
+                    val mimeType = context.contentResolver.getType(it) ?: getMimeFromName(fileName)
+                    
+                    viewModel.addRecentFile(
+                        fileUri = it.toString(),
+                        fileName = fileName,
+                        mimeType = mimeType,
+                        fileSize = fileSize
+                    )
+                    onOpenFile(it.toString())
                 } catch (e: Exception) {
                     e.printStackTrace()
                     Toast.makeText(context, "Import error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()

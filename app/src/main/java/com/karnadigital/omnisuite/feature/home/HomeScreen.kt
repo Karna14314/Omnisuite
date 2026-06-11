@@ -72,7 +72,20 @@ fun HomeScreen(
     onNavigateToXlsToPdf: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onNavigateToZipMaker: () -> Unit,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    // New parameters for upgraded tools
+    onNavigateToPdfDecrypt: () -> Unit,
+    onNavigateToPdfRotate: () -> Unit,
+    onNavigateToPdfExtract: () -> Unit,
+    onNavigateToPdfDelete: () -> Unit,
+    onNavigateToWebToPdf: () -> Unit,
+    onNavigateToHtmlToPdf: () -> Unit,
+    onNavigateToMarkdownToPdf: () -> Unit,
+    onNavigateToDocxToTxt: () -> Unit,
+    onNavigateToCsvToXlsx: () -> Unit,
+    onNavigateToXlsxToCsv: () -> Unit,
+    onNavigateToPptxToTxt: () -> Unit,
+    onNavigateToTarTools: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -126,31 +139,34 @@ fun HomeScreen(
                     
                     lastRequestedType = null
                     
-                    // Cache the file immediately to local sandbox!
-                    val cachedFile = UriCacheUtils.cacheUriToFile(context, it)
-                    if (cachedFile != null && cachedFile.exists()) {
-                        val fileSize = getFileSize(context, it)
-                        val mimeType = context.contentResolver.getType(it) ?: when {
-                            fileName.endsWith(".pdf") -> "application/pdf"
-                            fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                            fileName.endsWith(".txt") -> "text/plain"
-                            fileName.endsWith(".csv") -> "text/csv"
-                            fileName.endsWith(".zip") -> "application/zip"
-                            else -> "*/*"
-                        }
-                        
-                        viewModel.addRecentFile(
-                            fileUri = Uri.fromFile(cachedFile).toString(), // Save local cache file URI!
-                            fileName = fileName,
-                            mimeType = mimeType,
-                            fileSize = fileSize
-                        )
-                        onOpenFile(Uri.fromFile(cachedFile).toString())
-                    } else {
-                        Toast.makeText(context, "Failed to import file.", Toast.LENGTH_SHORT).show()
+                    // Persist access permission
+                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or 
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    try {
+                        context.contentResolver.takePersistableUriPermission(it, takeFlags)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
+
+                    val fileSize = getFileSize(context, it)
+                    val mimeType = context.contentResolver.getType(it) ?: when {
+                        fileName.endsWith(".pdf") -> "application/pdf"
+                        fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        fileName.endsWith(".txt") -> "text/plain"
+                        fileName.endsWith(".csv") -> "text/csv"
+                        fileName.endsWith(".zip") -> "application/zip"
+                        else -> "*/*"
+                    }
+                    
+                    viewModel.addRecentFile(
+                        fileUri = it.toString(), // Save original SAF content URI!
+                        fileName = fileName,
+                        mimeType = mimeType,
+                        fileSize = fileSize
+                    )
+                    onOpenFile(it.toString())
                 } catch (e: Exception) {
                     e.printStackTrace()
                     Toast.makeText(context, "Import error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -464,7 +480,19 @@ fun HomeScreen(
                         onNavigateToOcr = onNavigateToOcr,
                         onNavigateToBatchTools = onNavigateToBatchTools,
                         onNavigateToZipMaker = onNavigateToZipMaker,
-                        onSelectFileForType = onSelectFileForType
+                        onSelectFileForType = onSelectFileForType,
+                        onNavigateToPdfDecrypt = onNavigateToPdfDecrypt,
+                        onNavigateToPdfRotate = onNavigateToPdfRotate,
+                        onNavigateToPdfExtract = onNavigateToPdfExtract,
+                        onNavigateToPdfDelete = onNavigateToPdfDelete,
+                        onNavigateToWebToPdf = onNavigateToWebToPdf,
+                        onNavigateToHtmlToPdf = onNavigateToHtmlToPdf,
+                        onNavigateToMarkdownToPdf = onNavigateToMarkdownToPdf,
+                        onNavigateToDocxToTxt = onNavigateToDocxToTxt,
+                        onNavigateToCsvToXlsx = onNavigateToCsvToXlsx,
+                        onNavigateToXlsxToCsv = onNavigateToXlsxToCsv,
+                        onNavigateToPptxToTxt = onNavigateToPptxToTxt,
+                        onNavigateToTarTools = onNavigateToTarTools
                     )
                 }
                 HomeTab.Files -> {

@@ -55,19 +55,6 @@ class TxtViewerViewModel @Inject constructor(
                     // Safe Kotlin stream buffering
                     val content = file.bufferedReader().use { it.readText() }
 
-                    // Log this file opening to our Room RecentFiles history
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = "text/plain",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
 
                     _loadState.value = TxtLoadState.Success(
                         content = content,
@@ -93,19 +80,7 @@ class TxtViewerViewModel @Inject constructor(
                     // Safe stream write
                     file.bufferedWriter().use { it.write(content) }
 
-                    // Update RecentFiles size/time metrics in Room DB
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = "text/plain",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+
                     true
                 } catch (e: Exception) {
                     e.printStackTrace()

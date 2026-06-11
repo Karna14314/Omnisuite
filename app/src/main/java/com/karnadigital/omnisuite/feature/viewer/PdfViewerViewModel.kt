@@ -126,20 +126,7 @@ class PdfViewerViewModel @Inject constructor(
                         }
                     }
 
-                    // Log this file opening to our Room RecentFiles history
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = "application/pdf",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
+                    // Aspect ratios collected, ready to render
                     // Load existing text annotations/comments using PDFBox
                     try {
                         PDDocument.load(renderFile).use { doc ->

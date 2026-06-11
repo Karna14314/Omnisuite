@@ -175,6 +175,106 @@ sealed class Screen(val route: String) {
      * Standalone Excel to PDF Converter Screen
      */
     object XlsToPdf : Screen("xls_to_pdf")
+
+    /**
+     * Standalone PDF Decrypt Screen
+     */
+    object PdfDecrypt : Screen("pdf_decrypt?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "pdf_decrypt?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone PDF Rotate Screen
+     */
+    object PdfRotate : Screen("pdf_rotate?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "pdf_rotate?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone PDF Extract Screen
+     */
+    object PdfExtract : Screen("pdf_extract?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "pdf_extract?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone PDF Delete Screen
+     */
+    object PdfDelete : Screen("pdf_delete?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "pdf_delete?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone Web to PDF Screen
+     */
+    object WebToPdf : Screen("web_to_pdf")
+
+    /**
+     * Standalone HTML to PDF Screen
+     */
+    object HtmlToPdf : Screen("html_to_pdf")
+
+    /**
+     * Standalone Markdown to PDF Screen
+     */
+    object MarkdownToPdf : Screen("markdown_to_pdf")
+
+    /**
+     * Standalone DOCX to TXT Converter Screen
+     */
+    object DocxToTxt : Screen("docx_to_txt?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "docx_to_txt?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone CSV to XLSX Converter Screen
+     */
+    object CsvToXlsx : Screen("csv_to_xlsx?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "csv_to_xlsx?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone XLSX to CSV Converter Screen
+     */
+    object XlsxToCsv : Screen("xlsx_to_csv?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "xlsx_to_csv?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone PPTX to TXT Converter Screen
+     */
+    object PptxToTxt : Screen("pptx_to_txt?fileUri={fileUri}") {
+        fun createRoute(fileUri: String? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "pptx_to_txt?fileUri=${encodedUri ?: ""}"
+        }
+    }
+
+    /**
+     * Standalone TAR Archive creation/extraction Screen
+     */
+    object TarTools : Screen("tar_tools")
 }
 
 

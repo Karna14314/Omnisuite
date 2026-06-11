@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import androidx.compose.material.icons.filled.ChevronRight
@@ -73,7 +74,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 fun ImageViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
-    onEditInImageLab: (String) -> Unit,
+    onEditInImageLab: (String, Int) -> Unit,
     viewModel: ImageViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -230,177 +231,213 @@ fun ImageViewerScreen(
                 tonalElevation = 8.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ImageActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                        try {
-                            val fileUriProvider = if (isContentUri) {
-                                activeUri
-                            } else {
-                                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
-                            }
-                            val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUriProvider, "image/*")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(openIntent, "Open Image In"))
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-
-                    ImageActionColumnButton(icon = Icons.Default.Edit, title = "Edit Image") {
-                        editRotation = 0f
-                        editSquareCrop = false
-                        editCompressQuality = 80f
-                        editOutputFormat = "JPEG"
-                        showEditSheet = true
-                    }
-
-                    ImageActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                        coroutineScope.launch {
-                            val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    val pdf = com.tom_roush.pdfbox.pdmodel.PDDocument()
-                                    val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
-                                    pdf.addPage(page)
-                                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
-                                    
-                                    val bitmap = if (isContentUri) {
-                                        context.contentResolver.openInputStream(activeUri).use { stream ->
-                                            android.graphics.BitmapFactory.decodeStream(stream)
-                                        }
-                                    } else {
-                                        android.graphics.BitmapFactory.decodeFile(activeUriString)
-                                    }
-                                    val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
-                                    
-                                    val pageWidth = page.mediaBox.width
-                                    val pageHeight = page.mediaBox.height
-                                    val imageWidth = bitmap.width.toFloat()
-                                    val imageHeight = bitmap.height.toFloat()
-                                    val ratio = Math.min((pageWidth - 80f) / imageWidth, (pageHeight - 80f) / imageHeight)
-                                    val drawWidth = imageWidth * ratio
-                                    val drawHeight = imageHeight * ratio
-                                    val x = (pageWidth - drawWidth) / 2f
-                                    val y = (pageHeight - drawHeight) / 2f
-                                    
-                                    contentStream.drawImage(pdImage, x, y, drawWidth, drawHeight)
-                                    contentStream.close()
-                                    pdf.save(tempPdfFile)
-                                    pdf.close()
-                                    bitmap.recycle()
-                                }
-                                val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
-                                val jobName = "OmniSuite Image Print"
-                                printManager.print(
-                                    jobName,
-                                    ImagePrintDocumentAdapter(context, tempPdfFile),
-                                    null
-                                )
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-
-                    ImageActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                        try {
-                            val fileUriProvider = if (isContentUri) {
-                                activeUri
-                            } else {
-                                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
-                            }
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/*"
-                                putExtra(Intent.EXTRA_STREAM, fileUriProvider)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-
-                    var showQuickToolsMenu by remember { mutableStateOf(false) }
-                    Box {
-                        ImageActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
-                            showQuickToolsMenu = true
-                        }
-                        DropdownMenu(
-                            expanded = showQuickToolsMenu,
-                            onDismissRequest = { showQuickToolsMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("📕 Convert to PDF format") },
-                                onClick = {
-                                    showQuickToolsMenu = false
-                                    coroutineScope.launch {
-                                        val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                val pdf = com.tom_roush.pdfbox.pdmodel.PDDocument()
-                                                val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
-                                                pdf.addPage(page)
-                                                val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
-                                                
-                                                val bitmap = if (isContentUri) {
-                                                    context.contentResolver.openInputStream(activeUri).use { stream ->
-                                                        android.graphics.BitmapFactory.decodeStream(stream)
-                                                    }
-                                                } else {
-                                                    android.graphics.BitmapFactory.decodeFile(activeUriString)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Quick Action Chips Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Quick Edit
+                        AssistChip(
+                            onClick = { onEditInImageLab(activeUriString, 0) },
+                            label = { Text("Quick Edit") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        // Watermark
+                        AssistChip(
+                            onClick = { onEditInImageLab(activeUriString, 4) },
+                            label = { Text("Watermark") },
+                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        // Long Stitch
+                        AssistChip(
+                            onClick = { onEditInImageLab(activeUriString, 1) },
+                            label = { Text("Long Stitch") },
+                            leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        // Extract Text
+                        AssistChip(
+                            onClick = { onEditInImageLab(activeUriString, 2) },
+                            label = { Text("Extract Text") },
+                            leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        // ID Card Maker
+                        AssistChip(
+                            onClick = { onEditInImageLab(activeUriString, 3) },
+                            label = { Text("ID Card Maker") },
+                            leadingIcon = { Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        // Convert to PDF
+                        AssistChip(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val pdf = com.tom_roush.pdfbox.pdmodel.PDDocument()
+                                            val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                                            pdf.addPage(page)
+                                            val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
+                                            
+                                            val bitmap = if (isContentUri) {
+                                                context.contentResolver.openInputStream(activeUri).use { stream ->
+                                                    android.graphics.BitmapFactory.decodeStream(stream)
                                                 }
-                                                val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
-                                                
-                                                val pageWidth = page.mediaBox.width
-                                                val pageHeight = page.mediaBox.height
-                                                val imageWidth = bitmap.width.toFloat()
-                                                val imageHeight = bitmap.height.toFloat()
-                                                val ratio = Math.min((pageWidth - 80f) / imageWidth, (pageHeight - 80f) / imageHeight)
-                                                val drawWidth = imageWidth * ratio
-                                                val drawHeight = imageHeight * ratio
-                                                val x = (pageWidth - drawWidth) / 2f
-                                                val y = (pageHeight - drawHeight) / 2f
-                                                
-                                                contentStream.drawImage(pdImage, x, y, drawWidth, drawHeight)
-                                                contentStream.close()
-                                                pdf.save(tempPdfFile)
-                                                pdf.close()
-                                                bitmap.recycle()
-                                            }
-                                            // Save to public Documents/OmniSuite/
-                                            val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
-                                                context = context,
-                                                bytes = tempPdfFile.readBytes(),
-                                                filename = activeFileName.substringBeforeLast(".") + "_image.pdf",
-                                                mimeType = "application/pdf",
-                                                subfolder = ""
-                                            )
-                                            if (savedUri != null) {
-                                                Toast.makeText(context, "Image successfully saved as PDF under Documents/OmniSuite!", Toast.LENGTH_LONG).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                        } finally {
-                                            if (tempPdfFile.exists()) tempPdfFile.delete()
+                                            } else {
+                                                android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                            } ?: throw Exception("Failed to load image")
+                                            val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
+                                            
+                                            val pageWidth = page.mediaBox.width
+                                            val pageHeight = page.mediaBox.height
+                                            val imageWidth = bitmap.width.toFloat()
+                                            val imageHeight = bitmap.height.toFloat()
+                                            val ratio = Math.min((pageWidth - 80f) / imageWidth, (pageHeight - 80f) / imageHeight)
+                                            val drawWidth = imageWidth * ratio
+                                            val drawHeight = imageHeight * ratio
+                                            val x = (pageWidth - drawWidth) / 2f
+                                            val y = (pageHeight - drawHeight) / 2f
+                                            
+                                            contentStream.drawImage(pdImage, x, y, drawWidth, drawHeight)
+                                            contentStream.close()
+                                            pdf.save(tempPdfFile)
+                                            pdf.close()
+                                            bitmap.recycle()
                                         }
+                                        val bytes = tempPdfFile.readBytes()
+                                        val newName = activeFileName.substringBeforeLast(".") + "_image.pdf"
+                                        val savedUri = FileOutputManager.saveToDefault(
+                                            context = context,
+                                            bytes = bytes,
+                                            filename = newName,
+                                            mimeType = "application/pdf",
+                                            subfolder = "Documents"
+                                        )
+                                        if (savedUri != null) {
+                                            resultFileName = newName
+                                            resultFileUri = savedUri.toString()
+                                            resultMimeType = "application/pdf"
+                                            resultFileSize = bytes.size.toLong()
+                                            showResultSheet = true
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        if (tempPdfFile.exists()) tempPdfFile.delete()
                                     }
                                 }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("ℹ️ View Image details") },
-                                onClick = {
-                                    showQuickToolsMenu = false
-                                    showInfoDialog = true
+                            },
+                            label = { Text("Convert to PDF") },
+                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ImageActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                            try {
+                                val fileUriProvider = if (isContentUri) {
+                                    activeUri
+                                } else {
+                                    androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
                                 }
-                            )
+                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(fileUriProvider, "image/*")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(openIntent, "Open Image In"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        ImageActionColumnButton(icon = Icons.Default.Edit, title = "Edit Image") {
+                            editRotation = 0f
+                            editSquareCrop = false
+                            editCompressQuality = 80f
+                            editOutputFormat = "JPEG"
+                            showEditSheet = true
+                        }
+
+                        ImageActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                            coroutineScope.launch {
+                                val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        val pdf = com.tom_roush.pdfbox.pdmodel.PDDocument()
+                                        val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                                        pdf.addPage(page)
+                                        val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdf, page)
+                                        
+                                        val bitmap = if (isContentUri) {
+                                            context.contentResolver.openInputStream(activeUri).use { stream ->
+                                                android.graphics.BitmapFactory.decodeStream(stream)
+                                            }
+                                        } else {
+                                            android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                        }
+                                        val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, bitmap)
+                                        
+                                        val pageWidth = page.mediaBox.width
+                                        val pageHeight = page.mediaBox.height
+                                        val imageWidth = bitmap.width.toFloat()
+                                        val imageHeight = bitmap.height.toFloat()
+                                        val ratio = Math.min((pageWidth - 80f) / imageWidth, (pageHeight - 80f) / imageHeight)
+                                        val drawWidth = imageWidth * ratio
+                                        val drawHeight = imageHeight * ratio
+                                        val x = (pageWidth - drawWidth) / 2f
+                                        val y = (pageHeight - drawHeight) / 2f
+                                        
+                                        contentStream.drawImage(pdImage, x, y, drawWidth, drawHeight)
+                                        contentStream.close()
+                                        pdf.save(tempPdfFile)
+                                        pdf.close()
+                                        bitmap.recycle()
+                                    }
+                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
+                                    val jobName = "OmniSuite Image Print"
+                                    printManager.print(
+                                        jobName,
+                                        ImagePrintDocumentAdapter(context, tempPdfFile),
+                                        null
+                                    )
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        ImageActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                            try {
+                                val fileUriProvider = if (isContentUri) {
+                                    activeUri
+                                } else {
+                                    androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
+                                }
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/*"
+                                    putExtra(Intent.EXTRA_STREAM, fileUriProvider)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        ImageActionColumnButton(icon = Icons.Default.Info, title = "Details") {
+                            showInfoDialog = true
                         }
                     }
                 }
@@ -578,7 +615,7 @@ fun ImageViewerScreen(
                         .fillMaxWidth()
                         .clickable {
                             showEditSheet = false
-                            onEditInImageLab(activeUriString)
+                            onEditInImageLab(activeUriString, 0)
                         },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)

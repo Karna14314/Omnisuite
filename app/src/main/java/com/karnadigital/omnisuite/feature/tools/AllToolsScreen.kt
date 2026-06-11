@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -51,7 +50,20 @@ fun AllToolsScreen(
     onNavigateToOcr: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onNavigateToZipMaker: () -> Unit,
-    onSelectFileForType: (String) -> Unit // Resolves picking files for viewers
+    onSelectFileForType: (String) -> Unit, // Resolves picking files for viewers
+    // New parameters for upgraded tools
+    onNavigateToPdfDecrypt: () -> Unit,
+    onNavigateToPdfRotate: () -> Unit,
+    onNavigateToPdfExtract: () -> Unit,
+    onNavigateToPdfDelete: () -> Unit,
+    onNavigateToWebToPdf: () -> Unit,
+    onNavigateToHtmlToPdf: () -> Unit,
+    onNavigateToMarkdownToPdf: () -> Unit,
+    onNavigateToDocxToTxt: () -> Unit,
+    onNavigateToCsvToXlsx: () -> Unit,
+    onNavigateToXlsxToCsv: () -> Unit,
+    onNavigateToPptxToTxt: () -> Unit,
+    onNavigateToTarTools: () -> Unit
 ) {
     var selectedTabState by rememberSaveable { mutableStateOf(0) }
     val tabs = listOf("📋 PDF", "📝 Word", "📊 Excel", "🖼️ Slides", "🖼 Image", "📦 Archive")
@@ -157,16 +169,27 @@ fun AllToolsScreen(
                         onNavigateToImagesToPdf = onNavigateToImagesToPdf,
                         onNavigateToPdfCompress = onNavigateToPdfCompress,
                         onNavigateToPdfFlatten = onNavigateToPdfFlatten,
-                        onNavigateToXlsToPdf = onNavigateToXlsToPdf
+                        onNavigateToXlsToPdf = onNavigateToXlsToPdf,
+                        onNavigateToPdfDecrypt = onNavigateToPdfDecrypt,
+                        onNavigateToPdfRotate = onNavigateToPdfRotate,
+                        onNavigateToPdfExtract = onNavigateToPdfExtract,
+                        onNavigateToPdfDelete = onNavigateToPdfDelete,
+                        onNavigateToWebToPdf = onNavigateToWebToPdf,
+                        onNavigateToHtmlToPdf = onNavigateToHtmlToPdf
                     )
                     1 -> WordToolsList(
-                        onSelectFileForType = onSelectFileForType
+                        onSelectFileForType = onSelectFileForType,
+                        onNavigateToDocxToTxt = onNavigateToDocxToTxt,
+                        onNavigateToMarkdownToPdf = onNavigateToMarkdownToPdf
                     )
                     2 -> ExcelToolsList(
-                        onSelectFileForType = onSelectFileForType
+                        onSelectFileForType = onSelectFileForType,
+                        onNavigateToCsvToXlsx = onNavigateToCsvToXlsx,
+                        onNavigateToXlsxToCsv = onNavigateToXlsxToCsv
                     )
                     3 -> SlidesToolsList(
-                        onSelectFileForType = onSelectFileForType
+                        onSelectFileForType = onSelectFileForType,
+                        onNavigateToPptxToTxt = onNavigateToPptxToTxt
                     )
                     4 -> ImageToolsList(
                         onNavigateToImageTools = onNavigateToImageTools,
@@ -178,7 +201,8 @@ fun AllToolsScreen(
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
                         onNavigateToBatchTools = onNavigateToBatchTools,
                         onNavigateToZipMaker = onNavigateToZipMaker,
-                        onSelectFileForType = onSelectFileForType
+                        onSelectFileForType = onSelectFileForType,
+                        onNavigateToTarTools = onNavigateToTarTools
                     )
                 }
             }
@@ -204,7 +228,13 @@ fun PdfToolsList(
     onNavigateToImagesToPdf: () -> Unit,
     onNavigateToPdfCompress: () -> Unit,
     onNavigateToPdfFlatten: () -> Unit,
-    onNavigateToXlsToPdf: () -> Unit
+    onNavigateToXlsToPdf: () -> Unit,
+    onNavigateToPdfDecrypt: () -> Unit,
+    onNavigateToPdfRotate: () -> Unit,
+    onNavigateToPdfExtract: () -> Unit,
+    onNavigateToPdfDelete: () -> Unit,
+    onNavigateToWebToPdf: () -> Unit,
+    onNavigateToHtmlToPdf: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -213,6 +243,10 @@ fun PdfToolsList(
         item { ToolListRow("🥞", "Merge PDFs", "Combine multiple files", OmniColors.PdfRed, onNavigateToPdfMerge) }
         item { ToolListRow("✂️", "Split PDF", "Extract page ranges", OmniColors.PdfRed, onNavigateToPdfSplit) }
         item { ToolListRow("🔒", "Encrypt PDF", "Lock with secure password", OmniColors.PdfRed, onNavigateToPdfLock) }
+        item { ToolListRow("🔓", "Decrypt PDF", "Remove PDF password lock offline", OmniColors.PdfRed, onNavigateToPdfDecrypt) }
+        item { ToolListRow("🔄", "Rotate PDF Pages", "Rotate visual page layout preview", OmniColors.PdfRed, onNavigateToPdfRotate) }
+        item { ToolListRow("✂️", "Extract PDF Pages", "Select and extract pages to new PDF", OmniColors.PdfRed, onNavigateToPdfExtract) }
+        item { ToolListRow("🗑️", "Delete PDF Pages", "Select and remove pages from PDF", OmniColors.PdfRed, onNavigateToPdfDelete) }
         item { ToolListRow("✍️", "Digital Sign", "Stamp digital signature", OmniColors.PdfRed, onNavigateToSignaturePad) }
         item { ToolListRow("💧", "Watermark", "Add security stamp overlay", OmniColors.PdfRed, onNavigateToWatermark) }
         item { ToolListRow("📕", "Images to PDF", "Compile multiple photos into PDF", OmniColors.PdfRed, onNavigateToImagesToPdf) }
@@ -227,12 +261,16 @@ fun PdfToolsList(
         item { ToolListRow("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, onNavigateToPdfCompress) }
         item { ToolListRow("🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, onNavigateToPdfFlatten) }
         item { ToolListRow("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, onNavigateToXlsToPdf) }
+        item { ToolListRow("🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, onNavigateToWebToPdf) }
+        item { ToolListRow("<html>", "HTML to PDF", "Compile custom HTML text to PDF", OmniColors.PdfRed, onNavigateToHtmlToPdf) }
     }
 }
 
 @Composable
 fun WordToolsList(
-    onSelectFileForType: (String) -> Unit
+    onSelectFileForType: (String) -> Unit,
+    onNavigateToDocxToTxt: () -> Unit,
+    onNavigateToMarkdownToPdf: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -241,12 +279,16 @@ fun WordToolsList(
         item { ToolListRow("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }) }
         item { ToolListRow("📄", "Text Editor", "Read and edit local TXT files", OmniColors.TextMuted, { onSelectFileForType("text") }) }
         item { ToolListRow("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }) }
+        item { ToolListRow("📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, onNavigateToDocxToTxt) }
+        item { ToolListRow("✍️", "Markdown to PDF", "Format markdown text to PDF", OmniColors.DocBlue, onNavigateToMarkdownToPdf) }
     }
 }
 
 @Composable
 fun ExcelToolsList(
-    onSelectFileForType: (String) -> Unit
+    onSelectFileForType: (String) -> Unit,
+    onNavigateToCsvToXlsx: () -> Unit,
+    onNavigateToXlsxToCsv: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -254,18 +296,22 @@ fun ExcelToolsList(
     ) {
         item { ToolListRow("📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }) }
         item { ToolListRow("📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }) }
+        item { ToolListRow("📤", "CSV to Excel", "Import CSV records to Excel workbook", OmniColors.XlsGreen, onNavigateToCsvToXlsx) }
+        item { ToolListRow("📥", "Excel to CSV", "Export workbook sheet cells to CSV", OmniColors.XlsGreen, onNavigateToXlsxToCsv) }
     }
 }
 
 @Composable
 fun SlidesToolsList(
-    onSelectFileForType: (String) -> Unit
+    onSelectFileForType: (String) -> Unit,
+    onNavigateToPptxToTxt: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item { ToolListRow("🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }) }
+        item { ToolListRow("📄", "PPTX to TXT", "Extract presentation slides text to TXT", Color(0xFFF59E0B), onNavigateToPptxToTxt) }
     }
 }
 
@@ -294,7 +340,8 @@ fun ArchiveQrToolsList(
     onNavigateToBarcodeScanner: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onNavigateToZipMaker: () -> Unit,
-    onSelectFileForType: (String) -> Unit
+    onSelectFileForType: (String) -> Unit,
+    onNavigateToTarTools: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -302,6 +349,7 @@ fun ArchiveQrToolsList(
     ) {
         item { ToolListRow("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, onNavigateToZipMaker) }
         item { ToolListRow("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }) }
+        item { ToolListRow("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, onNavigateToTarTools) }
         item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, onNavigateToQrGenerator) }
         item { ToolListRow("📷", "QR Scanner", "Live viewfinder decoding", OmniColors.ArcCyan, onNavigateToBarcodeScanner) }
         item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", OmniColors.ArcCyan, onNavigateToQrGenerator) }

@@ -32,6 +32,18 @@ import com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.PdfCompressScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.PdfFlattenScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.XlsToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfDecryptScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfRotateScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfExtractScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfDeleteScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.WebToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.HtmlToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.MarkdownToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.DocxToTxtScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.CsvToXlsxScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.XlsxToCsvScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PptxToTxtScreen
+import com.karnadigital.omnisuite.feature.tools.TarToolsScreen
 
 
 /**
@@ -124,6 +136,42 @@ fun OmniNavGraph(
                 },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                },
+                onNavigateToPdfDecrypt = {
+                    navController.navigate(Screen.PdfDecrypt.createRoute())
+                },
+                onNavigateToPdfRotate = {
+                    navController.navigate(Screen.PdfRotate.createRoute())
+                },
+                onNavigateToPdfExtract = {
+                    navController.navigate(Screen.PdfExtract.createRoute())
+                },
+                onNavigateToPdfDelete = {
+                    navController.navigate(Screen.PdfDelete.createRoute())
+                },
+                onNavigateToWebToPdf = {
+                    navController.navigate(Screen.WebToPdf.route)
+                },
+                onNavigateToHtmlToPdf = {
+                    navController.navigate(Screen.HtmlToPdf.route)
+                },
+                onNavigateToMarkdownToPdf = {
+                    navController.navigate(Screen.MarkdownToPdf.route)
+                },
+                onNavigateToDocxToTxt = {
+                    navController.navigate(Screen.DocxToTxt.createRoute())
+                },
+                onNavigateToCsvToXlsx = {
+                    navController.navigate(Screen.CsvToXlsx.createRoute())
+                },
+                onNavigateToXlsxToCsv = {
+                    navController.navigate(Screen.XlsxToCsv.createRoute())
+                },
+                onNavigateToPptxToTxt = {
+                    navController.navigate(Screen.PptxToTxt.createRoute())
+                },
+                onNavigateToTarTools = {
+                    navController.navigate(Screen.TarTools.route)
                 }
             )
         }
@@ -181,6 +229,9 @@ fun OmniNavGraph(
                 },
                 onOpenPdfTool = { route ->
                     navController.navigate(route)
+                },
+                onOpenImageTool = { uri, tab ->
+                    navController.navigate(Screen.ImageTools.createRoute(uri, tab))
                 },
                 onBack = {
                     navController.popBackStack()
@@ -477,6 +528,214 @@ fun OmniNavGraph(
         // 16. Standalone Excel to PDF
         composable(route = Screen.XlsToPdf.route) {
             XlsToPdfScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 17. Standalone PDF Decrypt Screen
+        composable(
+            route = Screen.PdfDecrypt.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            PdfDecryptScreen(
+                initialPdfUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 18. Standalone PDF Rotate Screen
+        composable(
+            route = Screen.PdfRotate.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            PdfRotateScreen(
+                initialPdfUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 19. Standalone PDF Extract Screen
+        composable(
+            route = Screen.PdfExtract.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            PdfExtractScreen(
+                initialPdfUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 20. Standalone PDF Delete Screen
+        composable(
+            route = Screen.PdfDelete.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            PdfDeleteScreen(
+                initialPdfUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 21. Standalone Web to PDF Screen
+        composable(route = Screen.WebToPdf.route) {
+            WebToPdfScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 22. Standalone HTML to PDF Screen
+        composable(route = Screen.HtmlToPdf.route) {
+            HtmlToPdfScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 23. Standalone Markdown to PDF Screen
+        composable(route = Screen.MarkdownToPdf.route) {
+            MarkdownToPdfScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 24. Standalone DOCX to TXT Screen
+        composable(
+            route = Screen.DocxToTxt.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            DocxToTxtScreen(
+                initialUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 25. Standalone CSV to XLSX Screen
+        composable(
+            route = Screen.CsvToXlsx.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            CsvToXlsxScreen(
+                initialUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 26. Standalone XLSX to CSV Screen
+        composable(
+            route = Screen.XlsxToCsv.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            XlsxToCsvScreen(
+                initialUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 27. Standalone PPTX to TXT Screen
+        composable(
+            route = Screen.PptxToTxt.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            PptxToTxtScreen(
+                initialUri = fileUri,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                }
+            )
+        }
+
+        // 28. Standalone TAR Archive creation/extraction Screen
+        composable(route = Screen.TarTools.route) {
+            TarToolsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))

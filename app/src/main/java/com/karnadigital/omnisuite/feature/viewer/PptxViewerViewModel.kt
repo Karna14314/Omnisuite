@@ -390,19 +390,6 @@ class PptxViewerViewModel @Inject constructor(
 
                     val slides = parseAllSlides(ppt, filePath)
 
-                    try {
-                        val recentFile = RecentFile(
-                            fileUri = file.absolutePath,
-                            fileName = file.name,
-                            mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis()
-                        )
-                        recentFileRepository.insertRecentFile(recentFile)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
                     activePresentation = ppt
                     activeFilePath = filePath
 

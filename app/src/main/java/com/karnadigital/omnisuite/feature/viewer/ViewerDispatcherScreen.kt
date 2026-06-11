@@ -23,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.karnadigital.omnisuite.feature.viewer.ImageViewerScreen
 import java.io.File
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.karnadigital.omnisuite.feature.home.HomeScreenViewModel
 
 sealed class DispatcherState {
     object Loading : DispatcherState()
@@ -32,6 +34,22 @@ sealed class DispatcherState {
 
 enum class FileType {
     PDF, TXT, DOCX, XLSX, PPTX, PPT_LEGACY, IMAGE, CSV, ARCHIVE, DOC_LEGACY, XLS_LEGACY
+}
+
+private fun getMimeTypeFromFileType(fileType: FileType): String {
+    return when (fileType) {
+        FileType.PDF -> "application/pdf"
+        FileType.TXT -> "text/plain"
+        FileType.DOCX -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        FileType.XLSX -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        FileType.PPTX -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        FileType.IMAGE -> "image/*"
+        FileType.CSV -> "text/csv"
+        FileType.ARCHIVE -> "application/zip"
+        FileType.DOC_LEGACY -> "application/msword"
+        FileType.XLS_LEGACY -> "application/vnd.ms-excel"
+        FileType.PPT_LEGACY -> "application/vnd.ms-powerpoint"
+    }
 }
 
 /**
@@ -44,8 +62,9 @@ fun ViewerDispatcherScreen(
     fileUri: String?,
     onOpenFile: (String) -> Unit = {},
     onOpenPdfTool: (String) -> Unit = {},
-    onOpenImageTool: (String) -> Unit = {},
-    onBack: () -> Unit
+    onOpenImageTool: (String, Int) -> Unit = { _, _ -> },
+    onBack: () -> Unit,
+    viewModel: HomeScreenViewModel = hiltViewModel()
 ) {
     if (fileUri.isNullOrEmpty()) {
         Box(
@@ -55,6 +74,7 @@ fun ViewerDispatcherScreen(
             contentAlignment = Alignment.Center
         ) {
             ErrorCard(
+                title = "Invalid Document",
                 message = "No document URI or path was provided.",
                 onBack = onBack
             )
@@ -77,6 +97,12 @@ fun ViewerDispatcherScreen(
                 val fileType = determineFileType(context, fileUri, cachedFile)
                 if (fileType != null) {
                     state = DispatcherState.Success(cachedFile.absolutePath, fileType)
+                    
+                    // Log to history with the ORIGINAL fileUri!
+                    val fileName = getFileNameFromUri(context, parsedUri) ?: cachedFile.name
+                    val fileSize = cachedFile.length()
+                    val mimeType = getMimeTypeFromFileType(fileType)
+                    viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
                 } else {
                     state = DispatcherState.Error("This file format is not supported by OmniSuite.")
                 }
@@ -88,6 +114,12 @@ fun ViewerDispatcherScreen(
                     val fileType = determineFileType(context, fileUri, directFile)
                     if (fileType != null) {
                         state = DispatcherState.Success(directFile.absolutePath, fileType)
+                        
+                        // Log to history with the ORIGINAL fileUri!
+                        val fileName = directFile.name
+                        val fileSize = directFile.length()
+                        val mimeType = getMimeTypeFromFileType(fileType)
+                        viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
                     } else {
                         state = DispatcherState.Error("This file format is not supported by OmniSuite.")
                     }
@@ -130,6 +162,7 @@ fun ViewerDispatcherScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             ErrorCard(
+                                title = "Format Unsupported",
                                 message = "Legacy PowerPoint 97-2003 (.ppt) files are not fully supported. Please save as .pptx format to edit or view.",
                                 onBack = onBack
                             )
@@ -146,6 +179,7 @@ fun ViewerDispatcherScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             ErrorCard(
+                                title = "Format Unsupported",
                                 message = "Legacy Word 97-2003 (.doc) files are not fully supported. Please save as .docx format to edit or view.",
                                 onBack = onBack
                             )
@@ -157,6 +191,7 @@ fun ViewerDispatcherScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             ErrorCard(
+                                title = "Format Unsupported",
                                 message = "Legacy Excel 97-2003 (.xls) files are not fully supported. Please save as .xlsx format to edit or view.",
                                 onBack = onBack
                             )
@@ -176,6 +211,7 @@ fun ViewerDispatcherScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     ErrorCard(
+                        title = "Document Load Error",
                         message = currentState.message,
                         onBack = onBack
                     )
@@ -411,6 +447,7 @@ fun LoadingIndicator() {
 
 @Composable
 fun ErrorCard(
+    title: String = "Format Unrecognized",
     message: String,
     onBack: () -> Unit
 ) {
@@ -438,7 +475,7 @@ fun ErrorCard(
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Format Unrecognized",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
