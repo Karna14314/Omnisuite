@@ -20,7 +20,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
-import com.karnadigital.omnisuite.core.util.ZoomableBox
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.BorderStroke
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +103,16 @@ fun XlsxViewerScreen(
     var selectedCellData by remember { mutableStateOf<com.karnadigital.omnisuite.feature.viewer.CellData?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var bottomSheetValue by remember { mutableStateOf("") }
+    var scale by remember { mutableStateOf(1f) }
+    var selectedColForSort by remember { mutableStateOf<Int?>(null) }
+    var formulaBarValue by remember(selectedCell, state, activeSheetIndex) {
+        val initialVal = if (selectedCell != null && state is XlsxLoadState.Success) {
+            val activeSheet = (state as XlsxLoadState.Success).workbook.sheets.getOrNull(activeSheetIndex)
+            val cell = activeSheet?.rows?.getOrNull(selectedCell!!.rowIndex)?.getOrNull(selectedCell!!.colIndex)
+            cell?.formulaString ?: cell?.text ?: ""
+        } else ""
+        mutableStateOf(initialVal)
+    }
 
     LaunchedEffect(currentMatchIndex) {
         if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
@@ -424,18 +449,59 @@ fun XlsxViewerScreen(
                         val activeSheet = workbook.sheets.getOrNull(activeSheetIndex) ?: workbook.sheets[0]
 
                         Column(modifier = Modifier.fillMaxSize()) {
+                            // Formula Bar (always visible)
+                            val cellAddress = if (selectedCell != null) {
+                                "${getColHeaderString(selectedCell!!.colIndex)}${selectedCell!!.rowIndex + 1}"
+                            } else ""
+                            FormulaBar(
+                                cellAddress = cellAddress,
+                                formulaOrValue = formulaBarValue,
+                                onValueChange = { formulaBarValue = it },
+                                onCommit = {
+                                    if (selectedCell != null) {
+                                        viewModel.updateCell(
+                                            sheetIndex = activeSheetIndex,
+                                            rowIndex = selectedCell!!.rowIndex,
+                                            colIndex = selectedCell!!.colIndex,
+                                            valueString = formulaBarValue
+                                        )
+                                    }
+                                }
+                            )
+
+                            // Sort Filter Bar
+                            if (selectedColForSort != null) {
+                                val colLabel = getColHeaderString(selectedColForSort!!)
+                                SortFilterBar(
+                                    selectedColIndex = selectedColForSort,
+                                    colLabel = colLabel,
+                                    onSortAscending = {
+                                        viewModel.sortByColumn(activeSheetIndex, selectedColForSort!!, true)
+                                        selectedColForSort = null
+                                    },
+                                    onSortDescending = {
+                                        viewModel.sortByColumn(activeSheetIndex, selectedColForSort!!, false)
+                                        selectedColForSort = null
+                                    },
+                                    onDismiss = { selectedColForSort = null }
+                                )
+                            }
+
                             // Aligned Scrollable Grid Container
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                             ) {
-                                ZoomableBox(
+                            ) {
+                                val actualFrozenRows = activeSheet.frozenRowCount.coerceAtMost(activeSheet.rows.size)
+                                val actualFrozenCols = activeSheet.frozenColCount.coerceAtMost(if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0)
+
+                                ZoomableDataGrid(
+                                    scale = scale,
+                                    onScaleChange = { scale = it },
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
+                                    Column(modifier = Modifier.fillMaxSize()) {
                                         // 1. Column headers index (A, B, C...) - pinned vertically, scrolls horizontally
                                         Row(
                                             modifier = Modifier
@@ -443,19 +509,141 @@ fun XlsxViewerScreen(
                                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                         ) {
                                             HeaderCell("", isIntersection = true)
+                                            
+                                            // Frozen column headers
+                                            if (actualFrozenCols > 0) {
+                                                Row {
+                                                    for (c in 0 until actualFrozenCols) {
+                                                        ColumnHeaderCell(
+                                                            colIndex = c,
+                                                            text = getColHeaderString(c),
+                                                            widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
+                                                            isSelected = selectedColForSort == c,
+                                                            onSelect = { selectedColForSort = c },
+                                                            onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
+                                                            onContextAction = { action ->
+                                                                when (action) {
+                                                                    "INSERT_LEFT" -> viewModel.insertColumn(activeSheetIndex, c, left = true)
+                                                                    "INSERT_RIGHT" -> viewModel.insertColumn(activeSheetIndex, c, left = false)
+                                                                    "DELETE" -> viewModel.deleteColumn(activeSheetIndex, c)
+                                                                    "BEST_FIT" -> viewModel.setColumnBestFit(activeSheetIndex, c)
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Scrollable column headers
                                             Box(
                                                 modifier = Modifier.horizontalScroll(horizontalScrollState)
                                             ) {
                                                 Row {
                                                     val colCount = if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0
-                                                    for (c in 0 until colCount) {
-                                                        HeaderCell(getColHeaderString(c))
+                                                     for (c in actualFrozenCols until colCount) {
+                                                         ColumnHeaderCell(
+                                                             colIndex = c,
+                                                             text = getColHeaderString(c),
+                                                             widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
+                                                             isSelected = selectedColForSort == c,
+                                                             onSelect = { selectedColForSort = c },
+                                                             onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
+                                                             onContextAction = { action ->
+                                                                 when (action) {
+                                                                     "INSERT_LEFT" -> viewModel.insertColumn(activeSheetIndex, c, left = true)
+                                                                     "INSERT_RIGHT" -> viewModel.insertColumn(activeSheetIndex, c, left = false)
+                                                                     "DELETE" -> viewModel.deleteColumn(activeSheetIndex, c)
+                                                                     "BEST_FIT" -> viewModel.setColumnBestFit(activeSheetIndex, c)
+                                                                 }
+                                                             }
+                                                         )
+                                                     }
+                                                }
+                                            }
+                                        }
+
+                                        // 2. Frozen Rows Block (does not scroll vertically, scrolls horizontally)
+                                        if (actualFrozenRows > 0) {
+                                            Column {
+                                                for (r in 0 until actualFrozenRows) {
+                                                    val rowCells = activeSheet.rows.getOrNull(r) ?: emptyList()
+                                                    val rowHeight = activeSheet.rowHeightsDp.getOrNull(r) ?: 24f
+                                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                                        RowHeaderCell(
+                                                            rowIndex = r,
+                                                            text = (r + 1).toString(),
+                                                            heightDp = rowHeight * scale,
+                                                            isSelected = selectedCell?.rowIndex == r,
+                                                            onSelect = { selectedCell = CellCoords(r, 0) },
+                                                            onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, r, newHeight / scale) },
+                                                            onContextAction = { action ->
+                                                                when (action) {
+                                                                    "INSERT_ABOVE" -> viewModel.insertRow(activeSheetIndex, r, above = true)
+                                                                    "INSERT_BELOW" -> viewModel.insertRow(activeSheetIndex, r, above = false)
+                                                                    "DELETE" -> viewModel.deleteRow(activeSheetIndex, r)
+                                                                }
+                                                            }
+                                                        )
+                                                        if (actualFrozenCols > 0) {
+                                                            Row {
+                                                                for (c in 0 until actualFrozenCols) {
+                                                                    val cellData = rowCells.getOrNull(c) ?: CellData("")
+                                                                    val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
+                                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                                        match.pageIndex == activeSheetIndex &&
+                                                                        match.extraData?.split(",")?.let { parts ->
+                                                                            parts.size == 2 && parts[0].toInt() == r && parts[1].toInt() == c
+                                                                        } ?: false
+                                                                    } ?: false
+                                                                    DataCell(
+                                                                        cellData = cellData,
+                                                                        colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
+                                                                        rowHeightDp = rowHeight * scale,
+                                                                        isSelected = isSelected,
+                                                                        isSearchResult = isSearchResult,
+                                                                        onClick = {
+                                                                            selectedCell = CellCoords(r, c)
+                                                                            selectedCellData = cellData
+                                                                            bottomSheetValue = cellData.text
+                                                                            showBottomSheet = true
+                                                                        }
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
+                                                            Row {
+                                                                for (c in actualFrozenCols until rowCells.size) {
+                                                                    val cellData = rowCells.getOrNull(c) ?: CellData("")
+                                                                    val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
+                                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                                        match.pageIndex == activeSheetIndex &&
+                                                                        match.extraData?.split(",")?.let { parts ->
+                                                                            parts.size == 2 && parts[0].toInt() == r && parts[1].toInt() == c
+                                                                        } ?: false
+                                                                    } ?: false
+                                                                    DataCell(
+                                                                        cellData = cellData,
+                                                                        colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
+                                                                        rowHeightDp = rowHeight * scale,
+                                                                        isSelected = isSelected,
+                                                                        isSearchResult = isSearchResult,
+                                                                        onClick = {
+                                                                            selectedCell = CellCoords(r, c)
+                                                                            selectedCellData = cellData
+                                                                            bottomSheetValue = cellData.text
+                                                                            showBottomSheet = true
+                                                                        }
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
 
-                                        // 2. Scrollable LazyColumn - scrolls vertically
+                                        // 3. Scrollable Rows Block (LazyColumn)
                                         LazyColumn(
                                             state = lazyListState,
                                             modifier = Modifier
@@ -463,20 +651,66 @@ fun XlsxViewerScreen(
                                                 .weight(1f),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
-                                            items(activeSheet.rows.size) { rowIndex ->
+                                            items(activeSheet.rows.size - actualFrozenRows) { index ->
+                                                val rowIndex = index + actualFrozenRows
                                                 val rowCells = activeSheet.rows[rowIndex]
+                                                val rowHeight = activeSheet.rowHeightsDp.getOrElse(rowIndex) { 24f }
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) {
                                                     // Row Number Header Index - pinned horizontally
-                                                    HeaderCell((rowIndex + 1).toString(), isRowHeader = true)
+                                                    RowHeaderCell(
+                                                        rowIndex = rowIndex,
+                                                        text = (rowIndex + 1).toString(),
+                                                        heightDp = rowHeight * scale,
+                                                        isSelected = selectedCell?.rowIndex == rowIndex,
+                                                        onSelect = { selectedCell = CellCoords(rowIndex, 0) },
+                                                        onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, rowIndex, newHeight / scale) },
+                                                        onContextAction = { action ->
+                                                            when (action) {
+                                                                "INSERT_ABOVE" -> viewModel.insertRow(activeSheetIndex, rowIndex, above = true)
+                                                                "INSERT_BELOW" -> viewModel.insertRow(activeSheetIndex, rowIndex, above = false)
+                                                                "DELETE" -> viewModel.deleteRow(activeSheetIndex, rowIndex)
+                                                            }
+                                                        }
+                                                    )
                                                     
+                                                    // Frozen column data cells in this row
+                                                    if (actualFrozenCols > 0) {
+                                                        Row {
+                                                            for (c in 0 until actualFrozenCols) {
+                                                                val cellData = rowCells.getOrNull(c) ?: CellData("")
+                                                                val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == c
+                                                                val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
+                                                                    match.pageIndex == activeSheetIndex &&
+                                                                    match.extraData?.split(",")?.let { parts ->
+                                                                        parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == c
+                                                                    } ?: false
+                                                                } ?: false
+                                                                DataCell(
+                                                                    cellData = cellData,
+                                                                    colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
+                                                                    rowHeightDp = rowHeight * scale,
+                                                                    isSelected = isSelected,
+                                                                    isSearchResult = isSearchResult,
+                                                                    onClick = {
+                                                                        selectedCell = CellCoords(rowIndex, c)
+                                                                        selectedCellData = cellData
+                                                                        bottomSheetValue = cellData.text
+                                                                        showBottomSheet = true
+                                                                    }
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+
                                                     // Data Row Cells - scrolls horizontally in sync
                                                     Box(
                                                         modifier = Modifier.horizontalScroll(horizontalScrollState)
                                                     ) {
                                                         Row {
-                                                            rowCells.forEachIndexed { colIndex, cellData ->
+                                                            for (colIndex in actualFrozenCols until rowCells.size) {
+                                                                val cellData = rowCells[colIndex]
                                                                 val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
                                                                 val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                                     match.pageIndex == activeSheetIndex &&
@@ -485,11 +719,11 @@ fun XlsxViewerScreen(
                                                                     } ?: false
                                                                 } ?: false
                                                                 DataCell(
-                                                                    text = cellData.text,
-                                                                    colorHex = cellData.colorHex,
+                                                                    cellData = cellData,
+                                                                    colWidthDp = activeSheet.columnWidthsDp.getOrElse(colIndex) { 80f } * scale,
+                                                                    rowHeightDp = rowHeight * scale,
                                                                     isSelected = isSelected,
                                                                     isSearchResult = isSearchResult,
-                                                                    comment = cellData.comment,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, colIndex)
                                                                         selectedCellData = cellData
@@ -500,6 +734,23 @@ fun XlsxViewerScreen(
                                                             }
                                                         }
                                                     }
+                                                }
+                                            }
+
+                                            // Draw sheet charts below the grid inside the scrollable column area
+                                            if (activeSheet.charts.isNotEmpty()) {
+                                                item {
+                                                    Spacer(modifier = Modifier.height(24.dp))
+                                                    Text(
+                                                        text = "Charts & Drawings",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                                    )
+                                                }
+                                                items(activeSheet.charts.size) { chartIndex ->
+                                                    val chart = activeSheet.charts[chartIndex]
+                                                    SheetChartView(chart)
                                                 }
                                             }
                                         }
@@ -584,13 +835,22 @@ fun XlsxViewerScreen(
         val cellData = selectedCellData
         val cellName = "${getColHeaderString(cell.colIndex)}${cell.rowIndex + 1}"
         
-        var cellTextValue by remember(cellData) { mutableStateOf(cellData?.text ?: "") }
+        var cellTextValue by remember(cellData) { mutableStateOf(cellData?.formulaString ?: cellData?.text ?: "") }
         var isBold by remember(cellData) { mutableStateOf(cellData?.isBold ?: false) }
         var isItalic by remember(cellData) { mutableStateOf(cellData?.isItalic ?: false) }
         var isUnderline by remember(cellData) { mutableStateOf(cellData?.isUnderline ?: false) }
         var activeColorHex by remember(cellData) { mutableStateOf(cellData?.colorHex) }
         var textColorHex by remember(cellData) { mutableStateOf(cellData?.textColorHex) }
         var commentValue by remember(cellData) { mutableStateOf(cellData?.comment ?: "") }
+        var hyperlinkValue by remember(cellData) { mutableStateOf(cellData?.hyperlinkUrl ?: "") }
+
+        val activeSheet = (state as? XlsxLoadState.Success)?.workbook?.sheets?.getOrNull(activeSheetIndex)
+        val currentColWidth = activeSheet?.columnWidthsDp?.getOrNull(cell.colIndex) ?: 120f
+        val currentRowHeight = activeSheet?.rowHeightsDp?.getOrNull(cell.rowIndex) ?: 24f
+
+        var colWidthInput by remember(cell) { mutableStateOf(currentColWidth) }
+        var rowHeightInput by remember(cell) { mutableStateOf(currentRowHeight) }
+        var selectedDataFormat by remember(cellData) { mutableStateOf<String?>(null) }
         
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
@@ -611,14 +871,54 @@ fun XlsxViewerScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                if (cellData?.formulaString != null) {
+                    Text(
+                        text = "Formula: ${cellData.formulaString}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
                 OutlinedTextField(
                     value = cellTextValue,
                     onValueChange = { cellTextValue = it },
-                    label = { Text("Cell Content") },
-                    placeholder = { Text("Enter text, formulas, or numbers...") },
+                    label = { Text(if (cellData?.formulaString != null || cellTextValue.startsWith("=")) "Cell Formula" else "Cell Content") },
+                    placeholder = { Text("Enter text, formulas (start with =), or numbers...") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+
+                // Hyperlink Field
+                OutlinedTextField(
+                    value = hyperlinkValue,
+                    onValueChange = { hyperlinkValue = it },
+                    label = { Text("Hyperlink URL") },
+                    placeholder = { Text("https://example.com or mailto:user@domain.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                // Number Formatting Chips
+                Text("Number Format:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val formats = listOf(
+                        "General" to "Normal",
+                        "0.00%" to "%",
+                        "$#,##0.00" to "$",
+                        "mm/dd/yyyy" to "Date"
+                    )
+                    formats.forEach { (formatStr, label) ->
+                        FilterChip(
+                            selected = selectedDataFormat == formatStr,
+                            onClick = { selectedDataFormat = if (selectedDataFormat == formatStr) null else formatStr },
+                            label = { Text(label) }
+                        )
+                    }
+                }
 
                 // Text typography style chips
                 Text("Text Style:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -641,6 +941,29 @@ fun XlsxViewerScreen(
                         onClick = { isUnderline = !isUnderline },
                         label = { Text("Underline") }
                     )
+                }
+
+                // Cell Dimensions Section
+                Text("Cell Dimensions:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Col Width: ${colWidthInput.toInt()}dp", modifier = Modifier.width(120.dp), style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = colWidthInput,
+                            onValueChange = { colWidthInput = it },
+                            valueRange = 30f..300f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Row Height: ${rowHeightInput.toInt()}dp", modifier = Modifier.width(120.dp), style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = rowHeightInput,
+                            onValueChange = { rowHeightInput = it },
+                            valueRange = 20f..200f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 // Text color presets circular swatches row
@@ -735,8 +1058,18 @@ fun XlsxViewerScreen(
                                 isItalic = isItalic,
                                 isUnderline = isUnderline,
                                 textColorHex = textColorHex,
-                                commentText = commentValue
+                                commentText = commentValue,
+                                dataFormat = selectedDataFormat
                             )
+                            if (colWidthInput != currentColWidth) {
+                                viewModel.setColumnWidth(activeSheetIndex, cell.colIndex, colWidthInput)
+                            }
+                            if (rowHeightInput != currentRowHeight) {
+                                viewModel.setRowHeight(activeSheetIndex, cell.rowIndex, rowHeightInput)
+                            }
+                            if (hyperlinkValue != (cellData?.hyperlinkUrl ?: "")) {
+                                viewModel.setCellHyperlink(activeSheetIndex, cell.rowIndex, cell.colIndex, hyperlinkValue)
+                            }
                             showBottomSheet = false
                         },
                         modifier = Modifier.weight(1f)
@@ -776,11 +1109,8 @@ fun HeaderCell(
     Box(
         modifier = Modifier
             .width(if (isIntersection || isRowHeader) 54.dp else 120.dp)
-            .height(32.dp)
-            .background(
-                if (isIntersection) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
+            .height(if (isRowHeader) 24.dp else 28.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         contentAlignment = Alignment.Center
     ) {
@@ -795,56 +1125,479 @@ fun HeaderCell(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DataCell(
+fun ColumnHeaderCell(
+    colIndex: Int,
     text: String,
-    colorHex: String? = null,
+    widthDp: Float,
     isSelected: Boolean,
-    isSearchResult: Boolean = false,
-    comment: String? = null,
-    onClick: () -> Unit
+    onSelect: () -> Unit,
+    onResize: (Float) -> Unit,  // called with new width after drag
+    onContextAction: (String) -> Unit  // "INSERT_LEFT", "INSERT_RIGHT", "DELETE", "BEST_FIT"
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var isDragging by remember { mutableStateOf(false) }
+    val density = LocalDensity.current.density
+
     Box(
         modifier = Modifier
-            .width(120.dp)
-            .height(32.dp)
+            .width(widthDp.dp)
+            .height(28.dp)
             .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                else if (isSearchResult) Color(0xFFFFF59D)
-                else if (colorHex != null) Color(android.graphics.Color.parseColor(colorHex))
-                else MaterialTheme.colorScheme.surface
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
             )
-            .border(
-                width = if (isSelected || isSearchResult) 1.5.dp else 0.5.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary
-                else if (isSearchResult) Color(0xFFFBC02D)
-                else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp),
-        contentAlignment = Alignment.CenterStart
+            .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+            .combinedClickable(
+                onClick = onSelect,
+                onLongClick = { showMenu = true }
+            ),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (isSelected) MaterialTheme.colorScheme.primary
-            else if (isSearchResult) Color(0xFF212121)
-            else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (isSelected || isSearchResult) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Right-edge drag handle for column resize
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(8.dp)
+                .fillMaxHeight()
+                .pointerInput(Unit) {
+                    var startWidth = widthDp
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            startWidth = widthDp
+                            isDragging = true
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val newWidth = (startWidth + dragAmount.x / density).coerceIn(30f, 400f)
+                            startWidth = newWidth
+                            onResize(newWidth)
+                        },
+                        onDragEnd = { isDragging = false },
+                        onDragCancel = { isDragging = false }
+                    )
+                }
+                .background(
+                    if (isDragging) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    else Color.Transparent
+                )
+        )
+
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(text = { Text("Insert Column Left") }, onClick = { showMenu = false; onContextAction("INSERT_LEFT") })
+            DropdownMenuItem(text = { Text("Insert Column Right") }, onClick = { showMenu = false; onContextAction("INSERT_RIGHT") })
+            DropdownMenuItem(text = { Text("Delete Column") }, onClick = { showMenu = false; onContextAction("DELETE") })
+            DropdownMenuItem(text = { Text("Best Fit Width") }, onClick = { showMenu = false; onContextAction("BEST_FIT") })
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun RowHeaderCell(
+    rowIndex: Int,
+    text: String,
+    heightDp: Float,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onResize: (Float) -> Unit,
+    onContextAction: (String) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    var isDragging by remember { mutableStateOf(false) }
+    val density = LocalDensity.current.density
+
+    Box(
+        modifier = Modifier
+            .width(54.dp)
+            .height(heightDp.dp)
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+            .combinedClickable(onClick = onSelect, onLongClick = { showMenu = true }),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Bottom-edge drag handle for row resize
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(8.dp)
+                .pointerInput(Unit) {
+                    var startHeight = heightDp
+                    detectDragGestures(
+                        onDragStart = { 
+                            startHeight = heightDp
+                            isDragging = true 
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val newHeight = (startHeight + dragAmount.y / density).coerceIn(20f, 200f)
+                            startHeight = newHeight
+                            onResize(newHeight)
+                        },
+                        onDragEnd = { isDragging = false },
+                        onDragCancel = { isDragging = false }
+                    )
+                }
+                .background(if (isDragging) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent)
+        )
+
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(text = { Text("Insert Row Above") }, onClick = { showMenu = false; onContextAction("INSERT_ABOVE") })
+            DropdownMenuItem(text = { Text("Insert Row Below") }, onClick = { showMenu = false; onContextAction("INSERT_BELOW") })
+            DropdownMenuItem(text = { Text("Delete Row") }, onClick = { showMenu = false; onContextAction("DELETE") })
+        }
+    }
+}
+
+@Composable
+fun DataCell(
+    cellData: CellData,
+    colWidthDp: Float,
+    rowHeightDp: Float,
+    isSelected: Boolean,
+    isSearchResult: Boolean = false,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    if (!cellData.isMergeAnchor) {
+        // Covered by a merge — render invisible spacer
+        Box(modifier = Modifier.width(colWidthDp.dp).height(rowHeightDp.dp))
+        return
+    }
+
+    val bgColor = when {
+        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        isSearchResult -> Color(0xFFFFF59D)
+        cellData.colorHex != null -> try { Color(android.graphics.Color.parseColor(cellData.colorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.surface }
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    val textColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        cellData.textColorHex != null -> try { Color(android.graphics.Color.parseColor(cellData.textColorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    val textAlign = when (cellData.horizontalAlign) {
+        "CENTER" -> TextAlign.Center
+        "RIGHT" -> TextAlign.End
+        else -> TextAlign.Start
+    }
+
+    val totalWidth = colWidthDp * cellData.mergeColSpan + (cellData.mergeColSpan - 1) * 0.5f  // include borders
+    val totalHeight = rowHeightDp * cellData.mergeRowSpan + (cellData.mergeRowSpan - 1) * 0.5f
+
+    Box(
+        modifier = Modifier
+            .width(totalWidth.dp)
+            .height(totalHeight.dp)
+            .background(bgColor)
+            .border(
+                width = if (isSelected) 2.dp else 0.5.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else if (isSearchResult) Color(0xFFFBC02D)
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+            )
+            .clickable {
+                if (cellData.hyperlinkUrl != null) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(cellData.hyperlinkUrl)))
+                    } catch (e: Exception) { onClick() }
+                } else {
+                    onClick()
+                }
+            }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        contentAlignment = when (cellData.horizontalAlign) {
+            "CENTER" -> Alignment.Center
+            "RIGHT" -> Alignment.CenterEnd
+            else -> Alignment.CenterStart
+        }
+    ) {
+        val fontSize = (cellData.fontSizePt.coerceIn(6, 24)).sp
+        Text(
+            text = cellData.text,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontSize = fontSize,
+                fontWeight = if (cellData.isBold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (cellData.isItalic) FontStyle.Italic else FontStyle.Normal,
+                textDecoration = if (cellData.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                color = textColor,
+                textAlign = textAlign
+            ),
+            maxLines = if (cellData.mergeRowSpan > 1) cellData.mergeRowSpan * 2 else 1,
             overflow = TextOverflow.Ellipsis
         )
 
-        if (!comment.isNullOrBlank()) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()) {
-                val path = androidx.compose.ui.graphics.Path().apply {
+        // Hyperlink indicator (small icon top-right corner)
+        if (cellData.hyperlinkUrl != null) {
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = "Hyperlink",
+                tint = Color(0xFF1A73E8).copy(alpha = 0.7f),
+                modifier = Modifier.size(8.dp).align(Alignment.TopEnd)
+            )
+        }
+
+        // Comment triangle (red corner marker)
+        if (!cellData.comment.isNullOrBlank()) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val path = Path().apply {
                     moveTo(size.width, 0f)
-                    lineTo(size.width - 12f, 0f)
-                    lineTo(size.width, 12f)
+                    lineTo(size.width - 10f, 0f)
+                    lineTo(size.width, 10f)
                     close()
                 }
                 drawPath(path, Color.Red)
             }
+        }
+    }
+}
+
+@Composable
+fun ZoomableDataGrid(
+    scale: Float,
+    onScaleChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .pointerInput(Unit) {
+                // Only intercept 2-finger pinch — let 1-finger scroll pass through
+                awaitEachGesture {
+                    var event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    while (event.changes.any { it.pressed }) {
+                        if (event.changes.size >= 2) {
+                            val zoom = event.calculateZoom()
+                            onScaleChange((scale * zoom).coerceIn(0.5f, 4f))
+                            event.changes.forEach { it.consume() }
+                        }
+                        event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    }
+                }
+            }
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun FormulaBar(
+    cellAddress: String,       // e.g. "B4"
+    formulaOrValue: String,    // formula string if formula cell, else display value
+    onValueChange: (String) -> Unit,
+    onCommit: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Cell address box (e.g. "B4")
+        Box(
+            modifier = Modifier
+                .width(60.dp)
+                .fillMaxHeight()
+                .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant))
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(cellAddress, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        }
+        // fx label
+        Text(
+            " fx ",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        // Editable formula/value field
+        BasicTextField(
+            value = formulaOrValue,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+            keyboardActions = KeyboardActions(
+                onDone = { onCommit() }
+            )
+        )
+    }
+}
+
+@Composable
+fun SortFilterBar(
+    selectedColIndex: Int?,
+    colLabel: String,
+    onSortAscending: () -> Unit,
+    onSortDescending: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (selectedColIndex == null) return
+    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Column $colLabel:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            FilterChip(selected = false, onClick = onSortAscending, label = { Text("A→Z") })
+            FilterChip(selected = false, onClick = onSortDescending, label = { Text("Z→A") })
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss sort bar", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun SheetChartView(chart: SheetChart) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                text = chart.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            when (chart.chartType) {
+                "PIE" -> PieChartCanvas(chart.series.firstOrNull())
+                "BAR" -> BarChartCanvas(chart.series)
+                "LINE" -> LineChartCanvas(chart.series)
+                else -> {
+                    Text(
+                        "Chart: ${chart.chartType} (${chart.series.size} series)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PieChartCanvas(series: ChartSeries?) {
+    if (series == null || series.values.isEmpty()) return
+    val total = series.values.sum().takeIf { it > 0 } ?: return
+    val colors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853), Color(0xFFFF6D00), Color(0xFF46BDC6))
+
+    Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            var startAngle = -90f
+            val radius = size.minDimension * 0.4f
+            val cx = size.width * 0.38f
+            val cy = size.height / 2f
+
+            series.values.forEachIndexed { i, value ->
+                val sweep = (value / total * 360f).toFloat()
+                drawArc(
+                    color = colors[i % colors.size],
+                    startAngle = startAngle,
+                    sweepAngle = sweep,
+                    useCenter = true,
+                    topLeft = androidx.compose.ui.geometry.Offset(cx - radius, cy - radius),
+                    size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+                )
+                startAngle += sweep
+            }
+        }
+        // Legend
+        Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+            series.labels.take(6).forEachIndexed { i, label ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(10.dp).background(colors[i % colors.size], androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(label.take(12), style = MaterialTheme.typography.bodySmall, fontSize = 9.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BarChartCanvas(seriesList: List<ChartSeries>) {
+    if (seriesList.isEmpty() || seriesList.all { it.values.isEmpty() }) return
+    val maxValue = seriesList.flatMap { it.values }.maxOrNull() ?: return
+    val barColors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853))
+    val labelCount = seriesList.firstOrNull()?.labels?.size ?: seriesList.firstOrNull()?.values?.size ?: 0
+
+    Canvas(modifier = Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 8.dp)) {
+        val chartWidth = size.width
+        val chartHeight = size.height - 20f
+        val groupWidth = chartWidth / labelCount.coerceAtLeast(1)
+        val barWidth = (groupWidth / (seriesList.size + 1)).coerceAtLeast(4f)
+
+        seriesList.forEachIndexed { serIdx, series ->
+            series.values.forEachIndexed { valIdx, value ->
+                val barHeight = ((value / maxValue) * chartHeight).toFloat()
+                val x = valIdx * groupWidth + serIdx * barWidth + barWidth * 0.5f
+                val y = chartHeight - barHeight
+                drawRect(
+                    color = barColors[serIdx % barColors.size],
+                    topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                    size = androidx.compose.ui.geometry.Size(barWidth * 0.8f, barHeight)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LineChartCanvas(seriesList: List<ChartSeries>) {
+    if (seriesList.isEmpty() || seriesList.all { it.values.isEmpty() }) return
+    val maxValue = seriesList.flatMap { it.values }.maxOrNull()?.coerceAtLeast(0.001) ?: return
+    val lineColors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853))
+
+    Canvas(modifier = Modifier.fillMaxWidth().height(140.dp).padding(8.dp)) {
+        val chartHeight = size.height
+        val chartWidth = size.width
+
+        seriesList.forEachIndexed { serIdx, series ->
+            if (series.values.size < 2) return@forEachIndexed
+            val path = Path()
+            val xStep = chartWidth / (series.values.size - 1).coerceAtLeast(1)
+            series.values.forEachIndexed { i, value ->
+                val x = i * xStep
+                val y = chartHeight - ((value / maxValue) * chartHeight).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, lineColors[serIdx % lineColors.size], style = Stroke(width = 2.dp.toPx()))
         }
     }
 }
