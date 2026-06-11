@@ -69,7 +69,12 @@ sealed class Screen(val route: String) {
     /**
      * Standalone PDF Password Lock Screen
      */
-    object PdfLock : Screen("pdf_lock")
+    object PdfLock : Screen("pdf_lock?fileUri={fileUri}") {
+        fun createRoute(fileUri: String): String {
+            val encodedUri = android.net.Uri.encode(fileUri)
+            return "pdf_lock?fileUri=$encodedUri"
+        }
+    }
 
     /**
      * Standalone Word to PDF Converter Screen
@@ -119,12 +124,22 @@ sealed class Screen(val route: String) {
     /**
      * Digital Signature Pad capture and PDF stamping screen.
      */
-    object SignaturePad : Screen("signature_pad")
+    object SignaturePad : Screen("signature_pad?fileUri={fileUri}") {
+        fun createRoute(fileUri: String): String {
+            val encodedUri = android.net.Uri.encode(fileUri)
+            return "signature_pad?fileUri=$encodedUri"
+        }
+    }
 
     /**
      * Document Watermarking settings panel screen.
      */
-    object Watermark : Screen("watermark")
+    object Watermark : Screen("watermark?fileUri={fileUri}") {
+        fun createRoute(fileUri: String): String {
+            val encodedUri = android.net.Uri.encode(fileUri)
+            return "watermark?fileUri=$encodedUri"
+        }
+    }
 
     /**
      * Offline Batch operations panel screen (Image Lab, PDF Lock).

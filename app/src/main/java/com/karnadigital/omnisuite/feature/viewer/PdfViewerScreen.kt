@@ -60,7 +60,7 @@ import java.io.InputStream
 import java.io.OutputStream
 
 enum class AnnotationMode {
-    NONE, HIGHLIGHT, MARKER, TEXT_NOTE
+    NONE, HIGHLIGHT, MARKER, TEXT_NOTE, ERASER
 }
 
 data class DrawingPoint(val x: Float, val y: Float)
@@ -81,6 +81,7 @@ data class TextNote(
 fun PdfViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onOpenPdfTool: (String) -> Unit = {},
     viewModel: PdfViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -108,6 +109,18 @@ fun PdfViewerScreen(
     // Page level active overlays
     val pagePaths = remember { mutableStateMapOf<Int, List<DrawingPath>>() }
     val pageTextNotes = remember { mutableStateMapOf<Int, List<TextNote>>() }
+
+    val loadedAnnotations by viewModel.loadedAnnotations.collectAsState()
+    LaunchedEffect(loadedAnnotations) {
+        loadedAnnotations.forEach { (pageIdx, notes) ->
+            pageTextNotes[pageIdx] = notes.map { TextNote(it.text, it.x, it.y) }
+        }
+    }
+
+    var showViewEditNoteDialog by remember { mutableStateOf(false) }
+    var viewEditNoteText by remember { mutableStateOf("") }
+    var viewEditNoteIndex by remember { mutableStateOf(-1) }
+    var viewEditNotePageIndex by remember { mutableStateOf(-1) }
 
     // Floating Text note dialog triggers
     var showTextNoteDialog by remember { mutableStateOf(false) }
@@ -360,6 +373,37 @@ fun PdfViewerScreen(
                                                 )
                                             }
                                         }
+
+                                        // 🧹 Eraser mode chip
+                                        val isEraserSelected = annotationMode == AnnotationMode.ERASER
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isEraserSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isEraserSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable { annotationMode = AnnotationMode.ERASER }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isEraserSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Eraser",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isEraserSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
                                     }
 
                                     IconButton(
@@ -511,12 +555,9 @@ fun PdfViewerScreen(
 
                                 Button(
                                     onClick = {
-                                        // Save all page annotations sequentially via PDFBox in ViewModel
-                                        val successCount = pagePaths.size + pageTextNotes.size
-                                        
-                                        // Package data models
-                                        pagePaths.forEach { (idx, list) ->
-                                            val pathsData = list.map { path ->
+                                        val allKeys = pagePaths.keys + pageTextNotes.keys
+                                        allKeys.forEach { idx ->
+                                            val pathsData = (pagePaths[idx] ?: emptyList()).map { path ->
                                                 DrawingPathData(
                                                     points = path.points.map { DrawingPointData(it.x, it.y) },
                                                     colorHex = when(path.color) {
@@ -619,21 +660,21 @@ fun PdfViewerScreen(
                                         text = { Text("✍️ Add Digital Signature") },
                                         onClick = {
                                             showQuickToolsMenu = false
-                                            Toast.makeText(context, "Launch Signature tool from Tools Hub", Toast.LENGTH_SHORT).show()
+                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.SignaturePad.createRoute(fileUri))
                                         }
                                     )
                                     DropdownMenuItem(
                                         text = { Text("🎨 Add Watermark overlay") },
                                         onClick = {
                                             showQuickToolsMenu = false
-                                            Toast.makeText(context, "Launch Watermark tool from Tools Hub", Toast.LENGTH_SHORT).show()
+                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.Watermark.createRoute(fileUri))
                                         }
                                     )
                                     DropdownMenuItem(
                                         text = { Text("🔒 Encrypt / Lock PDF") },
                                         onClick = {
                                             showQuickToolsMenu = false
-                                            Toast.makeText(context, "Launch Encrypt tool from Tools Hub", Toast.LENGTH_SHORT).show()
+                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.PdfLock.createRoute(fileUri))
                                         }
                                     )
                                 }
@@ -652,6 +693,97 @@ fun PdfViewerScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             when (val currentState = state) {
+                is PdfLoadState.PasswordRequired -> {
+                    var passwordText by remember { mutableStateOf("") }
+                    var passwordVisible by remember { mutableStateOf(false) }
+                    
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(0.9f),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            tonalElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Encrypted file",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Password Required",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "The file '${currentState.fileName}' is encrypted. Enter the password to unlock it.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                
+                                OutlinedTextField(
+                                    value = passwordText,
+                                    onValueChange = { passwordText = it },
+                                    label = { Text("Password") },
+                                    singleLine = true,
+                                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        val image = if (passwordVisible) Icons.Default.Info else Icons.Default.Lock
+                                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                            Icon(imageVector = image, contentDescription = "Toggle password visibility")
+                                        }
+                                    },
+                                    isError = currentState.incorrectAttempt,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                
+                                if (currentState.incorrectAttempt) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Incorrect password. Please try again.",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.align(Alignment.Start)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    TextButton(
+                                        onClick = { onBack() }
+                                    ) {
+                                        Text("Cancel")
+                                    }
+                                    
+                                    Button(
+                                        onClick = { viewModel.submitPassword(passwordText) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                                    ) {
+                                        Text("Unlock File")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 is PdfLoadState.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -694,6 +826,12 @@ fun PdfViewerScreen(
                                             activeNoteOffset = offset
                                             activeNotePageIndex = pageIndex
                                             showTextNoteDialog = true
+                                        },
+                                        onViewEditNoteTap = { index, text ->
+                                            viewEditNoteIndex = index
+                                            viewEditNoteText = text
+                                            viewEditNotePageIndex = pageIndex
+                                            showViewEditNoteDialog = true
                                         }
                                     )
                                 }
@@ -750,6 +888,68 @@ fun PdfViewerScreen(
                     }
                 )
             }
+
+            // Dialog for Viewing / Editing / Deleting comments
+            if (showViewEditNoteDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showViewEditNoteDialog = false
+                        viewEditNoteText = ""
+                    },
+                    title = { Text("Edit Comment", fontWeight = FontWeight.Bold) },
+                    text = {
+                        OutlinedTextField(
+                            value = viewEditNoteText,
+                            onValueChange = { viewEditNoteText = it },
+                            placeholder = { Text("Type comment...") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val list = pageTextNotes[viewEditNotePageIndex] ?: emptyList()
+                                if (viewEditNoteIndex >= 0 && viewEditNoteIndex < list.size) {
+                                    val updatedList = list.toMutableList()
+                                    val currentNote = updatedList[viewEditNoteIndex]
+                                    updatedList[viewEditNoteIndex] = TextNote(viewEditNoteText, currentNote.x, currentNote.y)
+                                    pageTextNotes[viewEditNotePageIndex] = updatedList
+                                }
+                                showViewEditNoteDialog = false
+                                viewEditNoteText = ""
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                        ) {
+                            Text("Save")
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    val list = pageTextNotes[viewEditNotePageIndex] ?: emptyList()
+                                    if (viewEditNoteIndex >= 0 && viewEditNoteIndex < list.size) {
+                                        val updatedList = list.toMutableList()
+                                        updatedList.removeAt(viewEditNoteIndex)
+                                        pageTextNotes[viewEditNotePageIndex] = updatedList
+                                    }
+                                    showViewEditNoteDialog = false
+                                    viewEditNoteText = ""
+                                }
+                            ) {
+                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(onClick = {
+                                showViewEditNoteDialog = false
+                                viewEditNoteText = ""
+                            }) {
+                                Text("Cancel")
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -764,7 +964,8 @@ fun InteractivePdfPageItem(
     selectedStrokeWidth: Float,
     pagePaths: MutableMap<Int, List<DrawingPath>>,
     pageTextNotes: MutableMap<Int, List<TextNote>>,
-    onAddTextNoteTap: (DrawingPoint) -> Unit
+    onAddTextNoteTap: (DrawingPoint) -> Unit,
+    onViewEditNoteTap: (Int, String) -> Unit
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf(false) }
@@ -784,7 +985,12 @@ fun InteractivePdfPageItem(
     }
 
     val aspectRatio = viewModel.getPageAspectRatio(pageIndex)
-    val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
+
+    fun distance(p1: DrawingPoint, p2: DrawingPoint): Float {
+        val dx = p1.x - p2.x
+        val dy = p1.y - p2.y
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
 
     Card(
         modifier = Modifier
@@ -795,51 +1001,38 @@ fun InteractivePdfPageItem(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(annotationMode) {
-                    if (annotationMode == AnnotationMode.MARKER || annotationMode == AnnotationMode.HIGHLIGHT) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                val normX = offset.x / size.width.toFloat()
-                                val normY = offset.y / size.height.toFloat()
-                                currentPathPoints.add(DrawingPoint(normX, normY))
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                val offset = change.position
-                                  val normX = offset.x / size.width.toFloat()
-                                val normY = offset.y / size.height.toFloat()
-                                currentPathPoints.add(DrawingPoint(normX, normY))
-                            },
-                            onDragEnd = {
-                                if (currentPathPoints.isNotEmpty()) {
-                                    val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
-                                    val color = if (isHighlight) Color.Yellow else selectedColor
-                                    val width = if (isHighlight) 24f else selectedStrokeWidth
-                                    val newPath = DrawingPath(
-                                        points = currentPathPoints.toList(),
-                                        color = color,
-                                        strokeWidth = width,
-                                        isHighlight = isHighlight
-                                    )
-                                    val list = pagePaths[pageIndex] ?: emptyList()
-                                    pagePaths[pageIndex] = list + newPath
-                                    currentPathPoints.clear()
-                                }
-                            }
-                        )
-                    } else if (annotationMode == AnnotationMode.TEXT_NOTE) {
+                    if (annotationMode == AnnotationMode.TEXT_NOTE) {
                         detectTapGestures { offset ->
                             val normX = offset.x / size.width.toFloat()
                             val normY = offset.y / size.height.toFloat()
                             onAddTextNoteTap(DrawingPoint(normX, normY))
                         }
+                    } else if (annotationMode == AnnotationMode.ERASER) {
+                        detectTapGestures { offset ->
+                            val normX = offset.x / size.width.toFloat()
+                            val normY = offset.y / size.height.toFloat()
+                            val touchPoint = DrawingPoint(normX, normY)
+                            
+                            // Erase sticky notes if clicked close
+                            val notes = pageTextNotes[pageIndex] ?: emptyList()
+                            val remainingNotes = notes.filter { note ->
+                                distance(DrawingPoint(note.x, note.y), touchPoint) > 0.05f
+                            }
+                            if (remainingNotes.size != notes.size) {
+                                pageTextNotes[pageIndex] = remainingNotes
+                            }
+                        }
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
+            val containerWidth = maxWidth
+            val containerHeight = maxHeight
+
             when {
                 bitmap != null -> {
                     Image(
@@ -849,77 +1042,67 @@ fun InteractivePdfPageItem(
                         contentScale = ContentScale.Fit
                     )
 
-                    // Draw freehand drawing layers
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val width = size.width
-                        val height = size.height
-
-                        // Render saved paths
-                        val saved = pagePaths[pageIndex] ?: emptyList()
-                        saved.forEach { drawPath ->
-                            val strokeColor = drawPath.color
-                            val alpha = if (drawPath.isHighlight) 0.4f else 1.0f
-                            val path = Path()
-                            if (drawPath.points.size >= 2) {
-                                path.moveTo(drawPath.points.first().x * width, drawPath.points.first().y * height)
-                                for (i in 1 until drawPath.points.size) {
-                                    path.lineTo(drawPath.points[i].x * width, drawPath.points[i].y * height)
-                                }
-                                drawPath(
-                                    path = path,
-                                    color = strokeColor,
-                                    alpha = alpha,
-                                    style = Stroke(
-                                        width = drawPath.strokeWidth,
-                                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                        join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                    )
-                                )
+                    // Overlay Drawing Canvas
+                    DrawingCanvasOverlay(
+                        annotationMode = annotationMode,
+                        selectedColor = selectedColor,
+                        selectedStrokeWidth = selectedStrokeWidth,
+                        savedPaths = pagePaths[pageIndex] ?: emptyList(),
+                        onPathFinished = { newPath ->
+                            val list = pagePaths[pageIndex] ?: emptyList()
+                            pagePaths[pageIndex] = list + newPath
+                        },
+                        onErasePaths = { touchPoint ->
+                            val paths = pagePaths[pageIndex] ?: emptyList()
+                            val remainingPaths = paths.filter { path ->
+                                path.points.none { pt -> distance(pt, touchPoint) < 0.03f }
                             }
-                        }
-
-                        // Render active drawn path live
-                        if (currentPathPoints.size >= 2) {
-                            val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
-                            val color = if (isHighlight) Color.Yellow else selectedColor
-                            val alpha = if (isHighlight) 0.4f else 1.0f
-                            val widthStroke = if (isHighlight) 24f else selectedStrokeWidth
-                            val path = Path()
-                            path.moveTo(currentPathPoints.first().x * width, currentPathPoints.first().y * height)
-                            for (i in 1 until currentPathPoints.size) {
-                                path.lineTo(currentPathPoints[i].x * width, currentPathPoints[i].y * height)
+                            if (remainingPaths.size != paths.size) {
+                                pagePaths[pageIndex] = remainingPaths
                             }
-                            drawPath(
-                                path = path,
-                                color = color,
-                                alpha = alpha,
-                                style = Stroke(
-                                    width = widthStroke,
-                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                )
-                            )
-                        }
-                    }
+                            
+                            // Also check sticky notes in drag
+                            val notes = pageTextNotes[pageIndex] ?: emptyList()
+                            val remainingNotes = notes.filter { note ->
+                                distance(DrawingPoint(note.x, note.y), touchPoint) > 0.04f
+                            }
+                            if (remainingNotes.size != notes.size) {
+                                pageTextNotes[pageIndex] = remainingNotes
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
 
-                    // Render placed Text note badges
+                    // Render placed Text note badges using real Box constraints
                     val notes = pageTextNotes[pageIndex] ?: emptyList()
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        notes.forEach { note ->
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(
-                                        start = (note.x * bitmap!!.width / 1.5f).dp,
-                                        top = (note.y * bitmap!!.height / 1.5f).dp
-                                    )
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color.Yellow)
-                                    .border(1.dp, Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(note.text, fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
+                    notes.forEachIndexed { index, note ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(
+                                    x = containerWidth * note.x - 12.dp,
+                                    y = containerHeight * note.y - 12.dp
+                                )
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFFCA28))
+                                .border(1.dp, Color.Black.copy(alpha = 0.5f), CircleShape)
+                                .clickable {
+                                    if (annotationMode == AnnotationMode.ERASER) {
+                                        val list = pageTextNotes[pageIndex] ?: emptyList()
+                                        pageTextNotes[pageIndex] = list.filterIndexed { i, _ -> i != index }
+                                    } else {
+                                        onViewEditNoteTap(index, note.text)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Comment,
+                                contentDescription = "Comment",
+                                tint = Color.Black,
+                                modifier = Modifier.size(14.dp)
+                            )
                         }
                     }
                 }
@@ -929,6 +1112,122 @@ fun InteractivePdfPageItem(
                 else -> {
                     CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun DrawingCanvasOverlay(
+    annotationMode: AnnotationMode,
+    selectedColor: Color,
+    selectedStrokeWidth: Float,
+    savedPaths: List<DrawingPath>,
+    onPathFinished: (DrawingPath) -> Unit,
+    onErasePaths: (DrawingPoint) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
+
+    Box(
+        modifier = modifier
+            .pointerInput(annotationMode) {
+                if (annotationMode == AnnotationMode.MARKER || annotationMode == AnnotationMode.HIGHLIGHT) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            val normX = offset.x / size.width.toFloat()
+                            val normY = offset.y / size.height.toFloat()
+                            currentPathPoints.add(DrawingPoint(normX, normY))
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val offset = change.position
+                            val normX = offset.x / size.width.toFloat()
+                            val normY = offset.y / size.height.toFloat()
+                            currentPathPoints.add(DrawingPoint(normX, normY))
+                        },
+                        onDragEnd = {
+                            if (currentPathPoints.isNotEmpty()) {
+                                val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
+                                val color = if (isHighlight) Color.Yellow else selectedColor
+                                val width = if (isHighlight) 24f else selectedStrokeWidth
+                                val newPath = DrawingPath(
+                                    points = currentPathPoints.toList(),
+                                    color = color,
+                                    strokeWidth = width,
+                                    isHighlight = isHighlight
+                                )
+                                onPathFinished(newPath)
+                                currentPathPoints.clear()
+                            }
+                        }
+                    )
+                } else if (annotationMode == AnnotationMode.ERASER) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            val normX = offset.x / size.width.toFloat()
+                            val normY = offset.y / size.height.toFloat()
+                            onErasePaths(DrawingPoint(normX, normY))
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val offset = change.position
+                            val normX = offset.x / size.width.toFloat()
+                            val normY = offset.y / size.height.toFloat()
+                            onErasePaths(DrawingPoint(normX, normY))
+                        }
+                    )
+                }
+            }
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+
+            // Render saved paths
+            savedPaths.forEach { drawPath ->
+                val strokeColor = drawPath.color
+                val alpha = if (drawPath.isHighlight) 0.4f else 1.0f
+                val path = Path()
+                if (drawPath.points.size >= 2) {
+                    path.moveTo(drawPath.points.first().x * width, drawPath.points.first().y * height)
+                    for (i in 1 until drawPath.points.size) {
+                        path.lineTo(drawPath.points[i].x * width, drawPath.points[i].y * height)
+                    }
+                    drawPath(
+                        path = path,
+                        color = strokeColor,
+                        alpha = alpha,
+                        style = Stroke(
+                            width = drawPath.strokeWidth,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                        )
+                    )
+                }
+            }
+
+            // Render active drawn path live
+            if (currentPathPoints.size >= 2) {
+                val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
+                val color = if (isHighlight) Color.Yellow else selectedColor
+                val alpha = if (isHighlight) 0.4f else 1.0f
+                val widthStroke = if (isHighlight) 24f else selectedStrokeWidth
+                val path = Path()
+                path.moveTo(currentPathPoints.first().x * width, currentPathPoints.first().y * height)
+                for (i in 1 until currentPathPoints.size) {
+                    path.lineTo(currentPathPoints[i].x * width, currentPathPoints[i].y * height)
+                }
+                drawPath(
+                    path = path,
+                    color = color,
+                    alpha = alpha,
+                    style = Stroke(
+                        width = widthStroke,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                    )
+                )
             }
         }
     }

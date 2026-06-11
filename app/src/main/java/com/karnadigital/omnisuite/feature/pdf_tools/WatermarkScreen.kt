@@ -38,9 +38,20 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun WatermarkScreen(
     onBack: () -> Unit,
+    initialPdfUri: String? = null,
     viewModel: WatermarkViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+
+    LaunchedEffect(initialPdfUri) {
+        if (!initialPdfUri.isNullOrEmpty()) {
+            try {
+                viewModel.selectPdf(android.net.Uri.parse(initialPdfUri))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf"),
         onResult = { uri ->

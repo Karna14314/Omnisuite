@@ -38,10 +38,21 @@ import kotlinx.coroutines.withContext
 @Composable
 fun PdfLockScreen(
     viewModel: PdfToolsViewModel = hiltViewModel(),
+    initialPdfUri: String? = null,
     onNavigateBack: () -> Unit,
     onOpenFile: (String) -> Unit
 ) {
     val context = LocalContext.current
+
+    LaunchedEffect(initialPdfUri) {
+        if (!initialPdfUri.isNullOrEmpty()) {
+            try {
+                viewModel.lockInputUri = android.net.Uri.parse(initialPdfUri)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     var previewBitmap by remember(viewModel.successUri) { mutableStateOf<Bitmap?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
 

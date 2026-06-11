@@ -52,9 +52,20 @@ data class DrawPoint(val x: Float, val y: Float)
 @Composable
 fun SignaturePadScreen(
     onBack: () -> Unit,
+    initialPdfUri: String? = null,
     viewModel: SignatureViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+
+    LaunchedEffect(initialPdfUri) {
+        if (!initialPdfUri.isNullOrEmpty()) {
+            try {
+                viewModel.selectPdf(Uri.parse(initialPdfUri))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf"),
         onResult = { uri ->

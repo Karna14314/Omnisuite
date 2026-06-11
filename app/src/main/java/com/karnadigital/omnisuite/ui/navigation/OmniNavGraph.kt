@@ -161,6 +161,9 @@ fun OmniNavGraph(
                 onOpenFile = { targetUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 },
+                onOpenPdfTool = { route ->
+                    navController.navigate(route)
+                },
                 onBack = {
                     navController.popBackStack()
                 }
@@ -201,13 +204,24 @@ fun OmniNavGraph(
         }
 
         // 7c. Standalone PDF Password Lock Screen
-        composable(route = Screen.PdfLock.route) {
+        composable(
+            route = Screen.PdfLock.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfLockScreen(
+                initialPdfUri = fileUri,
                 onNavigateBack = {
                     navController.popBackStack()
                 },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 }
             )
         }
@@ -318,8 +332,19 @@ fun OmniNavGraph(
         }
 
         // 9. Digital Signature Stamp Pad
-        composable(route = Screen.SignaturePad.route) {
+        composable(
+            route = Screen.SignaturePad.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             SignaturePadScreen(
+                initialPdfUri = fileUri,
                 onBack = {
                     navController.popBackStack()
                 }
@@ -327,8 +352,19 @@ fun OmniNavGraph(
         }
 
         // 10. Document Watermarking Panel
-        composable(route = Screen.Watermark.route) {
+        composable(
+            route = Screen.Watermark.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             WatermarkScreen(
+                initialPdfUri = fileUri,
                 onBack = {
                     navController.popBackStack()
                 }
@@ -366,4 +402,3 @@ fun OmniNavGraph(
         }
     }
 }
-

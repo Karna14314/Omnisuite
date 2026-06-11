@@ -43,6 +43,7 @@ enum class FileType {
 fun ViewerDispatcherScreen(
     fileUri: String?,
     onOpenFile: (String) -> Unit = {},
+    onOpenPdfTool: (String) -> Unit = {},
     onBack: () -> Unit
 ) {
     if (fileUri.isNullOrEmpty()) {
@@ -113,7 +114,11 @@ fun ViewerDispatcherScreen(
             }
             is DispatcherState.Success -> {
                 when (currentState.fileType) {
-                    FileType.PDF -> PdfViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.PDF -> PdfViewerScreen(
+                        fileUri = currentState.cachedPath,
+                        onBack = onBack,
+                        onOpenPdfTool = onOpenPdfTool
+                    )
                     FileType.TXT -> TxtViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.DOCX -> DocxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.XLSX -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
