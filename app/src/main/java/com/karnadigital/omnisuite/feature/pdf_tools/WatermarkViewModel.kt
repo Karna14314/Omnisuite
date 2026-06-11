@@ -211,6 +211,9 @@ class WatermarkViewModel @Inject constructor(
     fun resetStatus() {
         successMessage = null
         errorMessage = null
+        successUri = null
+        successName = null
+        lastOutputBytes = null
     }
 
     private fun sanitizeWatermarkText(text: String): String {

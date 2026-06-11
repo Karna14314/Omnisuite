@@ -67,6 +67,9 @@ fun HomeScreen(
     onNavigateToPdfToExcel: () -> Unit,
     onNavigateToPdfFormFiller: () -> Unit,
     onNavigateToImagesToPdf: () -> Unit,
+    onNavigateToPdfCompress: () -> Unit,
+    onNavigateToPdfFlatten: () -> Unit,
+    onNavigateToXlsToPdf: () -> Unit,
     onNavigateToBatchTools: () -> Unit,
     onNavigateToZipMaker: () -> Unit,
     onOpenFile: (String) -> Unit
@@ -341,47 +344,95 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(20.dp))
                         SectionHeader(title = "Local File Explorer")
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(OmniColors.Surface2)
-                                .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
-                                .clickable { selectedTab = HomeTab.Files }
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(OmniColors.Accent.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(OmniColors.Surface2)
+                                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
+                                    .clickable { selectedTab = HomeTab.Files }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "💾", fontSize = 17.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(OmniColors.Accent.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = "💾", fontSize = 17.sp)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "Device File Manager",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OmniColors.TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Browse downloads, documents, and local workspaces",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = OmniColors.TextMuted
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = "Open",
+                                    tint = OmniColors.TextMuted
+                                )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(
-                                modifier = Modifier.weight(1f)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(OmniColors.Surface2)
+                                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
+                                    .clickable { onSelectFileForType("any") }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "Device File Manager",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OmniColors.TextPrimary
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Browse downloads, documents, and local workspaces",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = OmniColors.TextMuted
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(OmniColors.Accent.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = "📂", fontSize = 17.sp)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "Open Supported Document",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OmniColors.TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Open PDF, Word, Excel, Slide, ZIP, or Text file",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = OmniColors.TextMuted
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = "Open",
+                                    tint = OmniColors.TextMuted
                                 )
                             }
-                            Icon(
-                                imageVector = Icons.Rounded.ChevronRight,
-                                contentDescription = "Open",
-                                tint = OmniColors.TextMuted
-                            )
                         }
                         Spacer(modifier = Modifier.height(32.dp))
                     }
@@ -404,6 +455,9 @@ fun HomeScreen(
                         onNavigateToPdfToExcel = onNavigateToPdfToExcel,
                         onNavigateToPdfFormFiller = onNavigateToPdfFormFiller,
                         onNavigateToImagesToPdf = onNavigateToImagesToPdf,
+                        onNavigateToPdfCompress = onNavigateToPdfCompress,
+                        onNavigateToPdfFlatten = onNavigateToPdfFlatten,
+                        onNavigateToXlsToPdf = onNavigateToXlsToPdf,
                         onNavigateToImageTools = onNavigateToImageTools,
                         onNavigateToQrGenerator = onNavigateToQrGenerator,
                         onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,

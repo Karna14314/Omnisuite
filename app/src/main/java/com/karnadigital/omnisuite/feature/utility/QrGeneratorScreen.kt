@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 enum class QrCategory {
     PERSONAL, WEBLINKS, NETWORK, LOCATION
@@ -119,12 +120,19 @@ fun Modifier.glassmorphic(): Modifier = this.then(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrGeneratorScreen(
-    viewModel: QrGeneratorViewModel = hiltViewModel(),
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenFile: (String) -> Unit = {},
+    viewModel: QrGeneratorViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
+
+    var showResultSheet by remember { mutableStateOf(false) }
+    var resultFileName by remember { mutableStateOf<String?>(null) }
+    var resultFileUri by remember { mutableStateOf<String?>(null) }
+    var resultMimeType by remember { mutableStateOf<String?>(null) }
+    var resultFileSize by remember { mutableStateOf(0L) }
 
     var activeTabState by remember { mutableStateOf(0) } // 0 = QR Code, 1 = Barcode Builder
 
@@ -992,8 +1000,16 @@ fun QrGeneratorScreen(
                                     )
 
                                     if (savedUri != null) {
-                                        viewModel.logQrCodeGeneration(compiledPayload)
-                                        Toast.makeText(context, "Saved successfully to default folder!", Toast.LENGTH_SHORT).show()
+                                        viewModel.logQrCodeGeneration(
+                                            fileUri = savedUri.toString(),
+                                            fileName = outName,
+                                            fileSize = bytes.size.toLong()
+                                        )
+                                        resultFileName = outName
+                                        resultFileUri = savedUri.toString()
+                                        resultMimeType = "image/png"
+                                        resultFileSize = bytes.size.toLong()
+                                        showResultSheet = true
                                     } else {
                                         Toast.makeText(context, "Failed to save generated image.", Toast.LENGTH_SHORT).show()
                                     }
@@ -1026,6 +1042,17 @@ fun QrGeneratorScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showResultSheet,
+        onDismiss = { showResultSheet = false },
+        title = "QR/Barcode Generated",
+        fileName = resultFileName,
+        fileUri = resultFileUri,
+        fileSize = resultFileSize,
+        mimeType = resultMimeType,
+        onOpenFile = onOpenFile
+    )
 }
 
 @Composable

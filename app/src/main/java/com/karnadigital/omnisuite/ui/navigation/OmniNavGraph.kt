@@ -29,6 +29,9 @@ import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
 import com.karnadigital.omnisuite.feature.tools.BatchToolsScreen
 import com.karnadigital.omnisuite.feature.tools.ZipMakerScreen
 import com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfCompressScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.PdfFlattenScreen
+import com.karnadigital.omnisuite.feature.pdf_tools.XlsToPdfScreen
 
 
 /**
@@ -110,6 +113,15 @@ fun OmniNavGraph(
                 onNavigateToImagesToPdf = {
                     navController.navigate(Screen.ImagesToPdf.route)
                 },
+                onNavigateToPdfCompress = {
+                    navController.navigate(Screen.PdfCompress.route)
+                },
+                onNavigateToPdfFlatten = {
+                    navController.navigate(Screen.PdfFlatten.route)
+                },
+                onNavigateToXlsToPdf = {
+                    navController.navigate(Screen.XlsToPdf.route)
+                },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
@@ -131,6 +143,9 @@ fun OmniNavGraph(
             QrGeneratorScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
@@ -140,6 +155,9 @@ fun OmniNavGraph(
             BarcodeScannerScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
@@ -171,8 +189,31 @@ fun OmniNavGraph(
         }
 
         // 6. Local Offline Image Utilities
-        composable(route = Screen.ImageTools.route) {
+        composable(
+            route = Screen.ImageTools.route,
+            arguments = listOf(
+                navArgument("fileUri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val tabString = backStackEntry.arguments?.getString("tab")
+            val tab = tabString?.toIntOrNull() ?: 0
+
             ImageToolsScreen(
+                initialUri = fileUri,
+                initialTab = tab,
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
+                },
                 onBack = {
                     navController.popBackStack()
                 }
@@ -327,6 +368,9 @@ fun OmniNavGraph(
             OcrScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
@@ -347,6 +391,9 @@ fun OmniNavGraph(
                 initialPdfUri = fileUri,
                 onBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 }
             )
         }
@@ -367,6 +414,9 @@ fun OmniNavGraph(
                 initialPdfUri = fileUri,
                 onBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { targetUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 }
             )
         }
@@ -385,6 +435,9 @@ fun OmniNavGraph(
             ZipMakerScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
             )
         }
@@ -395,6 +448,36 @@ fun OmniNavGraph(
                 onNavigateBack = {
                     navController.popBackStack()
                 },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 14. Standalone PDF Compressor
+        composable(route = Screen.PdfCompress.route) {
+            PdfCompressScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 15. Standalone PDF Flatten
+        composable(route = Screen.PdfFlatten.route) {
+            PdfFlattenScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
+            )
+        }
+
+        // 16. Standalone Excel to PDF
+        composable(route = Screen.XlsToPdf.route) {
+            XlsToPdfScreen(
+                onNavigateBack = { navController.popBackStack() },
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }

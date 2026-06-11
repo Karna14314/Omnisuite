@@ -42,6 +42,9 @@ fun AllToolsScreen(
     onNavigateToPdfToExcel: () -> Unit,
     onNavigateToPdfFormFiller: () -> Unit,
     onNavigateToImagesToPdf: () -> Unit,
+    onNavigateToPdfCompress: () -> Unit,
+    onNavigateToPdfFlatten: () -> Unit,
+    onNavigateToXlsToPdf: () -> Unit,
     onNavigateToImageTools: () -> Unit,
     onNavigateToQrGenerator: () -> Unit,
     onNavigateToBarcodeScanner: () -> Unit,
@@ -151,7 +154,10 @@ fun AllToolsScreen(
                         onNavigateToPdfToPpt = onNavigateToPdfToPpt,
                         onNavigateToPdfToExcel = onNavigateToPdfToExcel,
                         onNavigateToPdfFormFiller = onNavigateToPdfFormFiller,
-                        onNavigateToImagesToPdf = onNavigateToImagesToPdf
+                        onNavigateToImagesToPdf = onNavigateToImagesToPdf,
+                        onNavigateToPdfCompress = onNavigateToPdfCompress,
+                        onNavigateToPdfFlatten = onNavigateToPdfFlatten,
+                        onNavigateToXlsToPdf = onNavigateToXlsToPdf
                     )
                     1 -> WordToolsList(
                         onSelectFileForType = onSelectFileForType
@@ -195,7 +201,10 @@ fun PdfToolsList(
     onNavigateToPdfToPpt: () -> Unit,
     onNavigateToPdfToExcel: () -> Unit,
     onNavigateToPdfFormFiller: () -> Unit,
-    onNavigateToImagesToPdf: () -> Unit
+    onNavigateToImagesToPdf: () -> Unit,
+    onNavigateToPdfCompress: () -> Unit,
+    onNavigateToPdfFlatten: () -> Unit,
+    onNavigateToXlsToPdf: () -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -215,6 +224,9 @@ fun PdfToolsList(
         item { ToolListRow("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, onNavigateToPdfToPpt) }
         item { ToolListRow("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, onNavigateToPdfToExcel) }
         item { ToolListRow("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, onNavigateToPdfFormFiller) }
+        item { ToolListRow("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, onNavigateToPdfCompress) }
+        item { ToolListRow("🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, onNavigateToPdfFlatten) }
+        item { ToolListRow("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, onNavigateToXlsToPdf) }
     }
 }
 

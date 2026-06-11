@@ -33,7 +33,7 @@ data class SelectedFile(
 sealed class ZipMakerState {
     object Idle : ZipMakerState()
     object Compressing : ZipMakerState()
-    data class Success(val savedUri: Uri, val fileName: String) : ZipMakerState()
+    data class Success(val savedUri: Uri, val fileName: String, val fileSize: Long) : ZipMakerState()
     data class Error(val message: String) : ZipMakerState()
 }
 
@@ -121,7 +121,7 @@ class ZipMakerViewModel @Inject constructor(
                 }
 
                 if (resultUri != null) {
-                    _zipState.value = ZipMakerState.Success(resultUri, filename)
+                    _zipState.value = ZipMakerState.Success(resultUri, filename, bytesLength)
                     // Log to SQLite Recents
                     repository.insertRecentFile(
                         RecentFile(
@@ -133,7 +133,6 @@ class ZipMakerViewModel @Inject constructor(
                         )
                     )
                     _toastMessage.emit("ZIP Archive created successfully!")
-                    _selectedFiles.value = emptyList()
                 } else {
                     _zipState.value = ZipMakerState.Error("Failed to write ZIP file to default storage")
                 }

@@ -25,11 +25,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.util.Locale
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ZipMakerScreen(
     onBack: () -> Unit,
+    onOpenFile: (String) -> Unit,
     viewModel: ZipMakerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -242,67 +244,31 @@ fun ZipMakerScreen(
                 }
             }
 
-            // Success or Error banners
-            when (val current = zipState) {
-                is ZipMakerState.Success -> {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                        shape = RoundedCornerShape(12.dp),
+            // Error banner
+            if (zipState is ZipMakerState.Error) {
+                val current = zipState as ZipMakerState.Error
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Successfully Saved!",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2E7D32),
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = current.fileName,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF2E7D32).copy(alpha = 0.8f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
+                        Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = current.message,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp
+                        )
                     }
                 }
-                is ZipMakerState.Error -> {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = current.message,
-                                color = MaterialTheme.colorScheme.error,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                }
-                else -> {}
             }
 
             // List of selected files
@@ -331,6 +297,22 @@ fun ZipMakerScreen(
             }
         }
     }
+
+    val showBottomSheet = zipState is ZipMakerState.Success
+    val successState = zipState as? ZipMakerState.Success
+
+    OperationResultBottomSheet(
+        show = showBottomSheet,
+        onDismiss = {
+            viewModel.clearFiles()
+        },
+        title = "ZIP Archive Created",
+        fileName = successState?.fileName,
+        fileUri = successState?.savedUri?.toString(),
+        fileSize = successState?.fileSize ?: 0L,
+        mimeType = "application/zip",
+        onOpenFile = onOpenFile
+    )
 }
 
 @Composable

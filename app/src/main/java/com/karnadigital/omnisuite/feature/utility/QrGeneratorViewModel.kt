@@ -17,17 +17,17 @@ class QrGeneratorViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * Registers a successfully generated QR code log into the SQLite persistence layer.
+     * Registers a successfully generated QR/Barcode file path log into the SQLite database.
      */
-    fun logQrCodeGeneration(content: String) {
-        if (content.isBlank()) return
+    fun logQrCodeGeneration(fileUri: String, fileName: String, fileSize: Long) {
+        if (fileUri.isBlank()) return
         viewModelScope.launch {
             repository.insertRecentFile(
                 RecentFile(
-                    fileUri = content,
-                    fileName = "Generated QR: ${content.take(30)}${if (content.length > 30) "..." else ""}",
-                    mimeType = "application/x-qrcode",
-                    fileSize = content.length.toLong(),
+                    fileUri = fileUri,
+                    fileName = fileName,
+                    mimeType = "image/png",
+                    fileSize = fileSize,
                     lastOpened = System.currentTimeMillis(),
                     isOperation = true
                 )

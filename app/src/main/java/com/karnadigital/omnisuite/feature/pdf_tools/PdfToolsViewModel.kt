@@ -19,6 +19,8 @@ import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import com.tom_roush.pdfbox.cos.COSName
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,11 @@ class PdfToolsViewModel @Inject constructor(
     var scanInputUri by mutableStateOf<Uri?>(null)
 
     var pdfToImagesInputUri by mutableStateOf<Uri?>(null)
+
+    var compressInputUri by mutableStateOf<Uri?>(null)
+    var compressQuality by mutableStateOf(0.5f)
+    var flattenInputUri by mutableStateOf<Uri?>(null)
+    var xlsInputUri by mutableStateOf<Uri?>(null)
 
     var isProcessing by mutableStateOf(false)
         private set
@@ -905,5 +912,242 @@ class PdfToolsViewModel @Inject constructor(
             if (lastSlash != -1) name = name?.substring(lastSlash + 1)
         }
         return name
+    }
+
+    fun compressPdf() {
+        val inputUri = compressInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select a source PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+            var tempOutputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open source PDF file.")
+
+                    tempOutputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.pdf")
+
+                    PDDocument.load(tempInputFile).use { document ->
+                        for (page in document.pages) {
+                            val resources = page.resources ?: continue
+                            for (name in resources.xObjectNames) {
+                                if (resources.isImageXObject(name)) {
+                                    val xObject = resources.getXObject(name)
+                                    if (xObject is com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject) {
+                                        val bitmap = xObject.image ?: continue
+                                        val stream = java.io.ByteArrayOutputStream()
+                                        val qualityPercent = (compressQuality * 100).toInt().coerceIn(10, 100)
+                                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPercent, stream)
+                                        val compressedBytes = stream.toByteArray()
+                                        
+                                        val compressedImage = com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(document, java.io.ByteArrayInputStream(compressedBytes))
+                                        resources.put(name, compressedImage)
+                                        bitmap.recycle()
+                                    }
+                                }
+                            }
+                        }
+
+                        FileOutputStream(tempOutputFile).use { outStream ->
+                            document.save(outStream)
+                        }
+                    }
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+                    val outName = "${originalName}_compressed.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save compressed PDF.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = tempOutputFile!!.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "PDF compressed successfully!"
+                compressInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error compressing PDF: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                    tempOutputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
+    }
+
+    fun flattenPdf() {
+        val inputUri = flattenInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select a source PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+            var tempOutputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open source PDF file.")
+
+                    tempOutputFile = File(context.cacheDir, "flattened_${System.currentTimeMillis()}.pdf")
+
+                    PDDocument.load(tempInputFile).use { document ->
+                        val acroForm = document.documentCatalog.acroForm
+                        if (acroForm != null) {
+                            acroForm.flatten()
+                        } else {
+                            throw Exception("This PDF does not contain any interactive form fields to flatten.")
+                        }
+
+                        FileOutputStream(tempOutputFile).use { outStream ->
+                            document.save(outStream)
+                        }
+                    }
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+                    val outName = "${originalName}_flattened.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save flattened PDF.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = tempOutputFile!!.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "PDF form fields flattened successfully!"
+                flattenInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error flattening PDF: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                    tempOutputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
+    }
+
+    fun convertXlsToPdf() {
+        val inputUri = xlsInputUri
+        if (inputUri == null) {
+            errorMessage = "Please select an Excel sheet first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        successUri = null
+        successName = null
+        lastOutputBytes = null
+
+        viewModelScope.launch {
+            var tempInputFile: File? = null
+            var tempOutputFile: File? = null
+
+            try {
+                withContext(Dispatchers.IO) {
+                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                        ?: throw Exception("Could not open Excel workbook.")
+
+                    tempOutputFile = File(context.cacheDir, "xlsx_converted_${System.currentTimeMillis()}.pdf")
+
+                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertXlsxToPdf(
+                        context,
+                        tempInputFile!!,
+                        tempOutputFile!!
+                    )
+
+                    val originalName = (getFileNameFromUri(inputUri) ?: "spreadsheet").removeSuffix(".xlsx").removeSuffix(".xls")
+                    val outName = "${originalName}_converted.pdf"
+                    val bytes = tempOutputFile!!.readBytes()
+
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = outName,
+                        mimeType = "application/pdf",
+                        subfolder = "PDF"
+                    ) ?: throw Exception("Failed to save PDF to OmniSuite folder.")
+
+                    val recent = RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = tempOutputFile!!.length(),
+                        lastOpened = System.currentTimeMillis()
+                    )
+                    recentFileRepository.insertRecentFile(recent)
+
+                    successUri = savedUri
+                    successName = outName
+                    lastOutputBytes = bytes
+                }
+
+                successMessage = "Excel sheet converted to PDF successfully!"
+                xlsInputUri = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Error during Excel to PDF conversion: ${e.localizedMessage}"
+            } finally {
+                withContext(Dispatchers.IO) {
+                    tempInputFile?.let { if (it.exists()) it.delete() }
+                    tempOutputFile?.let { if (it.exists()) it.delete() }
+                }
+                isProcessing = false
+            }
+        }
     }
 }

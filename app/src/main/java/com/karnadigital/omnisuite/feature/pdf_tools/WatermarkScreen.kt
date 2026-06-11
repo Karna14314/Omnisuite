@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
+
 /**
  * Premium Material3 offline Document Watermarking settings control deck.
  * Supports real-time mock visual page rendering with opacity, scaling, and rotation angles.
@@ -38,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun WatermarkScreen(
     onBack: () -> Unit,
+    onOpenFile: (String) -> Unit,
     initialPdfUri: String? = null,
     viewModel: WatermarkViewModel = hiltViewModel()
 ) {
@@ -69,10 +72,11 @@ fun WatermarkScreen(
     val scrollState = rememberScrollState()
 
 
-    LaunchedEffect(viewModel.successMessage) {
-        viewModel.successMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.resetStatus()
+    var showBottomSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.successUri) {
+        if (viewModel.successUri != null) {
+            showBottomSheet = true
         }
     }
 
@@ -418,4 +422,18 @@ fun WatermarkScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showBottomSheet,
+        onDismiss = {
+            showBottomSheet = false
+            viewModel.resetStatus()
+        },
+        title = "Watermark Applied Successfully",
+        fileName = viewModel.successName,
+        fileUri = viewModel.successUri?.toString(),
+        fileSize = viewModel.lastOutputBytes?.size?.toLong() ?: 0L,
+        mimeType = "application/pdf",
+        onOpenFile = onOpenFile
+    )
 }

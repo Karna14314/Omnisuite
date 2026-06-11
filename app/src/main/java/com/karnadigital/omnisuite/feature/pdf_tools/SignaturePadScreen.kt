@@ -43,6 +43,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import java.io.File
 import java.io.FileOutputStream
 
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
+
 data class DrawPoint(val x: Float, val y: Float)
 
 /**
@@ -52,6 +54,7 @@ data class DrawPoint(val x: Float, val y: Float)
 @Composable
 fun SignaturePadScreen(
     onBack: () -> Unit,
+    onOpenFile: (String) -> Unit,
     initialPdfUri: String? = null,
     viewModel: SignatureViewModel = hiltViewModel()
 ) {
@@ -99,10 +102,11 @@ fun SignaturePadScreen(
 
 
     // Watch status messages
-    LaunchedEffect(viewModel.successMessage) {
-        viewModel.successMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.resetStatus()
+    var showBottomSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.successUri) {
+        if (viewModel.successUri != null) {
+            showBottomSheet = true
         }
     }
 
@@ -539,4 +543,18 @@ fun SignaturePadScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showBottomSheet,
+        onDismiss = {
+            showBottomSheet = false
+            viewModel.resetStatus()
+        },
+        title = "Signature Applied Successfully",
+        fileName = viewModel.successName,
+        fileUri = viewModel.successUri?.toString(),
+        fileSize = viewModel.lastOutputBytes?.size?.toLong() ?: 0L,
+        mimeType = "application/pdf",
+        onOpenFile = onOpenFile
+    )
 }

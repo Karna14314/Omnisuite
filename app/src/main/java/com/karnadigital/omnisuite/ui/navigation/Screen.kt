@@ -49,7 +49,12 @@ sealed class Screen(val route: String) {
     /**
      * Offline Image adjustment tools screen (compress, resize, rotate, transcode).
      */
-    object ImageTools : Screen("image_tools")
+    object ImageTools : Screen("image_tools?fileUri={fileUri}&tab={tab}") {
+        fun createRoute(fileUri: String? = null, tab: Int? = null): String {
+            val encodedUri = fileUri?.let { android.net.Uri.encode(android.net.Uri.encode(it)) }
+            return "image_tools?fileUri=${encodedUri ?: ""}&tab=${tab ?: ""}"
+        }
+    }
 
     /**
      * Offline PDF Factory engines screen (Merge, Split, Password Lock).
@@ -155,6 +160,21 @@ sealed class Screen(val route: String) {
      * Standalone Images to PDF Compiler Screen.
      */
     object ImagesToPdf : Screen("images_to_pdf")
+
+    /**
+     * Standalone PDF Compressor Screen
+     */
+    object PdfCompress : Screen("pdf_compress")
+
+    /**
+     * Standalone PDF Form Flattening Screen
+     */
+    object PdfFlatten : Screen("pdf_flatten")
+
+    /**
+     * Standalone Excel to PDF Converter Screen
+     */
+    object XlsToPdf : Screen("xls_to_pdf")
 }
 
 

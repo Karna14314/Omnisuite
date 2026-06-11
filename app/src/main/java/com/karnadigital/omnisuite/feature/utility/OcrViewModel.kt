@@ -12,6 +12,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.karnadigital.omnisuite.core.model.RecentFile
+import com.karnadigital.omnisuite.core.repository.RecentFileRepository
+import com.karnadigital.omnisuite.core.util.FileOutputManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -19,13 +22,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
 import javax.inject.Inject
 
 @HiltViewModel
 class OcrViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val recentFileRepository: RecentFileRepository
 ) : ViewModel() {
 
     // OCR Screen State
@@ -48,8 +50,12 @@ class OcrViewModel @Inject constructor(
     var errorMessage by mutableStateOf<String?>(null)
     var successMessage by mutableStateOf<String?>(null)
 
+    // Saved output details
+    var successFileUri by mutableStateOf<Uri?>(null)
+    var successFileName by mutableStateOf<String?>(null)
+    var successFileSize by mutableStateOf(0L)
+
     init {
-        // Check if model was already consented or pre-downloaded via preferences
         val prefs = context.getSharedPreferences("omnisuite_ocr_prefs", Context.MODE_PRIVATE)
         isModelDownloaded = prefs.getBoolean("latin_ocr_downloaded", false)
     }
@@ -85,13 +91,11 @@ class OcrViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // Simulate robust play services unbundled dynamic asset downloads
                 for (p in 1..100) {
-                    delay(30) // Smooth progress progression
+                    delay(30)
                     downloadProgress = p / 100f
                 }
 
-                // Register downloaded status
                 val prefs = context.getSharedPreferences("omnisuite_ocr_prefs", Context.MODE_PRIVATE)
                 prefs.edit().putBoolean("latin_ocr_downloaded", true).apply()
                 isModelDownloaded = true
@@ -105,7 +109,7 @@ class OcrViewModel @Inject constructor(
     }
 
     /**
-     * Performs character parsing off-thread using ML Kit Latin recognizers.
+     * Performs character parsing offline using ML Kit Latin recognizers.
      */
     fun performOcr() {
         val bitmap = selectedImageBitmap
@@ -121,6 +125,9 @@ class OcrViewModel @Inject constructor(
         isProcessing = true
         errorMessage = null
         successMessage = null
+        successFileUri = null
+        successFileName = null
+        successFileSize = 0L
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -136,6 +143,7 @@ class OcrViewModel @Inject constructor(
                                 errorMessage = "No text could be identified in the selected image."
                             } else {
                                 successMessage = "Text parsed successfully!"
+                                saveOcrTextToFileAndLog(result.text)
                             }
                         }
                         .addOnFailureListener { exception ->
@@ -145,6 +153,42 @@ class OcrViewModel @Inject constructor(
                 } catch (e: Exception) {
                     isProcessing = false
                     errorMessage = "Error during transcription: ${e.localizedMessage}"
+                }
+            }
+        }
+    }
+
+    private fun saveOcrTextToFileAndLog(text: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val bytes = text.toByteArray()
+                    val fileName = "Ocr_${System.currentTimeMillis()}.txt"
+                    val savedUri = FileOutputManager.saveToDefault(
+                        context = context,
+                        bytes = bytes,
+                        filename = fileName,
+                        mimeType = "text/plain",
+                        subfolder = "OCR"
+                    )
+                    if (savedUri != null) {
+                        successFileUri = savedUri
+                        successFileName = fileName
+                        successFileSize = bytes.size.toLong()
+                        
+                        recentFileRepository.insertRecentFile(
+                            RecentFile(
+                                fileUri = savedUri.toString(),
+                                fileName = fileName,
+                                mimeType = "text/plain",
+                                fileSize = bytes.size.toLong(),
+                                lastOpened = System.currentTimeMillis(),
+                                isOperation = true
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
         }
@@ -180,6 +224,9 @@ class OcrViewModel @Inject constructor(
         recognizedText = ""
         errorMessage = null
         successMessage = null
+        successFileUri = null
+        successFileName = null
+        successFileSize = 0L
     }
 
     fun resetStatus() {

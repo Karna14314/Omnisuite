@@ -36,12 +36,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.io.File
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OcrScreen(
-    viewModel: OcrViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenFile: (String) -> Unit = {},
+    viewModel: OcrViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     var showDownloadSheet by remember { mutableStateOf(false) }
@@ -499,5 +501,25 @@ fun OcrScreen(
                 }
             }
         }
+
+    var showResultSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.successFileUri) {
+        if (viewModel.successFileUri != null) {
+            showResultSheet = true
+        }
     }
+
+    OperationResultBottomSheet(
+        show = showResultSheet,
+        onDismiss = { showResultSheet = false },
+        title = "OCR Transcription Successful",
+        fileName = viewModel.successFileName,
+        fileUri = viewModel.successFileUri?.toString(),
+        fileSize = viewModel.successFileSize,
+        mimeType = "text/plain",
+        textResult = viewModel.recognizedText,
+        onOpenFile = onOpenFile
+    )
+}
 }

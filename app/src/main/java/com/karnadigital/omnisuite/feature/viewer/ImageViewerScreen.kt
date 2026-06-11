@@ -11,14 +11,6 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.Save
 import java.io.File
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +23,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Save
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -71,6 +73,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 fun ImageViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onEditInImageLab: (String) -> Unit,
     viewModel: ImageViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -116,6 +119,12 @@ fun ImageViewerScreen(
     var showInfoDialog by remember { mutableStateOf(false) }
     var showEditSheet by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
+
+    var showResultSheet by remember { mutableStateOf(false) }
+    var resultFileName by remember { mutableStateOf<String?>(null) }
+    var resultFileUri by remember { mutableStateOf<String?>(null) }
+    var resultMimeType by remember { mutableStateOf<String?>(null) }
+    var resultFileSize by remember { mutableStateOf(0L) }
 
     // Offline editing states
     var editRotation by remember { mutableStateOf(0f) }
@@ -561,7 +570,51 @@ fun ImageViewerScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Advanced editing card redirect to Image Lab
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showEditSheet = false
+                            onEditInImageLab(activeUriString)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Open in Image Lab (Advanced)",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Use advanced batch tools, filters and resizing options",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -814,7 +867,11 @@ fun ImageViewerScreen(
                                         )
                                     )
 
-                                    Toast.makeText(context, "Image successfully saved under Documents/OmniSuite/Images!", Toast.LENGTH_LONG).show()
+                                    resultFileName = filename
+                                    resultFileUri = resultUri.toString()
+                                    resultMimeType = mime
+                                    resultFileSize = fileSize
+                                    showResultSheet = true
                                     showEditSheet = false
                                     
                                     val newList = activeUriList.toMutableList()
@@ -855,6 +912,16 @@ fun ImageViewerScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showResultSheet,
+        onDismiss = { showResultSheet = false },
+        title = "Image Saved Successfully",
+        fileName = resultFileName,
+        fileUri = resultFileUri,
+        fileSize = resultFileSize,
+        mimeType = resultMimeType
+    )
 }
 
 @Composable

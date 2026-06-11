@@ -32,6 +32,7 @@ import coil.compose.AsyncImage
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.karnadigital.omnisuite.ui.theme.OmniColors
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -56,6 +57,11 @@ fun ImagesToPdfScreen(
     var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var outputFileName by remember { mutableStateOf("compiled_images") }
     var isProcessing by remember { mutableStateOf(false) }
+
+    var showBottomSheet by remember { mutableStateOf(false) }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var resultSize by remember { mutableStateOf(0L) }
+    var resultFileName by remember { mutableStateOf("") }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -395,8 +401,10 @@ fun ImagesToPdfScreen(
                                             )
                                         )
 
-                                        Toast.makeText(context, "PDF successfully generated offline!", Toast.LENGTH_LONG).show()
-                                        onOpenFile(outputUri.toString())
+                                        resultUri = outputUri
+                                        resultSize = fileSize
+                                        resultFileName = filename
+                                        showBottomSheet = true
                                     } else {
                                         Toast.makeText(context, "Failed to save compiled PDF", Toast.LENGTH_SHORT).show()
                                     }
@@ -434,4 +442,18 @@ fun ImagesToPdfScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showBottomSheet,
+        onDismiss = {
+            showBottomSheet = false
+            selectedImages = emptyList()
+        },
+        title = "PDF Compiled Successfully",
+        fileName = resultFileName,
+        fileUri = resultUri?.toString(),
+        fileSize = resultSize,
+        mimeType = "application/pdf",
+        onOpenFile = onOpenFile
+    )
 }

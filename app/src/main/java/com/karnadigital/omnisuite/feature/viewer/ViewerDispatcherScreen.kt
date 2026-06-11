@@ -31,7 +31,7 @@ sealed class DispatcherState {
 }
 
 enum class FileType {
-    PDF, TXT, DOCX, XLSX, PPTX, PPT_LEGACY, IMAGE, CSV, ARCHIVE
+    PDF, TXT, DOCX, XLSX, PPTX, PPT_LEGACY, IMAGE, CSV, ARCHIVE, DOC_LEGACY, XLS_LEGACY
 }
 
 /**
@@ -44,6 +44,7 @@ fun ViewerDispatcherScreen(
     fileUri: String?,
     onOpenFile: (String) -> Unit = {},
     onOpenPdfTool: (String) -> Unit = {},
+    onOpenImageTool: (String) -> Unit = {},
     onBack: () -> Unit
 ) {
     if (fileUri.isNullOrEmpty()) {
@@ -134,7 +135,33 @@ fun ViewerDispatcherScreen(
                             )
                         }
                     }
-                    FileType.IMAGE -> ImageViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.IMAGE -> ImageViewerScreen(
+                        fileUri = currentState.cachedPath,
+                        onBack = onBack,
+                        onEditInImageLab = onOpenImageTool
+                    )
+                    FileType.DOC_LEGACY -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ErrorCard(
+                                message = "Legacy Word 97-2003 (.doc) files are not fully supported. Please save as .docx format to edit or view.",
+                                onBack = onBack
+                            )
+                        }
+                    }
+                    FileType.XLS_LEGACY -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ErrorCard(
+                                message = "Legacy Excel 97-2003 (.xls) files are not fully supported. Please save as .xlsx format to edit or view.",
+                                onBack = onBack
+                            )
+                        }
+                    }
                     FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.ARCHIVE -> ArchiveViewerScreen(
                         fileUri = currentState.cachedPath,
@@ -248,10 +275,10 @@ private fun determineFileType(context: Context, originalUriString: String, cache
             if (hex.startsWith("D0CF11E0A1B11AE1")) {
                 val originalName = getFileNameFromUri(context, Uri.parse(originalUriString))?.lowercase() ?: ""
                 return when {
-                    originalName.endsWith(".doc") -> FileType.DOCX
-                    originalName.endsWith(".xls") -> FileType.XLSX
+                    originalName.endsWith(".doc") -> FileType.DOC_LEGACY
+                    originalName.endsWith(".xls") -> FileType.XLS_LEGACY
                     originalName.endsWith(".ppt") -> FileType.PPT_LEGACY
-                    else -> FileType.DOCX
+                    else -> FileType.DOC_LEGACY
                 }
             }
         }
@@ -269,8 +296,18 @@ private fun determineFileType(context: Context, originalUriString: String, cache
             when {
                 mimeType == "application/pdf" -> return FileType.PDF
                 mimeType == "text/plain" -> return FileType.TXT
-                mimeType.contains("word") || mimeType == "application/msword" || mimeType.contains("wordprocessingml") -> return FileType.DOCX
-                mimeType.contains("excel") || mimeType == "application/vnd.ms-excel" || mimeType.contains("spreadsheetml") -> return FileType.XLSX
+                mimeType.contains("word") || mimeType == "application/msword" || mimeType.contains("wordprocessingml") -> {
+                    if (originalName.endsWith(".doc") || mimeType == "application/msword") {
+                        return FileType.DOC_LEGACY
+                    }
+                    return FileType.DOCX
+                }
+                mimeType.contains("excel") || mimeType == "application/vnd.ms-excel" || mimeType.contains("spreadsheetml") -> {
+                    if (originalName.endsWith(".xls") || mimeType == "application/vnd.ms-excel") {
+                        return FileType.XLS_LEGACY
+                    }
+                    return FileType.XLSX
+                }
                 mimeType.contains("powerpoint") || mimeType.contains("presentation") || mimeType.contains("presentationml") -> {
                     if (originalName.endsWith(".ppt") || mimeType == "application/vnd.ms-powerpoint") {
                         return FileType.PPT_LEGACY
@@ -291,8 +328,10 @@ private fun determineFileType(context: Context, originalUriString: String, cache
     when {
         nameToCheck.endsWith(".pdf") -> return FileType.PDF
         nameToCheck.endsWith(".txt") -> return FileType.TXT
-        nameToCheck.endsWith(".docx") || nameToCheck.endsWith(".doc") -> return FileType.DOCX
-        nameToCheck.endsWith(".xlsx") || nameToCheck.endsWith(".xls") -> return FileType.XLSX
+        nameToCheck.endsWith(".docx") -> return FileType.DOCX
+        nameToCheck.endsWith(".doc") -> return FileType.DOC_LEGACY
+        nameToCheck.endsWith(".xlsx") -> return FileType.XLSX
+        nameToCheck.endsWith(".xls") -> return FileType.XLS_LEGACY
         nameToCheck.endsWith(".pptx") -> return FileType.PPTX
         nameToCheck.endsWith(".ppt") -> return FileType.PPT_LEGACY
         nameToCheck.endsWith(".png") || nameToCheck.endsWith(".jpg") || nameToCheck.endsWith(".jpeg") || nameToCheck.endsWith(".webp") || nameToCheck.endsWith(".gif") || nameToCheck.endsWith(".bmp") -> return FileType.IMAGE

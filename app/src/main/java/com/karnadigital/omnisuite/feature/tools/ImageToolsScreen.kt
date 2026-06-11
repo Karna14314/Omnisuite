@@ -36,21 +36,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.karnadigital.omnisuite.core.engine.image.OutputFormat
 
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 /**
  * Premium, rich-aesthetic local offline image compression and editing dashboard.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageToolsScreen(
-    viewModel: ImageToolsViewModel = hiltViewModel(),
-    onBack: () -> Unit
+    initialUri: String? = null,
+    initialTab: Int = 0,
+    onOpenFile: (String) -> Unit,
+    onBack: () -> Unit,
+    viewModel: ImageToolsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val selectedUri = uiState.selectedUri
 
-    var activeTab by remember { mutableStateOf(0) }
+    var activeTab by remember { mutableStateOf(initialTab) }
     val toolTabs = listOf("Editor", "Long Stitcher", "Extractor", "ID Card Maker", "Watermarker")
 
     // Launchers
@@ -644,6 +651,44 @@ fun ImageToolsScreen(
             }
         }
     }
+
+    LaunchedEffect(initialUri) {
+        if (!initialUri.isNullOrBlank()) {
+            viewModel.loadSelectedImage(Uri.parse(initialUri))
+        }
+    }
+
+    val showBottomSheet = uiState.isSuccess && uiState.successUri != null
+    var successFileSize by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(uiState.isSuccess, uiState.successUri) {
+        if (uiState.isSuccess && uiState.successUri != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openAssetFileDescriptor(uiState.successUri!!, "r")?.use { fd ->
+                        successFileSize = fd.length
+                    }
+                } catch (e: Exception) {
+                    successFileSize = 0L
+                }
+            }
+        }
+    }
+
+    OperationResultBottomSheet(
+        show = showBottomSheet,
+        onDismiss = {
+            viewModel.clearSelection()
+        },
+        title = "Image Processed Successfully",
+        fileName = uiState.successName,
+        fileUri = uiState.successUri?.toString(),
+        fileSize = uiState.lastOutputBytes?.size?.toLong() ?: successFileSize,
+        mimeType = uiState.successUri?.let { uri ->
+            context.contentResolver.getType(uri)
+        } ?: "image/jpeg",
+        onOpenFile = onOpenFile
+    )
 }
 
 @Composable

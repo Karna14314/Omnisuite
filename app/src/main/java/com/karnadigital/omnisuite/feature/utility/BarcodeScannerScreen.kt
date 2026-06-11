@@ -30,6 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.util.concurrent.Executors
 import android.widget.Toast
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 /**
  * CameraX hardware viewfinder screen that performs real-time offline barcode parsing.
@@ -37,8 +38,9 @@ import android.widget.Toast
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BarcodeScannerScreen(
-    viewModel: BarcodeScannerViewModel = hiltViewModel(),
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenFile: (String) -> Unit = {},
+    viewModel: BarcodeScannerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -346,4 +348,28 @@ fun BarcodeScannerScreen(
             }
         }
     }
+
+    var showResultSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.scanResultText) {
+        if (viewModel.scanResultText != null) {
+            showResultSheet = true
+        }
+    }
+
+    OperationResultBottomSheet(
+        show = showResultSheet,
+        onDismiss = {
+            showResultSheet = false
+            viewModel.clearResult()
+            scannedText = null
+        },
+        title = "Barcode / QR Code Scanned",
+        fileName = viewModel.scanResultFileName,
+        fileUri = viewModel.scanResultFileUri?.toString(),
+        fileSize = viewModel.scanResultSize,
+        mimeType = "text/plain",
+        textResult = viewModel.scanResultText,
+        onOpenFile = onOpenFile
+    )
 }
