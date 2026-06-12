@@ -10,7 +10,7 @@ import com.karnadigital.omnisuite.core.model.RecentFile
  */
 @Database(
     entities = [RecentFile::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class OmniDatabase : RoomDatabase() {
