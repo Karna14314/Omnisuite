@@ -15,8 +15,12 @@ android {
         applicationId = "com.karnadigital.omnisuite"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+
+        val appVersionCode = project.findProperty("APP_VERSION_CODE")?.toString()?.toIntOrNull() ?: 1
+        val appVersionName = project.findProperty("APP_VERSION_NAME")?.toString() ?: "1.0.0"
+
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,14 +30,26 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            if (keystorePropertiesFile.exists()) {
-                val properties = Properties()
-                keystorePropertiesFile.inputStream().use { properties.load(it) }
-                storeFile = rootProject.file(properties.getProperty("storeFile"))
-                storePassword = properties.getProperty("storePassword")
-                keyAlias = properties.getProperty("keyAlias")
-                keyPassword = properties.getProperty("keyPassword")
+            val ciKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+            val ciKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val ciKeyAlias = System.getenv("KEY_ALIAS")
+            val ciKeyPassword = System.getenv("KEY_PASSWORD")
+
+            if (!ciKeystoreFile.isNullOrEmpty() && !ciKeystorePassword.isNullOrEmpty()) {
+                storeFile = file(ciKeystoreFile)
+                storePassword = ciKeystorePassword
+                keyAlias = ciKeyAlias ?: "omnisuite_release_key"
+                keyPassword = ciKeyPassword ?: ciKeystorePassword
+            } else {
+                val keystorePropertiesFile = rootProject.file("keystore.properties")
+                if (keystorePropertiesFile.exists()) {
+                    val properties = Properties()
+                    keystorePropertiesFile.inputStream().use { properties.load(it) }
+                    storeFile = rootProject.file(properties.getProperty("storeFile"))
+                    storePassword = properties.getProperty("storePassword")
+                    keyAlias = properties.getProperty("keyAlias")
+                    keyPassword = properties.getProperty("keyPassword")
+                }
             }
         }
     }
@@ -42,10 +58,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
