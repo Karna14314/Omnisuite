@@ -3,23 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - OmniSuite</title>
+    <title>Privacy Policy – OmniSuite</title>
+    <meta name="description" content="Privacy Policy for OmniSuite, an offline document viewer and productivity suite for Android.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0B0F19;
-            --surface-color: #111827;
-            --surface-accent: #1F2937;
-            --text-primary: #F9FAFB;
-            --text-secondary: #9CA3AF;
-            --text-muted: #6B7280;
-            --accent-primary: #6366F1;
-            --accent-secondary: #4F46E5;
-            --accent-glow: rgba(99, 102, 241, 0.15);
-            --border-color: #374151;
-            --success-color: #10B981;
+            --bg-primary: #FAFBFC;
+            --bg-surface: #FFFFFF;
+            --bg-muted: #F3F4F6;
+            --text-heading: #111827;
+            --text-body: #374151;
+            --text-secondary: #6B7280;
+            --text-muted: #9CA3AF;
+            --accent: #0F766E;
+            --accent-light: #14B8A6;
+            --accent-bg: rgba(15, 118, 110, 0.06);
+            --border: #E5E7EB;
+            --border-accent: #D1D5DB;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
         }
 
         * {
@@ -28,285 +36,376 @@
             padding: 0;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-secondary);
-            line-height: 1.6;
-            overflow-x: hidden;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-body);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Header / Banner */
+        /* ─── Header ─── */
         header {
-            position: relative;
-            background: linear-gradient(135deg, #111827 0%, #030712 100%);
-            border-bottom: 1px solid var(--border-color);
-            padding: 80px 24px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+            padding: 56px 24px 48px;
             text-align: center;
-            overflow: hidden;
         }
 
-        header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .header-content {
-            position: relative;
-            z-index: 1;
-            max-width: 800px;
+        .header-inner {
+            max-width: 720px;
             margin: 0 auto;
         }
 
-        .logo-badge {
+        .app-badge {
             display: inline-flex;
             align-items: center;
-            justify-content: center;
-            width: 64px;
-            height: 64px;
-            border-radius: 20px;
-            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-            color: var(--text-primary);
-            font-family: 'Outfit', sans-serif;
-            font-size: 32px;
+            gap: 10px;
+            background: var(--accent-bg);
+            border: 1px solid rgba(15, 118, 110, 0.12);
+            padding: 6px 16px 6px 8px;
+            border-radius: 40px;
+            margin-bottom: 28px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            letter-spacing: 0.02em;
+        }
+
+        .app-badge .icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 800;
-            margin-bottom: 24px;
-            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.3);
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         h1 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 42px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 36px;
             font-weight: 800;
-            color: var(--text-primary);
-            margin-bottom: 12px;
-            letter-spacing: -0.025em;
+            color: var(--text-heading);
+            letter-spacing: -0.03em;
+            line-height: 1.2;
+            margin-bottom: 14px;
         }
 
-        .subtitle {
-            font-size: 16px;
+        .header-sub {
+            font-size: 15px;
             color: var(--text-secondary);
-            max-width: 600px;
-            margin: 0 auto;
+            max-width: 520px;
+            margin: 0 auto 20px;
         }
 
-        .meta-info {
+        .effective-date {
             display: inline-block;
-            margin-top: 24px;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 500;
             color: var(--text-muted);
-            background-color: var(--surface-color);
-            border: 1px solid var(--border-color);
-            padding: 6px 16px;
-            border-radius: 30px;
-        }
-
-        /* Container Layout */
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 60px 24px 100px;
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            gap: 48px;
-        }
-
-        /* Navigation Sidebar */
-        aside {
-            position: sticky;
-            top: 40px;
-            height: fit-content;
-        }
-
-        .nav-card {
-            background-color: var(--surface-color);
-            border: 1px solid var(--border-color);
+            background: var(--bg-muted);
+            border: 1px solid var(--border);
+            padding: 5px 14px;
             border-radius: 20px;
-            padding: 24px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            letter-spacing: 0.01em;
         }
 
-        .nav-card h3 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 16px;
+        /* ─── Layout ─── */
+        .page-wrapper {
+            max-width: 1060px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        /* ─── Sidebar ─── */
+        .sidebar {
+            position: sticky;
+            top: 32px;
+        }
+
+        .toc {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .toc-title {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 11px;
             font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 16px;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 14px;
         }
 
-        .nav-links {
+        .toc-list {
             list-style: none;
         }
 
-        .nav-links li {
-            margin-bottom: 12px;
+        .toc-list li {
+            margin-bottom: 2px;
         }
 
-        .nav-links a {
+        .toc-list a {
+            display: block;
+            padding: 6px 10px;
+            font-size: 13px;
+            font-weight: 500;
             color: var(--text-secondary);
             text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            display: block;
-            padding: 4px 0;
-            border-left: 2px solid transparent;
-            padding-left: 10px;
+            border-radius: 6px;
+            transition: all 0.15s ease;
         }
 
-        .nav-links a:hover {
-            color: var(--accent-primary);
-            border-left-color: var(--accent-primary);
+        .toc-list a:hover {
+            background: var(--accent-bg);
+            color: var(--accent);
         }
 
-        /* Main Content */
-        main {
-            background-color: var(--surface-color);
-            border: 1px solid var(--border-color);
-            border-radius: 24px;
-            padding: 48px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        /* ─── Main Content ─── */
+        .content {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 44px 48px;
+            box-shadow: var(--shadow-md);
         }
 
-        section {
-            margin-bottom: 48px;
-            scroll-margin-top: 40px;
+        .section {
+            margin-bottom: 40px;
+            padding-bottom: 32px;
+            border-bottom: 1px solid var(--bg-muted);
+            scroll-margin-top: 32px;
         }
 
-        section:last-child {
+        .section:last-child {
             margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
         }
 
         h2 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 24px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 20px;
             font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 16px;
+            color: var(--text-heading);
+            margin-bottom: 14px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            border-bottom: 1px solid var(--surface-accent);
-            padding-bottom: 12px;
+            gap: 10px;
         }
 
-        h2 span {
-            color: var(--accent-primary);
+        h2 .num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            font-size: 13px;
+            font-weight: 700;
+            background: var(--accent-bg);
+            color: var(--accent);
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+
+        h3 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-heading);
+            margin-top: 20px;
+            margin-bottom: 8px;
         }
 
         p {
-            font-size: 15px;
-            margin-bottom: 20px;
-            color: var(--text-secondary);
-            text-align: justify;
+            font-size: 14.5px;
+            margin-bottom: 16px;
+            color: var(--text-body);
+        }
+
+        ul, ol {
+            margin-bottom: 16px;
+            padding-left: 4px;
         }
 
         ul {
             list-style: none;
-            margin-bottom: 20px;
-            padding-left: 8px;
+        }
+
+        ol {
+            list-style: none;
+            counter-reset: ol-counter;
+        }
+
+        ol li {
+            counter-increment: ol-counter;
+        }
+
+        ol li::before {
+            content: counter(ol-counter) ".";
+            color: var(--accent);
+            font-weight: 600;
+            position: absolute;
+            left: 0;
         }
 
         li {
-            font-size: 15px;
-            margin-bottom: 12px;
+            font-size: 14.5px;
+            margin-bottom: 10px;
             position: relative;
-            padding-left: 24px;
+            padding-left: 22px;
+            color: var(--text-body);
         }
 
-        li::before {
-            content: "✓";
-            color: var(--success-color);
+        ul li::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
             position: absolute;
-            left: 0;
-            font-weight: bold;
+            left: 2px;
+            top: 9px;
         }
 
-        /* Highlights & Alerts */
-        .alert-card {
-            background-color: var(--accent-glow);
-            border-left: 4px solid var(--accent-primary);
-            border-radius: 0 16px 16px 0;
-            padding: 20px;
-            margin: 28px 0;
+        strong {
+            color: var(--text-heading);
+            font-weight: 600;
         }
 
-        .alert-card p {
+        /* ─── Callout Box ─── */
+        .callout {
+            background: var(--accent-bg);
+            border: 1px solid rgba(15, 118, 110, 0.12);
+            border-radius: var(--radius-md);
+            padding: 18px 20px;
+            margin: 20px 0;
+        }
+
+        .callout p {
             margin-bottom: 0;
-            color: var(--text-primary);
+            color: var(--text-heading);
             font-weight: 500;
-            text-align: left;
-        }
-
-        .grid-permissions {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 16px;
-            margin: 24px 0;
-        }
-
-        .permission-item {
-            background-color: var(--surface-accent);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 16px;
-            transition: transform 0.2s ease;
-        }
-
-        .permission-item:hover {
-            transform: translateX(4px);
-        }
-
-        .permission-name {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 700;
-            color: var(--text-primary);
             font-size: 14px;
+        }
+
+        .callout .callout-label {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--accent);
+            margin-bottom: 6px;
+        }
+
+        /* ─── Permission Cards ─── */
+        .perm-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 16px 0;
+        }
+
+        .perm-card {
+            background: var(--bg-muted);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+        }
+
+        .perm-label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 13.5px;
+            color: var(--text-heading);
             margin-bottom: 4px;
         }
 
-        .permission-desc {
+        .perm-detail {
             font-size: 13px;
             color: var(--text-secondary);
+            line-height: 1.55;
         }
 
-        /* Footer */
+        /* ─── Footer ─── */
         footer {
-            background-color: #030712;
-            border-top: 1px solid var(--border-color);
-            padding: 40px 24px;
+            background: var(--bg-surface);
+            border-top: 1px solid var(--border);
+            padding: 32px 24px;
             text-align: center;
-            font-size: 13px;
-            color: var(--text-muted);
         }
 
-        /* Responsive Layout */
-        @media (max-width: 900px) {
-            .container {
+        .footer-inner {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        footer p {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 860px) {
+            .page-wrapper {
                 grid-template-columns: 1fr;
-                padding-top: 30px;
+                padding: 24px 16px 60px;
             }
 
-            aside {
+            .sidebar {
                 display: none;
             }
 
-            main {
-                padding: 24px;
-                border-radius: 16px;
+            .content {
+                padding: 28px 24px;
             }
 
             h1 {
-                font-size: 32px;
+                font-size: 28px;
+            }
+
+            header {
+                padding: 40px 16px 36px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .content {
+                padding: 20px 16px;
+                border-radius: var(--radius-md);
+            }
+
+            h2 {
+                font-size: 18px;
             }
         }
     </style>
@@ -314,115 +413,244 @@
 <body>
 
     <header>
-        <div class="header-content">
-            <div class="logo-badge">O</div>
-            <h1>OmniSuite Privacy Policy</h1>
-            <p class="subtitle">Industry-Standard Privacy Statement for the OmniSuite Mobile Application</p>
-            <div class="meta-info">Last Updated: June 13, 2026</div>
+        <div class="header-inner">
+            <div class="app-badge">
+                <div class="icon">O</div>
+                OmniSuite
+            </div>
+            <h1>Privacy Policy</h1>
+            <p class="header-sub">This policy explains how OmniSuite handles your data, what permissions it requires, and your rights as a user.</p>
+            <div class="effective-date">Effective Date: June 13, 2026</div>
         </div>
     </header>
 
-    <div class="container">
-        <aside>
-            <div class="nav-card">
-                <h3>Contents</h3>
-                <ul class="nav-links">
-                    <li><a href="#intro">1. Introduction</a></li>
-                    <li><a href="#offline">2. 100% Offline Commitment</a></li>
-                    <li><a href="#collection">3. Data Collection</a></li>
-                    <li><a href="#permissions">4. Device Permissions</a></li>
-                    <li><a href="#storage">5. Local Storage & Cache</a></li>
-                    <li><a href="#thirdparty">6. Third-Party Libraries</a></li>
-                    <li><a href="#children">7. Children's Privacy</a></li>
-                    <li><a href="#contact">8. Contact Information</a></li>
+    <div class="page-wrapper">
+        <nav class="sidebar">
+            <div class="toc">
+                <div class="toc-title">Table of Contents</div>
+                <ul class="toc-list">
+                    <li><a href="#intro">Introduction</a></li>
+                    <li><a href="#offline">Offline Architecture</a></li>
+                    <li><a href="#data-collection">Data Collection</a></li>
+                    <li><a href="#permissions">Device Permissions</a></li>
+                    <li><a href="#local-storage">Local Storage & Cache</a></li>
+                    <li><a href="#data-retention">Data Retention</a></li>
+                    <li><a href="#data-security">Data Security</a></li>
+                    <li><a href="#third-party">Third-Party Libraries</a></li>
+                    <li><a href="#children">Children's Privacy</a></li>
+                    <li><a href="#user-rights">Your Rights</a></li>
+                    <li><a href="#compliance">Regulatory Compliance</a></li>
+                    <li><a href="#changes">Changes to This Policy</a></li>
+                    <li><a href="#contact">Contact Us</a></li>
                 </ul>
             </div>
-        </aside>
+        </nav>
 
-        <main>
-            <section id="intro">
-                <h2><span>1.</span> Introduction</h2>
-                <p>Welcome to <strong>OmniSuite</strong>, an all-in-one document viewer and tool utility application. We are committed to protecting your privacy. This privacy policy describes the practices, coordinates, and rules governing data management in OmniSuite.</p>
-                <p>By downloading, installing, and using OmniSuite, you agree to the terms laid out in this Privacy Policy. If you do not agree, please do not use the application.</p>
+        <main class="content">
+
+            <!-- 1. Introduction -->
+            <section class="section" id="intro">
+                <h2><span class="num">1</span> Introduction</h2>
+                <p>OmniSuite ("the Application," "we," "us," or "our") is an all-in-one document viewer and productivity suite for Android. It supports PDF, DOCX, XLSX, PPTX, TXT, CSV, and image formats alongside tools such as QR code generation, OCR text extraction, image editing, and file compression.</p>
+                <p>This Privacy Policy describes what information the Application accesses, how it is processed, how it is stored, and what rights you have concerning your data. By installing or using OmniSuite, you acknowledge and agree to the practices described in this document. If you do not agree, please uninstall the Application.</p>
+                <p>This policy applies to all versions of OmniSuite distributed through the Google Play Store and any other authorized distribution channel.</p>
             </section>
 
-            <section id="offline">
-                <h2><span>2.</span> 100% Offline Commitment</h2>
-                <div class="alert-card">
-                    <p>OmniSuite is designed and built to operate entirely offline. The application contains zero network adapters, network calls, cloud APIs, or synchronization protocols. All operations happen exclusively on your device.</p>
+            <!-- 2. Offline Architecture -->
+            <section class="section" id="offline">
+                <h2><span class="num">2</span> Offline Architecture</h2>
+                <div class="callout">
+                    <div class="callout-label">Key Commitment</div>
+                    <p>OmniSuite is engineered to operate entirely offline. The Application contains no network adapters, no HTTP clients, no cloud API integrations, and no analytics or telemetry frameworks. All document processing, rendering, and tool operations execute exclusively on your device.</p>
                 </div>
-                <p>We believe your personal documents and details should remain entirely yours. Since the application does not connect to the internet, it is physically impossible for us, or any third party, to collect, upload, monitor, or exfiltrate your documents, files, or information from your mobile device.</p>
+                <p>Because the Application has no network connectivity, it is technically impossible for us — or any third party — to access, collect, transmit, or monitor your documents, files, usage patterns, or personal information through the Application.</p>
+                <p>The Application does not contain advertising SDKs, crash reporting services (such as Firebase Crashlytics), or analytics platforms (such as Google Analytics or Mixpanel). No data of any kind leaves your device.</p>
             </section>
 
-            <section id="collection">
-                <h2><span>3.</span> Data Collection & Sharing</h2>
-                <p>As part of our commitment to absolute data integrity:</p>
+            <!-- 3. Data Collection -->
+            <section class="section" id="data-collection">
+                <h2><span class="num">3</span> Data Collection</h2>
+
+                <h3>Information We Do Not Collect</h3>
+                <p>OmniSuite does not collect, process, or store any of the following:</p>
                 <ul>
-                    <li><strong>No Personal Data Collection:</strong> We do not collect names, email addresses, phone numbers, unique device identifiers, IP addresses, location data, or any other personal indicators.</li>
-                    <li><strong>No File Collection:</strong> Documents you open (including PDF, DOCX, XLSX, PPTX, TXT, CSV, and Images) are processed strictly in-memory on your device. We do not have access to, nor do we store copies of, any of your processed files.</li>
-                    <li><strong>No Data Sharing:</strong> Because we collect no data, we share no data with third parties, marketing firms, advertisers, or government entities.</li>
+                    <li>Personal identifiers (name, email address, phone number, date of birth)</li>
+                    <li>Device identifiers (Android ID, IMEI, serial number, advertising ID)</li>
+                    <li>Location data (GPS, Wi-Fi-based, or cell-tower-based)</li>
+                    <li>IP addresses or network information</li>
+                    <li>Browsing history, search queries, or usage analytics</li>
+                    <li>Biometric data</li>
+                    <li>Financial or payment information</li>
+                    <li>Contacts, call logs, or SMS messages</li>
                 </ul>
+
+                <h3>Information Processed Locally</h3>
+                <p>The following data is processed strictly on-device and is never transmitted externally:</p>
+                <ul>
+                    <li><strong>Document content:</strong> Files you open (PDF, DOCX, XLSX, PPTX, TXT, CSV, images) are read into device memory for rendering and discarded when the viewer session ends.</li>
+                    <li><strong>Recent file records:</strong> File names, URIs, MIME types, and timestamps are stored in a local SQLite database to populate the "Recent Files" list on the home screen.</li>
+                    <li><strong>Temporary cached files:</strong> Content stream copies are written to the Application's private cache directory for document engine processing.</li>
+                    <li><strong>QR code payloads:</strong> Text, URLs, contacts, Wi-Fi credentials, and other data you enter for QR generation are processed in memory and never persisted beyond the active session.</li>
+                </ul>
+
+                <h3>Data Sharing</h3>
+                <p>We do not sell, rent, license, trade, or disclose any user data to third parties — including advertising networks, data brokers, marketing partners, analytics providers, or government entities. Since no data is collected, there is no data to share.</p>
             </section>
 
-            <section id="permissions">
-                <h2><span>4.</span> Device Permissions</h2>
-                <p>To perform its document utility features locally, OmniSuite requests specific runtime permissions. These are used strictly for local operations as described below:</p>
-                
-                <div class="grid-permissions">
-                    <div class="permission-item">
-                        <div class="permission-name">Storage / Storage Access Framework (SAF)</div>
-                        <div class="permission-desc">Required to locate, open, read, edit, and write files (documents, images, PDFs) that you explicitly select. Persistent permissions are locked on-device across reboots to keep recently opened files accessible.</div>
+            <!-- 4. Device Permissions -->
+            <section class="section" id="permissions">
+                <h2><span class="num">4</span> Device Permissions</h2>
+                <p>OmniSuite requests the minimum set of Android runtime permissions necessary for its core features. Each permission is used exclusively for the purpose described below:</p>
+
+                <div class="perm-grid">
+                    <div class="perm-card">
+                        <div class="perm-label">Storage / Storage Access Framework (SAF)</div>
+                        <div class="perm-detail">Required to browse, open, read, and save files that you explicitly select through the system file picker. Persistent URI permissions are obtained via <code>takePersistableUriPermission()</code> to maintain access to previously opened documents across device reboots without requiring repeated user selection.</div>
                     </div>
-                    
-                    <div class="permission-item">
-                        <div class="permission-name">Camera Access</div>
-                        <div class="permission-desc">Required strictly to power the CameraX barcode and QR viewfinder scanner screen. The app processes frames locally in real-time to decode payloads. No frames or images are recorded or sent.</div>
+
+                    <div class="perm-card">
+                        <div class="perm-label">Camera</div>
+                        <div class="perm-detail">Used exclusively for the real-time QR code and barcode scanner. Camera frames are processed locally using CameraX and Google ML Kit's on-device barcode detection. No images or video are captured, recorded, or stored.</div>
                     </div>
-                    
-                    <div class="permission-item">
-                        <div class="permission-name">Clipboard Access</div>
-                        <div class="permission-desc">Used solely for user-initiated copying operations, such as copying OCR-extracted text or PDF page text to the system clipboard.</div>
+
+                    <div class="perm-card">
+                        <div class="perm-label">Clipboard</div>
+                        <div class="perm-detail">Accessed only when you explicitly initiate a copy action — for example, copying OCR-extracted text, PDF page content, or a generated QR code payload to the system clipboard.</div>
                     </div>
                 </div>
+
+                <p>OmniSuite does not request permissions for location, microphone, contacts, phone state, SMS, Bluetooth, or background activity.</p>
             </section>
 
-            <section id="storage">
-                <h2><span>5.</span> Local Storage & Cache</h2>
-                <p>To provide a smooth, fast, and feature-rich user experience, OmniSuite maintains files locally:</p>
+            <!-- 5. Local Storage & Cache -->
+            <section class="section" id="local-storage">
+                <h2><span class="num">5</span> Local Storage &amp; Cache</h2>
+                <p>To deliver fast, reliable document viewing, the Application maintains data locally within its sandboxed storage area:</p>
+
+                <h3>Recent Files Database</h3>
+                <p>A local SQLite database (managed via Android Room) stores metadata about files you have opened: file name, content URI, MIME type, and last-opened timestamp. This data is used solely to display your recent files list and is never exported or transmitted. You may clear this history at any time through the Settings screen.</p>
+
+                <h3>Temporary File Cache</h3>
+                <p>Documents opened through SAF content streams are temporarily copied to the Application's private cache directory (<code>context.cacheDir</code>) to provide the file path references required by document processing engines such as Apache POI. These cached files:</p>
                 <ul>
-                    <li><strong>Recent Files History:</strong> Recent file names, file paths, and MIME types are logged locally inside a secure SQLite Room database on your device. This history is never shared and is used solely to display your recently opened list on the home page. You can clear this history anytime in the Settings menu.</li>
-                    <li><strong>Temporary File Cache:</strong> Files opened via SAF content streams are temporarily cached inside `context.cacheDir` to obtain path references needed by document engines (like Apache POI).</li>
-                    <li><strong>Automatic Pruning:</strong> To prevent aggressive storage accumulation, we enforce strict size discipline. The cache is capped at 50MB and automatically deletes the oldest files when new documents are opened. You can also manually purge this cache in the Settings screen via the "Clear Cache" button.</li>
+                    <li>Reside exclusively within the Application's sandboxed storage.</li>
+                    <li>Are inaccessible to other applications on the device.</li>
+                    <li>Are subject to automatic size-based pruning — the cache is capped at 50 MB, and the oldest files are deleted automatically when the threshold is exceeded.</li>
+                    <li>Can be manually cleared at any time via Settings → Clear Cache.</li>
+                    <li>Are automatically deleted by the Android operating system when the Application is uninstalled.</li>
+                </ul>
+
+                <h3>Generated Files</h3>
+                <p>Files you explicitly create — such as QR code images, watermarked PDFs, compressed ZIP archives, or signed documents — are saved to a location you choose through the system file picker. These files are owned by you and are not managed, tracked, or accessed by the Application after creation.</p>
+            </section>
+
+            <!-- 6. Data Retention -->
+            <section class="section" id="data-retention">
+                <h2><span class="num">6</span> Data Retention</h2>
+                <p>Since OmniSuite operates entirely offline and collects no personal data, there is no remote data retention to disclose. All locally stored data follows this retention schedule:</p>
+                <ul>
+                    <li><strong>Recent files database:</strong> Retained until you manually clear the history via Settings, or until the Application is uninstalled.</li>
+                    <li><strong>Cached files:</strong> Automatically pruned when total cache size exceeds 50 MB. Also cleared on manual cache purge or Application uninstall.</li>
+                    <li><strong>In-memory document data:</strong> Discarded immediately when a viewer session ends or the Application process is terminated.</li>
+                </ul>
+                <p>You retain full control over all locally stored data and may delete it at any time without contacting us.</p>
+            </section>
+
+            <!-- 7. Data Security -->
+            <section class="section" id="data-security">
+                <h2><span class="num">7</span> Data Security</h2>
+                <p>We implement the following measures to protect any data the Application processes on your device:</p>
+                <ul>
+                    <li><strong>Android Application Sandbox:</strong> All Application data, including the cache directory and database, is stored within the Application's private sandboxed storage, which is inaccessible to other applications under standard Android security policies.</li>
+                    <li><strong>No Network Surface:</strong> The complete absence of network connectivity eliminates entire categories of security threats, including man-in-the-middle attacks, data interception, remote exploitation, and unauthorized data exfiltration.</li>
+                    <li><strong>Storage Access Framework:</strong> File access is mediated through Android's SAF, which ensures that the Application can only access files you explicitly select — it cannot scan, index, or access arbitrary files on your device.</li>
+                    <li><strong>Code Obfuscation:</strong> Release builds use R8 code shrinking and obfuscation with custom ProGuard rules to reduce the attack surface of the compiled application.</li>
+                </ul>
+                <p>While no system can guarantee absolute security, the offline-only architecture of OmniSuite eliminates the most common vectors for data breaches in mobile applications.</p>
+            </section>
+
+            <!-- 8. Third-Party Libraries -->
+            <section class="section" id="third-party">
+                <h2><span class="num">8</span> Third-Party Libraries</h2>
+                <p>OmniSuite uses open-source libraries to perform document processing and utility operations. All libraries execute exclusively on-device with no network capabilities within this Application:</p>
+                <ul>
+                    <li><strong>Apache POI:</strong> Reads and processes Microsoft Office formats (DOCX, XLSX, PPTX) locally on the device.</li>
+                    <li><strong>PDFBox-Android (Tom Roush):</strong> Renders, extracts text from, and processes PDF documents locally.</li>
+                    <li><strong>Google ML Kit (Text Recognition):</strong> Performs optical character recognition (OCR) using on-device machine learning models. The ML Kit module used is the bundled offline variant and does not communicate with Google servers.</li>
+                    <li><strong>ZXing:</strong> Generates and decodes QR codes and barcodes locally.</li>
+                    <li><strong>Coil:</strong> Loads and displays images from local file paths within the Application's image viewer.</li>
+                    <li><strong>Jetpack Compose &amp; AndroidX:</strong> Provides the UI framework and architecture components. These libraries do not collect or transmit user data.</li>
+                </ul>
+                <p>None of these libraries collect telemetry, transmit usage data, or make network connections within the context of this Application. We do not use any third-party advertising, analytics, or tracking SDKs.</p>
+            </section>
+
+            <!-- 9. Children's Privacy -->
+            <section class="section" id="children">
+                <h2><span class="num">9</span> Children's Privacy</h2>
+                <p>OmniSuite does not collect personal information from any user, including children under the age of 13 (or the applicable age of consent in your jurisdiction). Because the Application is fully offline and collects no data, it complies with:</p>
+                <ul>
+                    <li>The Children's Online Privacy Protection Act (COPPA) — United States</li>
+                    <li>The Age Appropriate Design Code (AADC) — United Kingdom</li>
+                    <li>Article 8 of the General Data Protection Regulation (GDPR) — European Union</li>
+                </ul>
+                <p>Parents and guardians can allow children to use the Application without privacy concerns, as no data collection mechanism exists within the Application.</p>
+            </section>
+
+            <!-- 10. Your Rights -->
+            <section class="section" id="user-rights">
+                <h2><span class="num">10</span> Your Rights</h2>
+                <p>Although OmniSuite does not collect personal data, we respect your right to understand and control how software operates on your device. Under applicable privacy regulations, you may have the following rights:</p>
+                <ul>
+                    <li><strong>Right to Access:</strong> You may request information about what data, if any, is associated with your use. As stated in this policy, no personal data is collected or stored remotely.</li>
+                    <li><strong>Right to Deletion:</strong> All locally stored data (recent files history, cache) can be deleted at any time through the Application's Settings screen, or by uninstalling the Application.</li>
+                    <li><strong>Right to Restrict Processing:</strong> You may revoke any runtime permission (Storage, Camera) through your device's system settings at any time. Revoking permissions may limit certain features.</li>
+                    <li><strong>Right to Data Portability:</strong> Since no personal data is collected or stored remotely, there is no data to export.</li>
+                    <li><strong>Right to Object:</strong> The Application does not engage in profiling, automated decision-making, or targeted advertising.</li>
+                </ul>
+                <p>To exercise any of these rights or if you have questions, please contact us using the information provided in the Contact Us section below.</p>
+            </section>
+
+            <!-- 11. Regulatory Compliance -->
+            <section class="section" id="compliance">
+                <h2><span class="num">11</span> Regulatory Compliance</h2>
+                <p>OmniSuite's offline-only, zero-collection architecture ensures compliance with the following data protection regulations:</p>
+                <ul>
+                    <li><strong>General Data Protection Regulation (GDPR) — EU/EEA:</strong> No personal data is collected, processed, or transferred. No data processing agreement or legal basis for processing is required because no processing of personal data occurs.</li>
+                    <li><strong>California Consumer Privacy Act (CCPA) / California Privacy Rights Act (CPRA):</strong> No personal information is sold, shared, or collected. The Application does not use categories of personal information as defined under CCPA §1798.140(v).</li>
+                    <li><strong>Google Play Data Safety:</strong> The Application's Play Store listing accurately declares that no user data is collected or shared.</li>
                 </ul>
             </section>
 
-            <section id="thirdparty">
-                <h2><span>6.</span> Third-Party Libraries</h2>
-                <p>Our app leverages highly respected open-source libraries to perform heavy offline operations. These libraries run entirely on-device under strict sandbox constraints:</p>
+            <!-- 12. Changes to This Policy -->
+            <section class="section" id="changes">
+                <h2><span class="num">12</span> Changes to This Policy</h2>
+                <p>We may update this Privacy Policy from time to time to reflect changes in the Application's functionality or applicable regulations. When we make material changes:</p>
                 <ul>
-                    <li><strong>Apache POI:</strong> Used locally to read and format DOCX, XLSX, and PPTX documents.</li>
-                    <li><strong>PDFBox-Android (Tom Roush):</strong> Used locally for offline PDF rendering, extraction, and locking.</li>
-                    <li><strong>Google ML Kit (OCR):</strong> Used locally for device-side text recognition without cloud API queries.</li>
-                    <li><strong>ZXing:</strong> Used locally to build, configure, and compile QR code/barcode payloads.</li>
+                    <li>The "Effective Date" at the top of this page will be updated.</li>
+                    <li>A summary of changes will be noted in the Application's release notes on the Google Play Store.</li>
                 </ul>
-                <p>None of these libraries make network connections or collect telemetry inside this application.</p>
+                <p>We encourage you to review this page periodically. Your continued use of the Application after any changes constitutes acceptance of the updated Privacy Policy.</p>
             </section>
 
-            <section id="children">
-                <h2><span>7.</span> Children's Privacy</h2>
-                <p>Our application is completely safe for children of all ages. Because we do not collect any personal data, we do not knowingly or unknowingly gather information from children under the age of 13, in strict compliance with COPPA (Children's Online Privacy Protection Act) and similar international regulations.</p>
+            <!-- 13. Contact Us -->
+            <section class="section" id="contact">
+                <h2><span class="num">13</span> Contact Us</h2>
+                <p>If you have questions, concerns, or feedback regarding this Privacy Policy or OmniSuite's data practices, you may reach us through:</p>
+                <ul>
+                    <li><strong>GitHub:</strong> <a href="https://github.com/Karna14314/Omnisuite" style="color: var(--accent); text-decoration: none; font-weight: 500;">github.com/Karna14314/Omnisuite</a> — Open an issue or start a discussion.</li>
+                    <li><strong>Email:</strong> <a href="mailto:karnadigital@proton.me" style="color: var(--accent); text-decoration: none; font-weight: 500;">karnadigital@proton.me</a></li>
+                </ul>
+                <p>We will make every reasonable effort to respond to your inquiry within 30 days.</p>
             </section>
 
-            <section id="contact">
-                <h2><span>8.</span> Contact Information</h2>
-                <p>If you have any questions or feedback regarding this Privacy Policy or our offline architecture, you can open an issue or contact the development team directly at our GitHub repository:</p>
-                <p><strong>GitHub Repository:</strong> <a href="https://github.com/Karna14314/Omnisuite" style="color: var(--accent-primary); text-decoration: none;">https://github.com/Karna14314/Omnisuite</a></p>
-            </section>
         </main>
     </div>
 
     <footer>
-        <p>© 2026 OmniSuite. All rights reserved. Developed by Karna Digital.</p>
+        <div class="footer-inner">
+            <p>&copy; 2026 Karna Digital. All rights reserved.</p>
+            <p>OmniSuite is an open-source project. <a href="https://github.com/Karna14314/Omnisuite">View on GitHub</a></p>
+        </div>
     </footer>
 
 </body>
