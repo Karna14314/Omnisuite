@@ -119,11 +119,12 @@ class PptxViewerViewModel @Inject constructor(
 
     private fun XSLFTextRun.extractColorHex(): String? {
         return try {
-            val rPr = this.xmlObject // CTTextCharacterProperties
-            val solidFill = try { rPr?.javaClass?.getMethod("getSolidFill")?.invoke(rPr) } catch(e: Exception) { null } ?: return null
+            val xmlRun = this.xmlObject ?: return null
+            val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (e: Exception) { null } ?: return null
+            val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (e: Exception) { null } ?: return null
             val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch(e: Exception) { null }
             if (srgb != null) {
-                val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch(e: Exception) { null }
+                val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (e: Exception) { null }
                 val hex = hexBytes?.let {
                     it.map { b -> String.format("%02X", b) }.joinToString("")
                 }

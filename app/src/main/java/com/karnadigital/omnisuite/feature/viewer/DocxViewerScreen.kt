@@ -593,7 +593,7 @@ fun DocxViewerScreen(
                                                     }.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(6.dp)
                                                 } else Modifier
                                                 Box(modifier = clickableModifier) {
-                                                    SelectionContainer { DocxParagraphItem(element.paragraph, isHighlighted, searchQuery) }
+                                                    DocxParagraphItem(element.paragraph, isHighlighted, searchQuery)
                                                 }
                                             }
                                             is DocxBodyElement.Table -> {

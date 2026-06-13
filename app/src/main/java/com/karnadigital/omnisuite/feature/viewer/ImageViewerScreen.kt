@@ -98,6 +98,13 @@ fun ImageViewerScreen(
 
     val activeUriString = pagerState?.let { activeUriList.getOrNull(it.currentPage) } ?: activeUriList.firstOrNull() ?: fileUri
     val activeUri = remember(activeUriString) { Uri.parse(activeUriString) }
+    val targetUri = remember(activeUriString) {
+        if (activeUriString.startsWith("/")) {
+            Uri.fromFile(File(activeUriString)).toString()
+        } else {
+            activeUriString
+        }
+    }
     val isContentUri = activeUriString.startsWith("content://") || activeUriString.startsWith("file://")
     val activeFileName = remember(activeUriString) {
         if (isContentUri) {
@@ -243,31 +250,31 @@ fun ImageViewerScreen(
                     ) {
                         // Quick Edit
                         AssistChip(
-                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 0) },
+                            onClick = { onEditInImageLab(targetUri, 0) },
                             label = { Text("Quick Edit") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Watermark
                         AssistChip(
-                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 4) },
+                            onClick = { onEditInImageLab(targetUri, 4) },
                             label = { Text("Watermark") },
                             leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Long Stitch
                         AssistChip(
-                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 1) },
+                            onClick = { onEditInImageLab(targetUri, 1) },
                             label = { Text("Long Stitch") },
                             leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Extract Text
                         AssistChip(
-                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 2) },
+                            onClick = { onEditInImageLab(targetUri, 2) },
                             label = { Text("Extract Text") },
                             leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // ID Card Maker
                         AssistChip(
-                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 3) },
+                            onClick = { onEditInImageLab(targetUri, 3) },
                             label = { Text("ID Card Maker") },
                             leadingIcon = { Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
@@ -615,7 +622,7 @@ fun ImageViewerScreen(
                         .fillMaxWidth()
                         .clickable {
                             showEditSheet = false
-                            onEditInImageLab(Uri.encode(activeUriString), 0)
+                            onEditInImageLab(targetUri, 0)
                         },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)

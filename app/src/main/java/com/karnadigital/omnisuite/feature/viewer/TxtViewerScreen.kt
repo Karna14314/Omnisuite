@@ -174,37 +174,35 @@ fun TxtViewerScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp)
                     ) {
-                        androidx.compose.foundation.text.selection.SelectionContainer {
-                            TextField(
-                                value = textContent,
-                                onValueChange = { textContent = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f, fill = false)
-                                    .minimumInteractiveComponentSize(),
-                                textStyle = TextStyle(
+                        TextField(
+                            value = textContent,
+                            onValueChange = { textContent = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .minimumInteractiveComponentSize(),
+                            textStyle = TextStyle(
+                                fontFamily = fonts[fontIndex],
+                                fontSize = fontSize.sp,
+                                color = currentTheme.second,
+                                lineHeight = (fontSize + 6).sp
+                            ),
+                            placeholder = {
+                                Text(
+                                    text = "Start typing documents...",
                                     fontFamily = fonts[fontIndex],
                                     fontSize = fontSize.sp,
-                                    color = currentTheme.second,
-                                    lineHeight = (fontSize + 6).sp
-                                ),
-                                placeholder = {
-                                    Text(
-                                        text = "Start typing documents...",
-                                        fontFamily = fonts[fontIndex],
-                                        fontSize = fontSize.sp,
-                                        color = currentTheme.second.copy(alpha = 0.4f)
-                                    )
-                                },
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    disabledContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
+                                    color = currentTheme.second.copy(alpha = 0.4f)
                                 )
+                            },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
                             )
-                        }
+                        )
                     }
                 }
                 is TxtLoadState.Error -> {

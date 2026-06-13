@@ -65,6 +65,7 @@ object UriCacheUtils {
                             inputStream.copyTo(outputStream)
                         }
                     }
+                    pruneCache(context, keepFile = cacheFile)
                     cacheFile
                 } else {
                     null
@@ -89,11 +90,35 @@ object UriCacheUtils {
                         }
                     }
                 }
+                pruneCache(context, keepFile = cacheFile)
                 cacheFile
             }
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    /**
+     * Checks the cache directory's size and deletes the oldest cached files if the size exceeds maxCacheSize (default 50MB).
+     */
+    private fun pruneCache(context: Context, maxCacheSize: Long = 50 * 1024 * 1024L, keepFile: File? = null) {
+        try {
+            val files = context.cacheDir.listFiles()?.filter { it.isFile && it.absolutePath != keepFile?.absolutePath } ?: return
+            var totalSize = files.sumOf { it.length() }
+            if (totalSize <= maxCacheSize) return
+
+            // Sort by last modified time, oldest first
+            val sortedFiles = files.sortedBy { it.lastModified() }
+            for (file in sortedFiles) {
+                if (totalSize <= maxCacheSize) break
+                val fileSize = file.length()
+                if (file.delete()) {
+                    totalSize -= fileSize
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

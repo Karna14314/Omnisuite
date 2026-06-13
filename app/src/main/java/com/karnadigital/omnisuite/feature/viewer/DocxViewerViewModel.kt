@@ -286,8 +286,8 @@ class DocxViewerViewModel @Inject constructor(
             headingLevel = headingLevel,
             isHeading = headingLevel > 0,
             comment = comment,
-            spacingAfterPt = paragraph.spacingAfter.takeIf { it > 0 }?.div(20) ?: 6,
-            spacingBeforePt = paragraph.spacingBefore.takeIf { it > 0 }?.div(20) ?: 2
+            spacingAfterPt = paragraph.spacingAfter.takeIf { it >= 0 }?.div(20) ?: 6,
+            spacingBeforePt = paragraph.spacingBefore.takeIf { it >= 0 }?.div(20) ?: 2
         )
     }
 

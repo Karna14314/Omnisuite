@@ -26,7 +26,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.util.ThemeMode
 import com.karnadigital.omnisuite.core.util.AccentColor
 import com.karnadigital.omnisuite.core.util.ThemePreferences
@@ -44,7 +43,6 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
-    viewModel: SettingsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -54,7 +52,6 @@ fun SettingsScreen(
     var hardwareAcceleration by remember { mutableStateOf(true) }
     var autoSaveEnabled by remember { mutableStateOf(false) }
     
-    var outputFolderText by remember { mutableStateOf(ThemePreferences.currentOutputFolderState.value) }
     var pdfDpiText by remember { mutableStateOf(ThemePreferences.currentPdfDpiState.value) }
     var showDpiDropdown by remember { mutableStateOf(false) }
 
@@ -305,66 +302,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
 
-            // 4. Default Output Folder Selector Card
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = OmniColors.Surface2
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(OmniColors.Border),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "📁", fontSize = 14.sp)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Default Output Folder",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = OmniColors.TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Subfolder inside Documents to save conversions.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = OmniColors.TextMuted
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = outputFolderText,
-                        onValueChange = {
-                            outputFolderText = it
-                            ThemePreferences.setOutputFolder(context, it)
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = OmniColors.TextPrimary,
-                            unfocusedTextColor = OmniColors.TextPrimary,
-                            focusedBorderColor = OmniColors.Accent,
-                            unfocusedBorderColor = OmniColors.Border
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        placeholder = { Text("e.g. OmniSuite") }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             // 5. PDF DPI Resolution Scale Card
             Card(
@@ -483,7 +421,7 @@ fun SettingsScreen(
             SectionHeader(title = "Maintenance")
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Wipe Database & Cache Card
+            // Clear Cache Card
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
@@ -494,15 +432,14 @@ fun SettingsScreen(
                     .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
                     .clickable {
                         try {
-                            // Clear temp cache dir
-                            context.cacheDir.deleteRecursively()
-                            cacheSizeStr = getCacheSize(context)
-                            // Clear history logs DB
-                            viewModel.clearAllRecentFiles {
-                                Toast.makeText(context, "Local cache & SQLite history logs purged successfully.", Toast.LENGTH_SHORT).show()
+                            // Clear temp cache dir only (preserve database)
+                            context.cacheDir.listFiles()?.forEach { file ->
+                                file.deleteRecursively()
                             }
+                            cacheSizeStr = getCacheSize(context)
+                            Toast.makeText(context, "Local cache cleared successfully.", Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Purge failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Clear cache failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                         }
                     }
             ) {
@@ -529,14 +466,14 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Wipe Database & Cache",
+                                text = "Clear Cache",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = OmniColors.TextPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Purge local cache payload streams & history logs.",
+                                text = "Purge local cache payload streams.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = OmniColors.TextMuted
                             )
@@ -545,7 +482,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Purge DB & Cache",
+                        contentDescription = "Clear Cache",
                         tint = OmniColors.PdfRed
                     )
                 }
