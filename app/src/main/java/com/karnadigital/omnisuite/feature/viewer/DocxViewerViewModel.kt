@@ -45,7 +45,8 @@ data class DocxParagraph(
     val headingLevel: Int, // 0 = body, 1-6 = heading level
     val isHeading: Boolean,
     val comment: String? = null,
-    val spacingAfterPt: Int = 10
+    val spacingAfterPt: Int = 10,
+    val spacingBeforePt: Int = 0
 )
 
 data class DocxTableCell(val paragraphs: List<DocxParagraph>)
@@ -277,7 +278,7 @@ class DocxViewerViewModel @Inject constructor(
             else -> 0
         }
 
-        val spacingAfterPt = paragraph.spacingAfter / 20
+
 
         return DocxParagraph(
             runs = runs,
@@ -285,7 +286,8 @@ class DocxViewerViewModel @Inject constructor(
             headingLevel = headingLevel,
             isHeading = headingLevel > 0,
             comment = comment,
-            spacingAfterPt = spacingAfterPt
+            spacingAfterPt = paragraph.spacingAfter.takeIf { it > 0 }?.div(20) ?: 6,
+            spacingBeforePt = paragraph.spacingBefore.takeIf { it > 0 }?.div(20) ?: 2
         )
     }
 

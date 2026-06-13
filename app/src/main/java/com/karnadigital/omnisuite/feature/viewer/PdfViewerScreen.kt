@@ -992,10 +992,27 @@ fun InteractivePdfPageItem(
         return kotlin.math.sqrt(dx * dx + dy * dy)
     }
 
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio),
+            .aspectRatio(aspectRatio)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = {
+                        coroutineScope.launch {
+                            val pageText = viewModel.extractTextFromPage(pageIndex)
+                            if (pageText.isNotBlank()) {
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(pageText))
+                                Toast.makeText(context, "Page text copied", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                )
+            },
         shape = RoundedCornerShape(4.dp),
         border = if (isHighlighted) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(containerColor = Color.White),

@@ -119,17 +119,19 @@ class PptxViewerViewModel @Inject constructor(
 
     private fun XSLFTextRun.extractColorHex(): String? {
         return try {
-            val xmlRun = getXmlObjectReflection(this) ?: return null
-            val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (e: Exception) { null } ?: return null
-            val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (e: Exception) { null } ?: return null
-            val srgbClr = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (e: Exception) { null } ?: return null
-            val rgb = try { srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray } catch (e: Exception) { null } ?: return null
-            if (rgb.size >= 3) {
-                "#%02X%02X%02X".format(rgb[0].toInt() and 0xFF, rgb[1].toInt() and 0xFF, rgb[2].toInt() and 0xFF)
-            } else null
-        } catch (e: Throwable) {
-            null
-        }
+            val rPr = this.xmlObject // CTTextCharacterProperties
+            val solidFill = try { rPr?.javaClass?.getMethod("getSolidFill")?.invoke(rPr) } catch(e: Exception) { null } ?: return null
+            val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch(e: Exception) { null }
+            if (srgb != null) {
+                val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch(e: Exception) { null }
+                val hex = hexBytes?.let {
+                    it.map { b -> String.format("%02X", b) }.joinToString("")
+                }
+                hex?.let { "#$it" }
+            } else {
+                null
+            }
+        } catch (e: Exception) { null }
     }
 
     private fun setRunProperties(r: XSLFTextRun, textColorHex: String?, fontSizePt: Float) {
@@ -318,6 +320,49 @@ class PptxViewerViewModel @Inject constructor(
                                 )
                             )
                             bodyCount++
+                        }
+                    }
+                                } else if (shape is org.apache.poi.xslf.usermodel.XSLFTable) {
+                    for (row in shape.rows) {
+                        for (cell in row.cells) {
+                            val text = cell.text ?: ""
+                            if (text.isNotBlank()) {
+                                val firstParagraph = cell.textParagraphs.firstOrNull()
+                                val firstRun = firstParagraph?.textRuns?.firstOrNull()
+
+                                val isBold = firstRun?.isBold ?: false
+                                val isItalic = firstRun?.isItalic ?: false
+                                val isUnderline = firstRun?.isUnderlined ?: false
+                                val colorHex = firstRun?.extractColorHex()
+
+                                val fSize = firstRun?.fontSize
+                                val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 18f
+                                val bulletLevel = firstParagraph?.indentLevel ?: 0
+
+                                val anchor = getShapeAnchor(cell)
+                                val shapeLeft = if (anchor != null && slideWidthF > 0f) anchor.left / slideWidthF else 0f
+                                val shapeTop = if (anchor != null && slideHeightF > 0f) anchor.top / slideHeightF else 0f
+                                val shapeWidthVal = if (anchor != null && slideWidthF > 0f) anchor.width() / slideWidthF else 1f
+                                val shapeHeightVal = if (anchor != null && slideHeightF > 0f) anchor.height() / slideHeightF else 0.1f
+
+                                textBlocks.add(
+                                    PptxTextBlock(
+                                        id = "body_$bodyCount",
+                                        text = text,
+                                        isBold = isBold,
+                                        isItalic = isItalic,
+                                        isUnderline = isUnderline,
+                                        textColorHex = colorHex,
+                                        fontSizePt = fontSizePt,
+                                        bulletLevel = bulletLevel,
+                                        shapeLeft = shapeLeft,
+                                        shapeTop = shapeTop,
+                                        shapeWidth = shapeWidthVal,
+                                        shapeHeight = shapeHeightVal
+                                    )
+                                )
+                                bodyCount++
+                            }
                         }
                     }
                 } else if (shape.javaClass.simpleName.contains("Picture")) {

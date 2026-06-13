@@ -243,31 +243,31 @@ fun ImageViewerScreen(
                     ) {
                         // Quick Edit
                         AssistChip(
-                            onClick = { onEditInImageLab(activeUriString, 0) },
+                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 0) },
                             label = { Text("Quick Edit") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Watermark
                         AssistChip(
-                            onClick = { onEditInImageLab(activeUriString, 4) },
+                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 4) },
                             label = { Text("Watermark") },
                             leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Long Stitch
                         AssistChip(
-                            onClick = { onEditInImageLab(activeUriString, 1) },
+                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 1) },
                             label = { Text("Long Stitch") },
                             leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Extract Text
                         AssistChip(
-                            onClick = { onEditInImageLab(activeUriString, 2) },
+                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 2) },
                             label = { Text("Extract Text") },
                             leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // ID Card Maker
                         AssistChip(
-                            onClick = { onEditInImageLab(activeUriString, 3) },
+                            onClick = { onEditInImageLab(Uri.encode(activeUriString), 3) },
                             label = { Text("ID Card Maker") },
                             leadingIcon = { Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
@@ -615,7 +615,7 @@ fun ImageViewerScreen(
                         .fillMaxWidth()
                         .clickable {
                             showEditSheet = false
-                            onEditInImageLab(activeUriString, 0)
+                            onEditInImageLab(Uri.encode(activeUriString), 0)
                         },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
