@@ -593,7 +593,7 @@ fun DocxViewerScreen(
                                                     }.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(6.dp)
                                                 } else Modifier
                                                 Box(modifier = clickableModifier) {
-                                                    DocxParagraphItem(element.paragraph, isHighlighted, searchQuery)
+                                                    SelectionContainer { DocxParagraphItem(element.paragraph, isHighlighted, searchQuery) }
                                                 }
                                             }
                                             is DocxBodyElement.Table -> {
@@ -1084,12 +1084,15 @@ fun DocxParagraphItem(
         else -> if (paragraph.spacingAfterPt > 0) (paragraph.spacingAfterPt / 2).dp.coerceIn(4.dp, 20.dp) else 6.dp
     }
 
+    val spacingTop = if (paragraph.spacingBeforePt > 0) (paragraph.spacingBeforePt / 2).dp.coerceIn(4.dp, 20.dp) else 0.dp
+
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(backgroundColor)
+            .padding(top = spacingTop)
     ) {
         SelectionContainer {
             ClickableText(

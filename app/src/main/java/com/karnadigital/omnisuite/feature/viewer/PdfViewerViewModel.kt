@@ -450,6 +450,20 @@ class PdfViewerViewModel @Inject constructor(
         decryptedRenderFile = null
     }
 
+    suspend fun extractTextFromPage(pageIndex: Int): String = withContext(Dispatchers.IO) {
+        try {
+            val file = activeFilePath?.let { File(it) } ?: return@withContext ""
+            com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                stripper.startPage = pageIndex + 1
+                stripper.endPage = pageIndex + 1
+                stripper.getText(doc) ?: ""
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         closeRenderer()
