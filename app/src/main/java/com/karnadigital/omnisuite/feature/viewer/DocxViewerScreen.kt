@@ -525,51 +525,55 @@ fun DocxViewerScreen(
                                 result
                             }
 
-                            LazyColumn(
-                                state = lazyListState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                            ZoomableBox(
+                                modifier = Modifier.fillMaxSize()
                             ) {
-                                itemsIndexed(pages) { pageIndex, pageParagraphs ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(1f / 1.4142f)
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        shape = RoundedCornerShape(4.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                                    ) {
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(start = 36.dp, end = 24.dp, top = 28.dp, bottom = 28.dp)
-                                                    .clip(RoundedCornerShape(0.dp)),  // clips overflow
-                                                verticalArrangement = Arrangement.Top
-                                            ) {
-                                                pageParagraphs.forEach { element ->
-                                                    when (element) {
-                                                        is DocxBodyElement.Para -> DocxParagraphItem(
-                                                            paragraph = element.paragraph,
-                                                            isHighlighted = false,
-                                                            searchQuery = searchQuery
-                                                        )
-                                                        is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
+                                LazyColumn(
+                                    state = lazyListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                                ) {
+                                    itemsIndexed(pages) { pageIndex, pageParagraphs ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(1f / 1.4142f)
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            shape = RoundedCornerShape(4.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                                        ) {
+                                            Box(modifier = Modifier.fillMaxSize()) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(start = 36.dp, end = 24.dp, top = 28.dp, bottom = 28.dp)
+                                                        .clip(RoundedCornerShape(0.dp)),  // clips overflow
+                                                    verticalArrangement = Arrangement.Top
+                                                ) {
+                                                    pageParagraphs.forEach { element ->
+                                                        when (element) {
+                                                            is DocxBodyElement.Para -> DocxParagraphItem(
+                                                                paragraph = element.paragraph,
+                                                                isHighlighted = false,
+                                                                searchQuery = searchQuery
+                                                            )
+                                                            is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
+                                                        }
                                                     }
                                                 }
+                                                // Page number footer
+                                                Text(
+                                                    text = "— ${pageIndex + 1} —",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray,
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(bottom = 8.dp)
+                                                )
                                             }
-                                            // Page number footer
-                                            Text(
-                                                text = "— ${pageIndex + 1} —",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color.Gray,
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(bottom = 8.dp)
-                                            )
                                         }
                                     }
                                 }

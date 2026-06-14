@@ -36,6 +36,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.karnadigital.omnisuite.core.engine.image.OutputFormat
 
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.horizontalScroll
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -58,6 +63,7 @@ fun ImageToolsScreen(
     val selectedUri = uiState.selectedUri
 
     var activeTab by remember { mutableStateOf(initialTab) }
+    var showCropDialog by remember { mutableStateOf(false) }
     val toolTabs = listOf("Editor", "Long Stitcher", "Extractor", "ID Card Maker", "Watermarker")
 
     // Launchers
@@ -202,7 +208,7 @@ fun ImageToolsScreen(
                                     onClick = { imagePickerLauncher.launch("image/*") }
                                 )
                             } else {
-                                AsyncImageCard(uri = selectedUri, rotation = uiState.rotationDegrees)
+                                AsyncImageCard(bitmap = uiState.previewBitmap, uri = selectedUri, rotation = uiState.rotationDegrees)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 MetadataBanner(uiState = uiState)
                                 Spacer(modifier = Modifier.height(20.dp))
@@ -276,16 +282,16 @@ fun ImageToolsScreen(
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
 
-                                // Rotation & Crop
+                                // Crop & Rotation Tools
                                 EditingControlCard(title = "Crop & Rotation Tools") {
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Button(
-                                            onClick = { viewModel.cropToSquare() },
+                                            onClick = { showCropDialog = true },
                                             modifier = Modifier.weight(1f),
                                             shape = RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                                         ) {
-                                            Text("Crop to Square ✂️")
+                                            Text("Crop Image ✂️")
                                         }
                                         Button(
                                             onClick = { viewModel.rotateImage() },
@@ -305,6 +311,84 @@ fun ImageToolsScreen(
                                             Text("Reset Rotation")
                                         }
                                     }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // Filter Effects
+                                EditingControlCard(title = "Filter Effects") {
+                                    val filters = listOf("Normal", "Grayscale", "Sepia", "Inverted", "Vintage", "Cool")
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        filters.forEach { filter ->
+                                            val isSelected = uiState.filterType == filter
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                                    .border(1.dp, if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                                    .clickable { viewModel.updateAdjustments(uiState.brightness, uiState.contrast, uiState.saturation, filter) }
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = filter,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // General Image Enhancements
+                                EditingControlCard(title = "Image Enhancements") {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Brightness", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("${uiState.brightness.toInt()}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Slider(
+                                        value = uiState.brightness,
+                                        onValueChange = { viewModel.updateAdjustments(it, uiState.contrast, uiState.saturation, uiState.filterType) },
+                                        valueRange = -100f..100f
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Contrast", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("${((uiState.contrast * 100).toInt() / 100f)}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Slider(
+                                        value = uiState.contrast,
+                                        onValueChange = { viewModel.updateAdjustments(uiState.brightness, it, uiState.saturation, uiState.filterType) },
+                                        valueRange = 0.5f..2.0f
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Saturation", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("${((uiState.saturation * 100).toInt() / 100f)}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Slider(
+                                        value = uiState.saturation,
+                                        onValueChange = { viewModel.updateAdjustments(uiState.brightness, uiState.contrast, it, uiState.filterType) },
+                                        valueRange = 0.0f..2.0f
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.height(24.dp))
@@ -544,7 +628,7 @@ fun ImageToolsScreen(
                                     onClick = { imagePickerLauncher.launch("image/*") }
                                 )
                             } else {
-                                AsyncImageCard(uri = selectedUri, rotation = 0f)
+                                AsyncImageCard(bitmap = null, uri = selectedUri, rotation = 0f)
                                 Spacer(modifier = Modifier.height(20.dp))
 
                                 EditingControlCard(title = "Watermark Custom Text") {
@@ -756,7 +840,7 @@ private fun DropZoneBox(
 }
 
 @Composable
-private fun AsyncImageCard(uri: Uri, rotation: Float) {
+private fun AsyncImageCard(bitmap: Bitmap?, uri: Uri, rotation: Float) {
     Card(
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
@@ -771,16 +855,29 @@ private fun AsyncImageCard(uri: Uri, rotation: Float) {
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            AsyncImage(
-                model = uri,
-                contentDescription = "Image preview",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        rotationZ = rotation
-                    },
-                contentScale = ContentScale.Fit
-            )
+            if (bitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Image preview",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            rotationZ = rotation
+                        },
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = "Image preview",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            rotationZ = rotation
+                        },
+                    contentScale = ContentScale.Fit
+                )
+            }
         }
     }
 }

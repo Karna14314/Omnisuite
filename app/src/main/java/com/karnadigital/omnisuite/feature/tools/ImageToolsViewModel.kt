@@ -43,6 +43,13 @@ data class ImageToolsUiState(
     val successName: String? = null,
     val lastOutputBytes: ByteArray? = null,
     
+    // Adjustment & Visual Crop States
+    val brightness: Float = 0f,
+    val contrast: Float = 1.0f,
+    val saturation: Float = 1.0f,
+    val filterType: String = "Normal",
+    val previewBitmap: Bitmap? = null,
+    
     // Premium Image Lab Extensions States
     val selectedStitchUris: List<Uri> = emptyList(),
     val extractedMediaUris: List<Uri> = emptyList(),
@@ -68,6 +75,110 @@ class ImageToolsViewModel @Inject constructor(
     val uiState: StateFlow<ImageToolsUiState> = _uiState.asStateFlow()
 
     private var originalBitmap: Bitmap? = null
+    private var originalPreviewBitmap: Bitmap? = null
+    private var previewJob: kotlinx.coroutines.Job? = null
+
+    private fun scaleBitmapToMax(bitmap: Bitmap, maxDim: Int): Bitmap {
+        if (bitmap.width <= maxDim && bitmap.height <= maxDim) {
+            return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+        }
+        val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        val newWidth = if (ratio > 1) maxDim else (maxDim * ratio).toInt()
+        val newHeight = if (ratio > 1) (maxDim / ratio).toInt() else maxDim
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
+
+    private fun updatePreview() {
+        val base = originalPreviewBitmap ?: return
+        val state = _uiState.value
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(50)
+            val adjusted = withContext(Dispatchers.Default) {
+                ImageUtils.applyFilterAndAdjustments(
+                    base,
+                    state.brightness,
+                    state.contrast,
+                    state.saturation,
+                    state.filterType
+                )
+            }
+            _uiState.value = _uiState.value.copy(previewBitmap = adjusted)
+        }
+    }
+
+    fun updateAdjustments(brightness: Float, contrast: Float, saturation: Float, filterType: String) {
+        _uiState.value = _uiState.value.copy(
+            brightness = brightness,
+            contrast = contrast,
+            saturation = saturation,
+            filterType = filterType
+        )
+        updatePreview()
+    }
+
+    fun applyCroppedBitmap(cropped: Bitmap) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Applying visual crop..."
+            )
+            withContext(Dispatchers.Default) {
+                originalBitmap = cropped
+                originalPreviewBitmap = scaleBitmapToMax(cropped, 1000)
+                _uiState.value = _uiState.value.copy(
+                    originalWidth = cropped.width,
+                    originalHeight = cropped.height,
+                    isProcessing = false,
+                    processingMessage = "Image cropped successfully!",
+                    isSuccess = false
+                )
+                updatePreview()
+            }
+        }
+    }
+
+    fun applyCropRatios(left: Float, top: Float, right: Float, bottom: Float) {
+        val bitmap = originalBitmap ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = true,
+                processingMessage = "Applying visual crop..."
+            )
+            withContext(Dispatchers.Default) {
+                try {
+                    val x = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+                    val y = (top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                    val w = ((right - left) * bitmap.width).toInt().coerceIn(1, bitmap.width - x)
+                    val h = ((bottom - top) * bitmap.height).toInt().coerceIn(1, bitmap.height - y)
+                    val cropped = Bitmap.createBitmap(bitmap, x, y, w, h)
+                    if (cropped != bitmap) {
+                        originalBitmap = cropped
+                        originalPreviewBitmap = scaleBitmapToMax(cropped, 1000)
+                        _uiState.value = _uiState.value.copy(
+                            originalWidth = cropped.width,
+                            originalHeight = cropped.height,
+                            isProcessing = false,
+                            processingMessage = "Image cropped successfully!",
+                            isSuccess = false
+                        )
+                        updatePreview()
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isProcessing = false,
+                            processingMessage = "Crop completed."
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    _uiState.value = _uiState.value.copy(
+                        isProcessing = false,
+                        processingMessage = "Crop failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
 
     /**
      * Loads the selected image Uri off-thread safely, downscaling if required to prevent OOM.
@@ -102,15 +213,21 @@ class ImageToolsViewModel @Inject constructor(
                             val decoded = BitmapFactory.decodeStream(stream, null, scaleOpts)
                             if (decoded != null) {
                                 originalBitmap = decoded
+                                originalPreviewBitmap = scaleBitmapToMax(decoded, 1000)
                                 _uiState.value = _uiState.value.copy(
                                     selectedUri = uri,
                                     originalWidth = decoded.width,
                                     originalHeight = decoded.height,
                                     originalSize = fileSize,
+                                    brightness = 0f,
+                                    contrast = 1.0f,
+                                    saturation = 1.0f,
+                                    filterType = "Normal",
                                     isProcessing = false,
                                     processingMessage = null,
                                     isSuccess = false
                                 )
+                                updatePreview()
                             } else {
                                 _uiState.value = _uiState.value.copy(
                                     isProcessing = false,
@@ -189,6 +306,7 @@ class ImageToolsViewModel @Inject constructor(
                     val cropped = Bitmap.createBitmap(bitmap, x, y, size, size)
                     if (cropped != bitmap) {
                         originalBitmap = cropped
+                        originalPreviewBitmap = scaleBitmapToMax(cropped, 1000)
                         _uiState.value = _uiState.value.copy(
                             originalWidth = cropped.width,
                             originalHeight = cropped.height,
@@ -196,6 +314,7 @@ class ImageToolsViewModel @Inject constructor(
                             processingMessage = "Image center-cropped to square successfully!",
                             isSuccess = false
                         )
+                        updatePreview()
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isProcessing = false,
@@ -229,6 +348,7 @@ class ImageToolsViewModel @Inject constructor(
      */
     fun clearSelection() {
         originalBitmap = null
+        originalPreviewBitmap = null
         _uiState.value = ImageToolsUiState()
     }
 
@@ -266,7 +386,20 @@ class ImageToolsViewModel @Inject constructor(
                         processed = finalScaled
                     }
 
-                    // 3. Compress and transcode
+                    // 3. Apply Adjustments & Filters
+                    val finalProcessed = ImageUtils.applyFilterAndAdjustments(
+                        processed,
+                        currentState.brightness,
+                        currentState.contrast,
+                        currentState.saturation,
+                        currentState.filterType
+                    )
+                    if (finalProcessed != processed && processed != bitmap) {
+                        processed.recycle()
+                    }
+                    processed = finalProcessed
+
+                    // 4. Compress and transcode
                     val encodedBytes = ImageUtils.compressAndEncode(
                         processed,
                         currentState.outputFormat,
@@ -281,7 +414,7 @@ class ImageToolsViewModel @Inject constructor(
                     val outName = customFilename ?: "processed_${System.currentTimeMillis()}.${currentState.outputFormat.name.lowercase()}"
                     val mimeType = getMimeType(currentState.outputFormat)
 
-                    // 4. Save to content provider Uri on IO pool
+                    // 5. Save to content provider Uri on IO pool
                     withContext(Dispatchers.IO) {
                         val savedUri = FileOutputManager.saveToDefault(
                             context = context,

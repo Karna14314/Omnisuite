@@ -824,6 +824,45 @@ class XlsxViewerViewModel @Inject constructor(
             // Fall back to full re-parse only if targeted update fails
         }
     }
+    fun addMoreEmptyRows(sheetIndex: Int, count: Int) {
+        val currentState = _loadState.value as? XlsxLoadState.Success ?: return
+        val workbook = currentState.workbook
+        val sheet = workbook.sheets.getOrNull(sheetIndex) ?: return
+        
+        val colCount = if (sheet.rows.isNotEmpty()) sheet.rows[0].size else 10
+        val newRows = List(count) { List(colCount) { CellData("") } }
+        val newHeights = List(count) { 20f }
+        
+        val updatedSheet = sheet.copy(
+            rows = sheet.rows + newRows,
+            rowHeightsDp = sheet.rowHeightsDp + newHeights
+        )
+        val updatedSheets = workbook.sheets.mapIndexed { i, s ->
+            if (i == sheetIndex) updatedSheet else s
+        }
+        _loadState.value = XlsxLoadState.Success(ExcelWorkbook(updatedSheets), currentState.fileName)
+    }
+
+    fun addMoreEmptyCols(sheetIndex: Int, count: Int) {
+        val currentState = _loadState.value as? XlsxLoadState.Success ?: return
+        val workbook = currentState.workbook
+        val sheet = workbook.sheets.getOrNull(sheetIndex) ?: return
+        
+        val newWidths = List(count) { 80f }
+        val updatedRows = sheet.rows.map { row ->
+            row + List(count) { CellData("") }
+        }
+        
+        val updatedSheet = sheet.copy(
+            rows = updatedRows,
+            columnWidthsDp = sheet.columnWidthsDp + newWidths
+        )
+        val updatedSheets = workbook.sheets.mapIndexed { i, s ->
+            if (i == sheetIndex) updatedSheet else s
+        }
+        _loadState.value = XlsxLoadState.Success(ExcelWorkbook(updatedSheets), currentState.fileName)
+    }
+
     fun insertRow(sheetIndex: Int, atRowIndex: Int, above: Boolean = true) {
         val wb = activeWorkbook ?: return
         val sheet = wb.getSheetAt(sheetIndex) ?: return

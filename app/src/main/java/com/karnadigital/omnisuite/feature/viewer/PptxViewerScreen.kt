@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import com.karnadigital.omnisuite.core.util.ZoomableBox
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -64,6 +65,18 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+
+private fun safeParseColor(colorHex: String?, fallback: Color): Color {
+    if (colorHex == null) return fallback
+    val trimmed = colorHex.trim()
+    if (trimmed.isEmpty()) return fallback
+    val formatted = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    return try {
+        Color(android.graphics.Color.parseColor(formatted))
+    } catch (e: Exception) {
+        fallback
+    }
+}
 
 /**
  * Slide-deck Presentation Viewer (PPTX) mobile screen engine.
@@ -456,27 +469,8 @@ fun PptxViewerScreen(
                                             this.alpha = alpha
                                         }
                                 ) {
-                                    var slideScale by remember { mutableStateOf(1f) }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .pointerInput(Unit) {
-                                                awaitEachGesture {
-                                                    var event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                                    while (event.changes.any { it.pressed }) {
-                                                        if (event.changes.size >= 2) {
-                                                            val zoom = event.calculateZoom()
-                                                            slideScale = (slideScale * zoom).coerceIn(0.5f, 3f)
-                                                            event.changes.forEach { it.consume() }
-                                                        }
-                                                        event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                                    }
-                                                }
-                                            }
-                                            .graphicsLayer {
-                                                scaleX = slideScale
-                                                scaleY = slideScale
-                                            }
+                                    ZoomableBox(
+                                        modifier = Modifier.fillMaxSize()
                                     ) {
                                         SlideCardItem(
                                             slide = slide,
@@ -560,8 +554,7 @@ fun PptxViewerScreen(
                                         shape = RoundedCornerShape(6.dp),
                                         border = borderStroke,
                                         colors = CardDefaults.cardColors(
-                                            containerColor = slideItem.bgColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
-                                                ?: MaterialTheme.colorScheme.surface
+                                            containerColor = safeParseColor(slideItem.bgColorHex, MaterialTheme.colorScheme.surface)
                                         ),
                                         modifier = Modifier
                                             .width(80.dp)
@@ -589,8 +582,7 @@ fun PptxViewerScreen(
                                                     fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    color = slideItem.title.textColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
-                                                        ?: MaterialTheme.colorScheme.onSurface,
+                                                    color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface),
                                                     textAlign = TextAlign.Center
                                                 )
                                                 Text(
@@ -977,8 +969,7 @@ fun SlideCardItem(
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = slide.bgColorHex?.let { Color(android.graphics.Color.parseColor(it)) }
-                ?: MaterialTheme.colorScheme.surface
+            containerColor = safeParseColor(slide.bgColorHex, MaterialTheme.colorScheme.surface)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier

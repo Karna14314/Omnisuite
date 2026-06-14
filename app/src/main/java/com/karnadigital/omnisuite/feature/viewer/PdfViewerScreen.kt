@@ -853,7 +853,8 @@ fun PdfViewerScreen(
                                     InteractivePdfPageItem(
                                         pageIndex = pageIndex,
                                         viewModel = viewModel,
-                                        isHighlighted = isHighlighted,
+                                        isCurrentMatch = searchResults.getOrNull(currentMatchIndex)?.pageIndex == pageIndex,
+                                        hasAnyMatch = searchResults.any { it.pageIndex == pageIndex },
                                         annotationMode = annotationMode,
                                         selectedColor = selectedMarkerColor,
                                         selectedStrokeWidth = selectedStrokeWidth,
@@ -1094,7 +1095,8 @@ fun PdfViewerScreen(
 fun InteractivePdfPageItem(
     pageIndex: Int,
     viewModel: PdfViewerViewModel,
-    isHighlighted: Boolean,
+    isCurrentMatch: Boolean,
+    hasAnyMatch: Boolean,
     annotationMode: AnnotationMode,
     selectedColor: Color,
     selectedStrokeWidth: Float,
@@ -1150,7 +1152,11 @@ fun InteractivePdfPageItem(
                 )
             },
         shape = RoundedCornerShape(4.dp),
-        border = if (isHighlighted) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else null,
+        border = when {
+            isCurrentMatch -> BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
+            hasAnyMatch -> BorderStroke(3.dp, Color(0xFFFFF59D))
+            else -> null
+        },
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {

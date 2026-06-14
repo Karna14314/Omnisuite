@@ -76,7 +76,7 @@ object OfficeConverter {
                         val colWidth = printableWidth / cellCount.toFloat()
 
                         // Store lines of text for each cell
-                        class CellLine(val text: String, val font: PDType1Font, val fontSize: Float, val leading: Float)
+                        class CellLine(val text: String, val font: PDType1Font, val fontSize: Float, val leading: Float, val colorHex: String?)
                         val cellLinesList = mutableListOf<List<CellLine>>()
                         var maxCellHeight = 0f
 
@@ -85,17 +85,22 @@ object OfficeConverter {
                             for (para in cell.paragraphs) {
                                 val isHeading = para.styleID?.lowercase()?.contains("heading") == true ||
                                         para.runs.firstOrNull()?.fontSize ?: 0 > 14
-                                val font = if (isHeading) fontBold else fontNormal
 
                                 for (run in para.runs) {
+                                    val font = when {
+                                        run.isBold && run.isItalic -> PDType1Font.HELVETICA_BOLD_OBLIQUE
+                                        run.isBold || isHeading -> PDType1Font.HELVETICA_BOLD
+                                        run.isItalic -> PDType1Font.HELVETICA_OBLIQUE
+                                        else -> PDType1Font.HELVETICA
+                                    }
                                     val fontSizeHalfPoints = run.fontSize
-                                    val fontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat() / 2f) else (if (isHeading) fontSizeHeading else fontSizeNormal)
+                                    val fontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat()) else (if (isHeading) fontSizeHeading else fontSizeNormal)
                                     val leading = fontSize * 1.4f
                                     val runText = run.getText(0) ?: ""
                                     if (runText.isNotEmpty()) {
                                         val wrapped = wrapText(runText, font, fontSize, colWidth - 10f)
                                         for (line in wrapped) {
-                                            lines.add(CellLine(line, font, fontSize, leading))
+                                            lines.add(CellLine(line, font, fontSize, leading, run.color))
                                         }
                                     }
                                 }
@@ -131,6 +136,19 @@ object OfficeConverter {
                                 currentCellY -= line.leading
                                 val sanitizedLine = sanitizeText(line.text)
                                 contentStream?.beginText()
+                                val colorHex = line.colorHex
+                                if (colorHex != null && colorHex.length == 6) {
+                                    try {
+                                        val r = colorHex.substring(0, 2).toInt(16)
+                                        val g = colorHex.substring(2, 4).toInt(16)
+                                        val b = colorHex.substring(4, 6).toInt(16)
+                                        contentStream?.setNonStrokingColor(r, g, b)
+                                    } catch (e: Exception) {
+                                        contentStream?.setNonStrokingColor(0, 0, 0)
+                                    }
+                                } else {
+                                    contentStream?.setNonStrokingColor(0, 0, 0)
+                                }
                                 contentStream?.setFont(line.font, line.fontSize)
                                 contentStream?.newLineAtOffset(cellX + 5f, currentCellY)
                                 contentStream?.showText(sanitizedLine)
@@ -226,9 +244,14 @@ object OfficeConverter {
                         val runText = run.getText(0) ?: ""
                         if (runText.isNotEmpty()) {
                             val fontSizeHalfPoints = run.fontSize
-                            val actualFontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints / 2f) else (if (isHeading) fontSizeHeading else fontSizeNormal)
+                            val actualFontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat()) else (if (isHeading) fontSizeHeading else fontSizeNormal)
                             val leading = actualFontSize * 1.4f
-                            val font = if (run.isBold) fontBold else fontNormal
+                            val font = when {
+                                run.isBold && run.isItalic -> PDType1Font.HELVETICA_BOLD_OBLIQUE
+                                run.isBold -> PDType1Font.HELVETICA_BOLD
+                                run.isItalic -> PDType1Font.HELVETICA_OBLIQUE
+                                else -> PDType1Font.HELVETICA
+                            }
 
                             // Split runText into words
                             val words = runText.split(Regex("(?<=\\s)|(?=\\s)"))
@@ -256,6 +279,19 @@ object OfficeConverter {
 
                                 if (sanitizedWord.trim().isNotEmpty()) {
                                     contentStream?.beginText()
+                                    val colorHex = run.color
+                                    if (colorHex != null && colorHex.length == 6) {
+                                        try {
+                                            val r = colorHex.substring(0, 2).toInt(16)
+                                            val g = colorHex.substring(2, 4).toInt(16)
+                                            val b = colorHex.substring(4, 6).toInt(16)
+                                            contentStream?.setNonStrokingColor(r, g, b)
+                                        } catch (e: Exception) {
+                                            contentStream?.setNonStrokingColor(0, 0, 0)
+                                        }
+                                    } else {
+                                        contentStream?.setNonStrokingColor(0, 0, 0)
+                                    }
                                     contentStream?.setFont(font, actualFontSize)
                                     contentStream?.newLineAtOffset(xCursor, yPosition)
                                     contentStream?.showText(sanitizedWord)

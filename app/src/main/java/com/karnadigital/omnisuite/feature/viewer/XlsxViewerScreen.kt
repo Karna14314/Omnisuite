@@ -131,6 +131,23 @@ fun XlsxViewerScreen(
             }
         }
     }
+
+    // Infinite vertical scroll: load more rows when close to bottom (within 15 rows)
+    LaunchedEffect(lazyListState.firstVisibleItemIndex, lazyListState.layoutInfo.totalItemsCount) {
+        val lastVisible = lazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val total = lazyListState.layoutInfo.totalItemsCount
+        if (total > 0 && lastVisible >= total - 15) {
+            viewModel.addMoreEmptyRows(activeSheetIndex, 50)
+        }
+    }
+
+    // Infinite horizontal scroll: load more columns when close to right edge (within 300px)
+    LaunchedEffect(horizontalScrollState.value, horizontalScrollState.maxValue) {
+        val maxScroll = horizontalScrollState.maxValue
+        if (maxScroll > 0 && horizontalScrollState.value >= maxScroll - 300) {
+            viewModel.addMoreEmptyCols(activeSheetIndex, 10)
+        }
+    }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -512,7 +529,7 @@ fun XlsxViewerScreen(
                                                 .fillMaxWidth()
                                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                         ) {
-                                            HeaderCell("", isIntersection = true)
+                                            HeaderCell("", isIntersection = true, scale = scale)
                                             
                                             // Frozen column headers
                                             if (actualFrozenCols > 0) {
@@ -523,6 +540,7 @@ fun XlsxViewerScreen(
                                                             text = getColHeaderString(c),
                                                             widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                             isSelected = selectedColForSort == c,
+                                                            scale = scale,
                                                             onSelect = {
                                                                 selectedColForSort = c
                                                                 selectedRow = null  // clear row selection on col tap
@@ -553,6 +571,7 @@ fun XlsxViewerScreen(
                                                              text = getColHeaderString(c),
                                                              widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                              isSelected = selectedColForSort == c,
+                                                             scale = scale,
                                                              onSelect = {
                                                                  selectedColForSort = c
                                                                  selectedRow = null  // clear row selection on col tap
@@ -584,6 +603,7 @@ fun XlsxViewerScreen(
                                                             text = (r + 1).toString(),
                                                             heightDp = rowHeight * scale,
                                                             isSelected = selectedRow == r,
+                                                            scale = scale,
                                                             onSelect = {
                                                                 selectedRow = r
                                                                 selectedCell = null  // clear cell selection when row selected
@@ -616,6 +636,7 @@ fun XlsxViewerScreen(
                                                                         isSelected = isSelected,
                                                                         isRowSelected = isRowSelected,
                                                                         isSearchResult = isSearchResult,
+                                                                        scale = scale,
                                                                         onClick = {
                                                                             selectedCell = CellCoords(r, c)
                                                                             selectedCellData = cellData
@@ -648,6 +669,7 @@ fun XlsxViewerScreen(
                                                                         isSelected = isSelected,
                                                                         isRowSelected = isRowSelected,
                                                                         isSearchResult = isSearchResult,
+                                                                        scale = scale,
                                                                         onClick = {
                                                                             selectedCell = CellCoords(r, c)
                                                                             selectedCellData = cellData
@@ -687,6 +709,7 @@ fun XlsxViewerScreen(
                                                         text = (rowIndex + 1).toString(),
                                                         heightDp = rowHeight * scale,
                                                         isSelected = selectedRow == rowIndex,
+                                                        scale = scale,
                                                         onSelect = {
                                                             selectedRow = rowIndex
                                                             selectedCell = null  // clear cell selection when row selected
@@ -721,6 +744,7 @@ fun XlsxViewerScreen(
                                                                     isSelected = isSelected,
                                                                     isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
+                                                                    scale = scale,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, c)
                                                                         selectedCellData = cellData
@@ -757,6 +781,7 @@ fun XlsxViewerScreen(
                                                                     isSelected = isSelected,
                                                                     isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
+                                                                    scale = scale,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, colIndex)
                                                                         selectedCellData = cellData
@@ -792,6 +817,23 @@ fun XlsxViewerScreen(
                                         }
                                     }
                                 }
+                            }
+
+                            // Selected Row Statistics Bar
+                            val rSel = selectedRow
+                            if (activeSheet != null && rSel != null) {
+                                val rowCells = activeSheet.rows.getOrNull(rSel)
+                                val numericValues = remember(rowCells) {
+                                    rowCells?.mapNotNull { cell ->
+                                        val clean = cell.text.replace(Regex("[$,\\s]"), "")
+                                        clean.toDoubleOrNull()
+                                    } ?: emptyList()
+                                }
+                                RowStatisticsBar(
+                                    selectedRow = rSel,
+                                    numericValues = numericValues,
+                                    onClose = { selectedRow = null }
+                                )
                             }
 
                             // 3. Multi-Sheet Footer Selector TabRow
@@ -1141,7 +1183,8 @@ fun XlsxViewerScreen(
 fun HeaderCell(
     text: String,
     isIntersection: Boolean = false,
-    isRowHeader: Boolean = false
+    isRowHeader: Boolean = false,
+    scale: Float = 1f
 ) {
     Box(
         modifier = Modifier
@@ -1153,7 +1196,9 @@ fun HeaderCell(
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = (11 * scale).sp
+            ),
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -1169,6 +1214,7 @@ fun ColumnHeaderCell(
     text: String,
     widthDp: Float,
     isSelected: Boolean,
+    scale: Float,
     onSelect: () -> Unit,
     onResize: (Float) -> Unit,  // called with new width after drag
     onContextAction: (String) -> Unit  // "INSERT_LEFT", "INSERT_RIGHT", "DELETE", "BEST_FIT"
@@ -1184,7 +1230,7 @@ fun ColumnHeaderCell(
             .width(widthDp.dp)
             .height(28.dp)
     ) {
-        // Main clickable header area (full width minus 8dp handle zone on right)
+        // Main clickable header area (full width minus handle zone on right)
         Box(
             modifier = Modifier
                 .fillMaxHeight()
@@ -1202,7 +1248,9 @@ fun ColumnHeaderCell(
         ) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = (11 * scale).sp
+                ),
                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1221,9 +1269,10 @@ fun ColumnHeaderCell(
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .width(12.dp)
+                .offset(x = 10.dp) // center it on the boundary (width is 20.dp)
+                .width(20.dp)
                 .fillMaxHeight()
-                .zIndex(2f)
+                .zIndex(10f)
                 .pointerInput(widthDp) {
                     var startWidth = widthDp
                     detectDragGestures(
@@ -1243,16 +1292,49 @@ fun ColumnHeaderCell(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // Visual divider line shown inside the handle zone
+            val handleColor = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            // Two parallel vertical lines
+            Row(
+                modifier = Modifier.fillMaxHeight(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(1.5.dp)
+                        .fillMaxHeight(0.7f)
+                        .background(handleColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.5.dp)
+                        .fillMaxHeight(0.7f)
+                        .background(handleColor)
+                )
+            }
+            // Center badge pill with "<| |>"
             Box(
                 modifier = Modifier
-                    .width(2.dp)
-                    .fillMaxHeight(0.6f)
                     .background(
-                        if (isDragging) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                     )
-            )
+                    .border(
+                        width = 1.dp,
+                        color = handleColor,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "<| |>",
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDragging) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -1264,6 +1346,7 @@ fun RowHeaderCell(
     text: String,
     heightDp: Float,
     isSelected: Boolean,
+    scale: Float,
     onSelect: () -> Unit,
     onResize: (Float) -> Unit,
     onContextAction: (String) -> Unit
@@ -1293,7 +1376,9 @@ fun RowHeaderCell(
         ) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = (11 * scale).sp
+                ),
                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1311,11 +1396,13 @@ fun RowHeaderCell(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .offset(y = 10.dp)
                 .fillMaxWidth()
-                .height(12.dp)
-                .zIndex(2f)
+                .height(20.dp)
+                .zIndex(10f)
                 .pointerInput(heightDp) {
                     var startHeight = heightDp
+                    val densityVal = density
                     detectDragGestures(
                         onDragStart = {
                             startHeight = heightDp
@@ -1323,7 +1410,7 @@ fun RowHeaderCell(
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            val newHeight = (startHeight + dragAmount.y / density).coerceIn(20f, 200f)
+                            val newHeight = (startHeight + dragAmount.y / densityVal).coerceIn(20f, 300f)
                             startHeight = newHeight
                             onResize(newHeight)
                         },
@@ -1333,16 +1420,49 @@ fun RowHeaderCell(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // Visual divider line
+            val handleColor = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            // Two parallel horizontal lines
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .height(1.5.dp)
+                        .fillMaxWidth(0.7f)
+                        .background(handleColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .height(1.5.dp)
+                        .fillMaxWidth(0.7f)
+                        .background(handleColor)
+                )
+            }
+            // Center badge pill with "▲▼"
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(2.dp)
                     .background(
-                        if (isDragging) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                     )
-            )
+                    .border(
+                        width = 1.dp,
+                        color = handleColor,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "▲▼",
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDragging) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -1356,6 +1476,7 @@ fun DataCell(
     isSelected: Boolean,
     isRowSelected: Boolean = false,  // true when the entire row this cell belongs to is selected via row header
     isSearchResult: Boolean = false,
+    scale: Float,
     onClick: () -> Unit,
     onUpdateValue: (String) -> Unit = {}
 ) {
@@ -1425,7 +1546,7 @@ fun DataCell(
             else -> Alignment.CenterStart
         }
     ) {
-        val fontSize = (cellData.fontSizePt.coerceIn(6, 24)).sp
+        val fontSize = (cellData.fontSizePt.coerceIn(6, 24) * scale).sp
         Text(
             text = cellData.text,
             style = MaterialTheme.typography.bodySmall.copy(
@@ -1607,6 +1728,44 @@ fun SortFilterBar(
 
 @Composable
 fun SheetChartView(chart: SheetChart) {
+    // Check if the chart series is empty or if all series values are empty
+    val isEmpty = chart.series.isEmpty() || chart.series.all { it.values.isEmpty() }
+    
+    // Create local series representation
+    val displaySeries = if (isEmpty) {
+        // Generate mock data for beautiful preview
+        when (chart.chartType) {
+            "PIE" -> listOf(
+                ChartSeries(
+                    name = "Mock Series",
+                    values = listOf(35.0, 25.0, 20.0, 15.0, 5.0),
+                    labels = listOf("Q1 Sales", "Q2 Sales", "Q3 Sales", "Q4 Sales", "Other")
+                )
+            )
+            "BAR", "LINE" -> listOf(
+                ChartSeries(
+                    name = "Mock Target",
+                    values = listOf(40.0, 55.0, 70.0, 65.0, 85.0, 90.0),
+                    labels = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun")
+                ),
+                ChartSeries(
+                    name = "Mock Actual",
+                    values = listOf(30.0, 60.0, 65.0, 75.0, 80.0, 95.0),
+                    labels = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun")
+                )
+            )
+            else -> listOf(
+                ChartSeries(
+                    name = "Mock Series",
+                    values = listOf(10.0, 20.0, 30.0, 40.0),
+                    labels = listOf("A", "B", "C", "D")
+                )
+            )
+        }
+    } else {
+        chart.series
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1614,19 +1773,25 @@ fun SheetChartView(chart: SheetChart) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                text = chart.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = chart.title.ifBlank { "Chart Preview" } + (if (isEmpty) " (Mock Preview)" else ""),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isEmpty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             when (chart.chartType) {
-                "PIE" -> PieChartCanvas(chart.series.firstOrNull())
-                "BAR" -> BarChartCanvas(chart.series)
-                "LINE" -> LineChartCanvas(chart.series)
+                "PIE" -> PieChartCanvas(displaySeries.firstOrNull())
+                "BAR" -> BarChartCanvas(displaySeries)
+                "LINE" -> LineChartCanvas(displaySeries)
                 else -> {
                     Text(
-                        "Chart: ${chart.chartType} (${chart.series.size} series)",
+                        "Chart: ${chart.chartType} (${displaySeries.size} series)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1825,3 +1990,116 @@ private class XlsxPrintDocumentAdapter(private val context: Context, private val
     }
 }
 
+@Composable
+fun RowStatisticsBar(
+    selectedRow: Int,
+    numericValues: List<Double>,
+    onClose: () -> Unit
+) {
+    if (numericValues.isEmpty()) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Row ${selectedRow + 1}: No numeric values selected",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    val sum = numericValues.sum()
+    val avg = numericValues.average()
+    val count = numericValues.size
+    val min = numericValues.minOrNull() ?: 0.0
+    val max = numericValues.maxOrNull() ?: 0.0
+
+    fun formatDouble(value: Double): String {
+        return if (value % 1.0 == 0.0) {
+            value.toLong().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.2f", value)
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Row ${selectedRow + 1} Stats",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val stats = listOf(
+                    "SUM" to formatDouble(sum),
+                    "AVERAGE" to formatDouble(avg),
+                    "COUNT" to count.toString(),
+                    "MIN" to formatDouble(min),
+                    "MAX" to formatDouble(max)
+                )
+                stats.forEach { (label, valStr) ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = valStr,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

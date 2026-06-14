@@ -196,36 +196,7 @@ fun ImageViewerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        try {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/*"
-                                if (isContentUri) {
-                                    putExtra(Intent.EXTRA_STREAM, activeUri)
-                                } else {
-                                    val providerUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", activeFile!!)
-                                    putExtra(Intent.EXTRA_STREAM, providerUri)
-                                }
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share Image",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    IconButton(onClick = { showInfoDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Image Details",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                    // Actions removed to prevent duplicate options with the bottom action column buttons.
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
