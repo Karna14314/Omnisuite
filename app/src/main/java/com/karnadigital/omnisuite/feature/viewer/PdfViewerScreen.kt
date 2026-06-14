@@ -23,6 +23,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -139,6 +141,37 @@ fun PdfViewerScreen(
     val currentPageIndex by remember {
         derivedStateOf {
             lazyListState.firstVisibleItemIndex + 1
+        }
+    }
+
+    var showTextSelectionSheet by remember { mutableStateOf(false) }
+    var pageTextToSelect by remember { mutableStateOf("") }
+    var isExtractingText by remember { mutableStateOf(false) }
+
+    fun extractPageText(pageIdx: Int) {
+        isExtractingText = true
+        coroutineScope.launch(Dispatchers.IO) {
+            var doc: com.tom_roush.pdfbox.pdmodel.PDDocument? = null
+            try {
+                doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(File(fileUri))
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                stripper.startPage = pageIdx
+                stripper.endPage = pageIdx
+                val pageText = stripper.getText(doc) ?: ""
+                withContext(Dispatchers.Main) {
+                    pageTextToSelect = pageText
+                    isExtractingText = false
+                    showTextSelectionSheet = true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    isExtractingText = false
+                    Toast.makeText(context, "Could not extract text: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                try { doc?.close() } catch (e: Exception) {}
+            }
         }
     }
 
@@ -646,6 +679,10 @@ fun PdfViewerScreen(
                                 }
                             }
 
+                            ActionColumnButton(icon = Icons.Default.TextSnippet, title = "Select Text") {
+                                extractPageText(currentPageIndex)
+                            }
+
                             // Quick Tools Dropdown trigger
                             var showQuickToolsMenu by remember { mutableStateOf(false) }
                             Box {
@@ -946,6 +983,105 @@ fun PdfViewerScreen(
                             }) {
                                 Text("Cancel")
                             }
+                        }
+                    }
+                )
+            }
+
+            // Bottom sheet for Selecting / Copying text
+            if (showTextSelectionSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showTextSelectionSheet = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.6f)
+                            .padding(24.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Page $currentPageIndex Text Selection",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                            TextButton(
+                                onClick = {
+                                    if (pageTextToSelect.isNotBlank()) {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(pageTextToSelect))
+                                        Toast.makeText(context, "Copied all page text!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) {
+                                Text("Copy All")
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            ) {
+                                androidx.compose.foundation.text.selection.SelectionContainer {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(rememberScrollState())
+                                    ) {
+                                        Text(
+                                            text = if (pageTextToSelect.isBlank()) "No extractable text found on this page." else pageTextToSelect,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Button(
+                            onClick = { showTextSelectionSheet = false },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                }
+            }
+
+            // Dialog for showing text extraction loading
+            if (isExtractingText) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    confirmButton = {},
+                    title = { Text("Extracting Page Text", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Text("Reading PDF page content offline...", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 )

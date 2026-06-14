@@ -20,6 +20,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import javax.inject.Inject
+import com.karnadigital.omnisuite.core.engine.SearchResult
+import com.karnadigital.omnisuite.core.engine.DocumentSearchEngine
 
 data class PptxTextBlock(
     val id: String,
@@ -72,10 +74,19 @@ class PptxViewerViewModel @Inject constructor(
     private val _saveStatus = kotlinx.coroutines.flow.MutableSharedFlow<String>()
     val saveStatus = _saveStatus.asSharedFlow()
 
-    private var activePresentation: XMLSlideShow? = null
+    private var activePresentation: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
     private var activeFilePath: String? = null
     
     private val tempImageCache = mutableMapOf<String, File>()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
+    val searchResults: StateFlow<List<SearchResult>> = _searchResults.asStateFlow()
+
+    private val _currentMatchIndex = MutableStateFlow(-1)
+    val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
     private fun getXmlObjectReflection(obj: Any): Any? {
         return try {
@@ -104,17 +115,26 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
-    private fun getSlideBgColorHex(slide: org.apache.poi.xslf.usermodel.XSLFSlide): String? {
-        return try {
+    private fun getSlideBgColorHex(slide: org.apache.poi.sl.usermodel.Slide<*, *>): String? {
+        // HSLF (.ppt legacy) paths call ColorStyle.getColor() which returns java.awt.Color,
+        // a Java SE class absent on Android → NoClassDefFoundError. Skip color for HSLF slides.
+        if (slide is org.apache.poi.hslf.usermodel.HSLFSlide) return null
+        try {
             val bg = slide.background ?: return null
-            val fillObj = bg.javaClass.getMethod("getFillColor").invoke(bg) ?: return null
-            val r = fillObj.javaClass.getMethod("getRed").invoke(fillObj) as Int
-            val g = fillObj.javaClass.getMethod("getGreen").invoke(fillObj) as Int
-            val b = fillObj.javaClass.getMethod("getBlue").invoke(fillObj) as Int
-            String.format("#%02X%02X%02X", r, g, b)
+            val fillStyle = bg.fillStyle ?: return null
+            val paint = fillStyle.paint
+            if (paint is org.apache.poi.sl.usermodel.PaintStyle.SolidPaint) {
+                val colorStyle = paint.solidColor
+                val color = colorStyle.javaClass.getMethod("getColor").invoke(colorStyle) ?: return null
+                val red = color.javaClass.getMethod("getRed").invoke(color) as Int
+                val green = color.javaClass.getMethod("getGreen").invoke(color) as Int
+                val blue = color.javaClass.getMethod("getBlue").invoke(color) as Int
+                return String.format("#%02X%02X%02X", red, green, blue)
+            }
         } catch (e: Exception) {
-            null
+            e.printStackTrace()
         }
+        return null
     }
 
     private fun XSLFTextRun.extractColorHex(): String? {
@@ -133,6 +153,30 @@ class PptxViewerViewModel @Inject constructor(
                 null
             }
         } catch (e: Exception) { null }
+    }
+
+    private fun extractTextRunColorHex(run: org.apache.poi.sl.usermodel.TextRun): String? {
+        // HSLF runs resolve to java.awt.Color on getColor() — not available on Android.
+        // Use the safe XSLF XML path only; return null for all HSLF text runs.
+        if (run is org.apache.poi.hslf.usermodel.HSLFTextRun) return null
+        if (run is XSLFTextRun) {
+            return run.extractColorHex()
+        }
+        // Generic non-HSLF SolidPaint fallback via reflection
+        try {
+            val paint = run.fontColor
+            if (paint is org.apache.poi.sl.usermodel.PaintStyle.SolidPaint) {
+                val colorStyle = paint.solidColor
+                val color = colorStyle.javaClass.getMethod("getColor").invoke(colorStyle) ?: return null
+                val red = color.javaClass.getMethod("getRed").invoke(color) as Int
+                val green = color.javaClass.getMethod("getGreen").invoke(color) as Int
+                val blue = color.javaClass.getMethod("getBlue").invoke(color) as Int
+                return String.format("#%02X%02X%02X", red, green, blue)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
     }
 
     private fun setRunProperties(r: XSLFTextRun, textColorHex: String?, fontSizePt: Float) {
@@ -172,62 +216,64 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
-    private fun setSlideBgColorHex(slide: org.apache.poi.xslf.usermodel.XSLFSlide, colorHex: String) {
-        try {
-            val color = android.graphics.Color.parseColor(colorHex)
-            val rgbBytes = byteArrayOf(
-                ((color shr 16) and 0xFF).toByte(),
-                ((color shr 8) and 0xFF).toByte(),
-                (color and 0xFF).toByte()
-            )
-            val ctSlide = getXmlObjectReflection(slide)
-            if (ctSlide != null) {
-                val cSld = try {
-                    ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide)
-                        ?: ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide)
-                } catch (e: Exception) {
-                    try { ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide) } catch (e2: Exception) { null }
-                }
-                if (cSld != null) {
-                    val bg = try {
-                        cSld.javaClass.getMethod("getBg").invoke(cSld)
-                            ?: cSld.javaClass.getMethod("addNewBg").invoke(cSld)
+    private fun setSlideBgColorHex(slide: org.apache.poi.sl.usermodel.Slide<*, *>, colorHex: String) {
+        if (slide is org.apache.poi.xslf.usermodel.XSLFSlide) {
+            try {
+                val color = android.graphics.Color.parseColor(colorHex)
+                val rgbBytes = byteArrayOf(
+                    ((color shr 16) and 0xFF).toByte(),
+                    ((color shr 8) and 0xFF).toByte(),
+                    (color and 0xFF).toByte()
+                )
+                val ctSlide = getXmlObjectReflection(slide)
+                if (ctSlide != null) {
+                    val cSld = try {
+                        ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide)
+                            ?: ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide)
                     } catch (e: Exception) {
-                        try { cSld.javaClass.getMethod("addNewBg").invoke(cSld) } catch (e2: Exception) { null }
+                        try { ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide) } catch (e2: Exception) { null }
                     }
-                    if (bg != null) {
-                        try {
-                            val isSetBgPr = bg.javaClass.getMethod("isSetBgPr").invoke(bg) as Boolean
-                            if (isSetBgPr) {
-                                val bgPr = bg.javaClass.getMethod("getBgPr").invoke(bg)
-                                if (bgPr != null) {
-                                    val unsetMethods = listOf("unsetSolidFill", "unsetGradFill", "unsetBlipFill", "unsetPattFill", "unsetGrpFill")
-                                    unsetMethods.forEach { m ->
-                                        try { bgPr.javaClass.getMethod(m).invoke(bgPr) } catch (e: Exception) {}
+                    if (cSld != null) {
+                        val bg = try {
+                            cSld.javaClass.getMethod("getBg").invoke(cSld)
+                                ?: cSld.javaClass.getMethod("addNewBg").invoke(cSld)
+                        } catch (e: Exception) {
+                            try { cSld.javaClass.getMethod("addNewBg").invoke(cSld) } catch (e2: Exception) { null }
+                        }
+                        if (bg != null) {
+                            try {
+                                val isSetBgPr = bg.javaClass.getMethod("isSetBgPr").invoke(bg) as Boolean
+                                if (isSetBgPr) {
+                                    val bgPr = bg.javaClass.getMethod("getBgPr").invoke(bg)
+                                    if (bgPr != null) {
+                                        val unsetMethods = listOf("unsetSolidFill", "unsetGradFill", "unsetBlipFill", "unsetPattFill", "unsetGrpFill")
+                                        unsetMethods.forEach { m ->
+                                            try { bgPr.javaClass.getMethod(m).invoke(bgPr) } catch (e: Exception) {}
+                                        }
                                     }
                                 }
+                            } catch (e: Exception) {}
+                            val bgPr = try {
+                                bg.javaClass.getMethod("getBgPr").invoke(bg)
+                                    ?: bg.javaClass.getMethod("addNewBgPr").invoke(bg)
+                            } catch (e: Exception) {
+                                try { bg.javaClass.getMethod("addNewBgPr").invoke(bg) } catch (e2: Exception) { null }
                             }
-                        } catch (e: Exception) {}
-                        val bgPr = try {
-                            bg.javaClass.getMethod("getBgPr").invoke(bg)
-                                ?: bg.javaClass.getMethod("addNewBgPr").invoke(bg)
-                        } catch (e: Exception) {
-                            try { bg.javaClass.getMethod("addNewBgPr").invoke(bg) } catch (e2: Exception) { null }
-                        }
-                        if (bgPr != null) {
-                            val solidFill = bgPr.javaClass.getMethod("addNewSolidFill").invoke(bgPr)
-                            val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
-                            srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgbBytes)
+                            if (bgPr != null) {
+                                val solidFill = bgPr.javaClass.getMethod("addNewSolidFill").invoke(bgPr)
+                                val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
+                                srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgbBytes)
+                            }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
-    private fun parseAllSlides(ppt: XMLSlideShow, filePath: String): List<PptxSlide> {
+    private fun parseAllSlides(ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>, filePath: String): List<PptxSlide> {
         val pageSizeObj = try { ppt.javaClass.getMethod("getPageSize").invoke(ppt) } catch(e: Exception) { null }
         val slideWidth = if (pageSizeObj != null) {
             try { (pageSizeObj.javaClass.getMethod("getWidth").invoke(pageSizeObj) as Number).toDouble() } catch(e: Exception) { 720.0 }
@@ -246,12 +292,12 @@ class PptxViewerViewModel @Inject constructor(
             val bgColorHex = getSlideBgColorHex(slide)
             
             val speakerNotes = try {
-                val notesObj = slide.javaClass.getMethod("getNotes").invoke(slide)
+                val notesObj = slide.notes
                 if (notesObj != null) {
-                    val bodyShape = notesObj.javaClass.getMethod("getShapes").invoke(notesObj) as? List<*>
-                    bodyShape?.filterIsInstance<XSLFTextShape>()?.firstOrNull { 
+                    val shapes = notesObj.shapes
+                    shapes.filterIsInstance<org.apache.poi.sl.usermodel.TextShape<*, *>>().firstOrNull { 
                         it.placeholder == Placeholder.BODY 
-                    }?.text ?: bodyShape?.filterIsInstance<XSLFTextShape>()?.firstOrNull()?.text ?: ""
+                    }?.text ?: shapes.filterIsInstance<org.apache.poi.sl.usermodel.TextShape<*, *>>().firstOrNull()?.text ?: ""
                 } else null
             } catch (e: Exception) {
                 null
@@ -261,11 +307,11 @@ class PptxViewerViewModel @Inject constructor(
             var bodyCount = 0
 
             for (shape in slide.shapes) {
-                if (shape is XSLFTextShape) {
+                if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
                     val text = shape.text ?: ""
                     if (text.isNotBlank()) {
                         val isTitle = try {
-                            shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                            shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
                         } catch (e: Throwable) {
                             shape.shapeName.lowercase().contains("title")
                         }
@@ -276,7 +322,7 @@ class PptxViewerViewModel @Inject constructor(
                         val isBold = firstRun?.isBold ?: false
                         val isItalic = firstRun?.isItalic ?: false
                         val isUnderline = firstRun?.isUnderlined ?: false
-                        val colorHex = firstRun?.extractColorHex()
+                        val colorHex = firstRun?.let { extractTextRunColorHex(it) }
                         
                         val fSize = firstRun?.fontSize
                         val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else (if (isTitle) 32f else 18f)
@@ -323,9 +369,12 @@ class PptxViewerViewModel @Inject constructor(
                             bodyCount++
                         }
                     }
-                                } else if (shape is org.apache.poi.xslf.usermodel.XSLFTable) {
-                    for (row in shape.rows) {
-                        for (cell in row.cells) {
+                } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
+                    val numRows = shape.numberOfRows
+                    val numCols = shape.numberOfColumns
+                    for (r in 0 until numRows) {
+                        for (c in 0 until numCols) {
+                            val cell = shape.getCell(r, c) ?: continue
                             val text = cell.text ?: ""
                             if (text.isNotBlank()) {
                                 val firstParagraph = cell.textParagraphs.firstOrNull()
@@ -334,7 +383,7 @@ class PptxViewerViewModel @Inject constructor(
                                 val isBold = firstRun?.isBold ?: false
                                 val isItalic = firstRun?.isItalic ?: false
                                 val isUnderline = firstRun?.isUnderlined ?: false
-                                val colorHex = firstRun?.extractColorHex()
+                                val colorHex = firstRun?.let { extractTextRunColorHex(it) }
 
                                 val fSize = firstRun?.fontSize
                                 val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 18f
@@ -366,32 +415,30 @@ class PptxViewerViewModel @Inject constructor(
                             }
                         }
                     }
-                } else if (shape.javaClass.simpleName.contains("Picture")) {
+                } else if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
                     try {
-                        val picDataObj = shape.javaClass.getMethod("getPictureData").invoke(shape)
-                        if (picDataObj != null) {
-                            val dataBytes = picDataObj.javaClass.getMethod("getData").invoke(picDataObj) as ByteArray
-                            val hash = dataBytes.contentHashCode().toString()
-                            val cacheKey = "${index}_$hash"
-                            val cachedFile = tempImageCache[cacheKey]
-                            val file = if (cachedFile != null && cachedFile.exists()) {
-                                cachedFile
-                            } else {
-                                val suggestExt = picDataObj.javaClass.getMethod("suggestFileExtension").invoke(picDataObj) as? String ?: "png"
-                                val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
-                                tempFile.writeBytes(dataBytes)
-                                tempImageCache[cacheKey] = tempFile
-                                tempFile
-                            }
-                            
-                            val anchor = getShapeAnchor(shape)
-                            val left = if (anchor != null && slideWidthF > 0f) anchor.left / slideWidthF else 0f
-                            val top = if (anchor != null && slideHeightF > 0f) anchor.top / slideHeightF else 0f
-                            val width = if (anchor != null && slideWidthF > 0f) anchor.width() / slideWidthF else 0.5f
-                            val height = if (anchor != null && slideHeightF > 0f) anchor.height() / slideHeightF else 0.5f
-                            
-                            images.add(PptxImage(file.absolutePath, left, top, width, height))
+                        val picData = shape.pictureData
+                        val dataBytes = picData.data
+                        val hash = dataBytes.contentHashCode().toString()
+                        val cacheKey = "${index}_$hash"
+                        val cachedFile = tempImageCache[cacheKey]
+                        val file = if (cachedFile != null && cachedFile.exists()) {
+                            cachedFile
+                        } else {
+                            val suggestExt = picData.contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
+                            val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
+                            tempFile.writeBytes(dataBytes)
+                            tempImageCache[cacheKey] = tempFile
+                            tempFile
                         }
+                        
+                        val anchor = getShapeAnchor(shape)
+                        val left = if (anchor != null && slideWidthF > 0f) anchor.left / slideWidthF else 0f
+                        val top = if (anchor != null && slideHeightF > 0f) anchor.top / slideHeightF else 0f
+                        val width = if (anchor != null && slideWidthF > 0f) anchor.width() / slideWidthF else 0.5f
+                        val height = if (anchor != null && slideHeightF > 0f) anchor.height() / slideHeightF else 0.5f
+                        
+                        images.add(PptxImage(file.absolutePath, left, top, width, height))
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -423,7 +470,7 @@ class PptxViewerViewModel @Inject constructor(
                 activeFilePath = null
 
                 var fileInputStream: FileInputStream? = null
-                var ppt: XMLSlideShow? = null
+                var ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
                 try {
                     val file = File(filePath)
                     if (!file.exists() || !file.isFile) {
@@ -432,7 +479,11 @@ class PptxViewerViewModel @Inject constructor(
                     }
 
                     fileInputStream = FileInputStream(file)
-                    ppt = XMLSlideShow(fileInputStream)
+                    ppt = if (filePath.endsWith(".ppt", ignoreCase = true)) {
+                        org.apache.poi.hslf.usermodel.HSLFSlideShow(fileInputStream)
+                    } else {
+                        XMLSlideShow(fileInputStream)
+                    }
 
                     val slides = parseAllSlides(ppt, filePath)
 
@@ -470,7 +521,13 @@ class PptxViewerViewModel @Inject constructor(
         comment: String? = null,
         fontSizePt: Float = 18f
     ) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
             val slide = slides[slideIndex]
@@ -566,7 +623,13 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     fun insertImageIntoSlide(slideIndex: Int, imagePath: String) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow || activeFilePath?.endsWith(".ppt", ignoreCase = true) == true) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
             val slide = slides[slideIndex]
@@ -628,7 +691,13 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     fun addSlide(afterIndex: Int) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val layoutsList = try {
             ppt.javaClass.getMethod("getSlideLayouts").invoke(ppt) as? List<*>
         } catch (e: Exception) {
@@ -651,7 +720,13 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     fun deleteSlide(index: Int) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
             try {
@@ -669,7 +744,13 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     fun duplicateSlide(index: Int) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
             try {
@@ -847,7 +928,13 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     fun setSlideBackground(slideIndex: Int, colorHex: String) {
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
             val slide = slides[slideIndex]
@@ -863,6 +950,10 @@ class PptxViewerViewModel @Inject constructor(
 
     fun commitChanges() {
         viewModelScope.launch {
+            if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+                return@launch
+            }
             val ppt = activePresentation
             val filePath = activeFilePath
             if (ppt == null || filePath == null) {
@@ -888,6 +979,41 @@ class PptxViewerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val path = activeFilePath ?: return@withContext
+                val results = DocumentSearchEngine.searchPptx(path, query)
+                _searchResults.value = results
+                if (results.isNotEmpty()) {
+                    _currentMatchIndex.value = 0
+                } else {
+                    _currentMatchIndex.value = -1
+                }
+            }
+        }
+    }
+
+    fun nextMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val nextIndex = (_currentMatchIndex.value + 1) % results.size
+        _currentMatchIndex.value = nextIndex
+    }
+
+    fun prevMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val prevIndex = (_currentMatchIndex.value - 1 + results.size) % results.size
+        _currentMatchIndex.value = prevIndex
     }
 
     override fun onCleared() {

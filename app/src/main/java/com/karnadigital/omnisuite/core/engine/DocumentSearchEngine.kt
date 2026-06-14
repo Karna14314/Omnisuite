@@ -105,6 +105,48 @@ object DocumentSearchEngine {
     }
 
     /**
+     * Searches a DOC file paragraph-by-paragraph using Apache POI.
+     */
+    fun searchDoc(filePath: String, query: String): List<SearchResult> {
+        val results = mutableListOf<SearchResult>()
+        if (query.isBlank()) return results
+        var fis: java.io.FileInputStream? = null
+        var doc: org.apache.poi.hwpf.HWPFDocument? = null
+        try {
+            fis = java.io.FileInputStream(java.io.File(filePath))
+            doc = org.apache.poi.hwpf.HWPFDocument(fis)
+            val range = doc.range
+            val numParagraphs = range.numParagraphs()
+            for (i in 0 until numParagraphs) {
+                val paragraph = range.getParagraph(i)
+                val text = paragraph.text() ?: ""
+                var pos = text.indexOf(query, ignoreCase = true)
+                while (pos >= 0) {
+                    val start = maxOf(0, pos - 25)
+                    val end = minOf(text.length, pos + query.length + 25)
+                    val snippet = (if (start > 0) "..." else "") + 
+                                  text.substring(start, end).replace('\n', ' ').trim() + 
+                                  (if (end < text.length) "..." else "")
+                    results.add(
+                        SearchResult(
+                            pageIndex = i,
+                            textSnippet = snippet,
+                            extraData = "Paragraph ${i + 1}"
+                        )
+                    )
+                    pos = text.indexOf(query, pos + 1, ignoreCase = true)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try { doc?.close() } catch (e: Exception) {}
+            try { fis?.close() } catch (e: Exception) {}
+        }
+        return results
+    }
+
+    /**
      * Searches a XLSX workbook sheet-by-sheet, row-by-row, cell-by-cell using Apache POI.
      */
     fun searchXlsx(filePath: String, query: String): List<SearchResult> {
@@ -201,5 +243,79 @@ object DocumentSearchEngine {
         } catch (e: Exception) {
             ""
         }
+    }
+
+    /**
+     * Searches a PPTX/PPT presentation file slide-by-slide case-insensitively.
+     */
+    fun searchPptx(filePath: String, query: String): List<SearchResult> {
+        val results = mutableListOf<SearchResult>()
+        if (query.isBlank()) return results
+        var fis: java.io.FileInputStream? = null
+        var slideshow: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
+        try {
+            fis = java.io.FileInputStream(java.io.File(filePath))
+            slideshow = if (filePath.endsWith(".ppt", ignoreCase = true)) {
+                org.apache.poi.hslf.usermodel.HSLFSlideShow(fis)
+            } else {
+                org.apache.poi.xslf.usermodel.XMLSlideShow(fis)
+            }
+            val slides = slideshow.slides
+            for (i in slides.indices) {
+                val slide = slides[i]
+                val text = StringBuilder()
+                for (shape in slide.shapes) {
+                    if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                        text.append(shape.text ?: "").append("\n")
+                    }
+                }
+                val slideText = text.toString()
+                var pos = slideText.indexOf(query, ignoreCase = true)
+                while (pos >= 0) {
+                    val start = maxOf(0, pos - 25)
+                    val end = minOf(slideText.length, pos + query.length + 25)
+                    val snippet = (if (start > 0) "..." else "") + 
+                                  slideText.substring(start, end).replace('\n', ' ').trim() + 
+                                  (if (end < slideText.length) "..." else "")
+                    results.add(SearchResult(pageIndex = i, textSnippet = "Slide ${i + 1}: $snippet"))
+                    pos = slideText.indexOf(query, pos + 1, ignoreCase = true)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try { slideshow?.close() } catch (e: Exception) {}
+            try { fis?.close() } catch (e: Exception) {}
+        }
+        return results
+    }
+
+    /**
+     * Searches a TXT text file line-by-line case-insensitively.
+     */
+    fun searchTxt(filePath: String, query: String): List<SearchResult> {
+        val results = mutableListOf<SearchResult>()
+        if (query.isBlank()) return results
+        try {
+            val file = java.io.File(filePath)
+            if (file.exists() && file.isFile) {
+                val lines = file.readLines()
+                lines.forEachIndexed { i, line ->
+                    var pos = line.indexOf(query, ignoreCase = true)
+                    while (pos >= 0) {
+                        val start = maxOf(0, pos - 25)
+                        val end = minOf(line.length, pos + query.length + 25)
+                        val snippet = (if (start > 0) "..." else "") + 
+                                      line.substring(start, end).trim() + 
+                                      (if (end < line.length) "..." else "")
+                        results.add(SearchResult(pageIndex = i, textSnippet = "Line ${i + 1}: $snippet"))
+                        pos = line.indexOf(query, pos + 1, ignoreCase = true)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return results
     }
 }

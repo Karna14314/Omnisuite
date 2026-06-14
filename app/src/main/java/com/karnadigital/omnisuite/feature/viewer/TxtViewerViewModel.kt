@@ -37,6 +37,15 @@ class TxtViewerViewModel @Inject constructor(
 
     private var currentFile: File? = null
 
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<Int>>(emptyList())
+    val searchResults: StateFlow<List<Int>> = _searchResults.asStateFlow()
+
+    private val _currentMatchIndex = MutableStateFlow(-1)
+    val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
+
     /**
      * Safely reads the text file content inside Dispatchers.IO scope using Kotlin buffer streams.
      */
@@ -89,5 +98,38 @@ class TxtViewerViewModel @Inject constructor(
             }
             _saveStatus.emit(success)
         }
+    }
+
+    fun setSearchQuery(query: String, content: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        val matches = mutableListOf<Int>()
+        var idx = content.indexOf(query, ignoreCase = true)
+        while (idx >= 0) {
+            matches.add(idx)
+            idx = content.indexOf(query, idx + 1, ignoreCase = true)
+        }
+        _searchResults.value = matches
+        if (matches.isNotEmpty()) {
+            _currentMatchIndex.value = 0
+        } else {
+            _currentMatchIndex.value = -1
+        }
+    }
+
+    fun nextMatch() {
+        val matches = _searchResults.value
+        if (matches.isEmpty()) return
+        _currentMatchIndex.value = (_currentMatchIndex.value + 1) % matches.size
+    }
+
+    fun prevMatch() {
+        val matches = _searchResults.value
+        if (matches.isEmpty()) return
+        _currentMatchIndex.value = (_currentMatchIndex.value - 1 + matches.size) % matches.size
     }
 }

@@ -13,6 +13,10 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +31,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 
 /**
  * Premium Plain Text Viewer and Editor Core.
@@ -47,13 +58,13 @@ fun TxtViewerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    var textContent by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var isInitialized by remember { mutableStateOf(false) }
 
     // Synchronize content state when loaded successfully
     val currentState = state
     if (currentState is TxtLoadState.Success && !isInitialized) {
-        textContent = currentState.content
+        textFieldValue = TextFieldValue(currentState.content)
         isInitialized = true
     }
 
@@ -74,8 +85,31 @@ fun TxtViewerScreen(
         }
     }
 
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+    var searchExpanded by remember { mutableStateOf(false) }
 
-        var showFormatting by remember { mutableStateOf(false) }
+    val currentMatchOffset = if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+        searchResults[currentMatchIndex]
+    } else {
+        -1
+    }
+
+    // Scroll/selection effect for search matches
+    LaunchedEffect(currentMatchIndex) {
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+            val offset = searchResults[currentMatchIndex]
+            val endOffset = minOf(textFieldValue.text.length, offset + searchQuery.length)
+            if (offset in 0..textFieldValue.text.length) {
+                textFieldValue = textFieldValue.copy(
+                    selection = TextRange(offset, endOffset)
+                )
+            }
+        }
+    }
+
+    var showFormatting by remember { mutableStateOf(false) }
     var fontSize by remember { mutableFloatStateOf(16f) }
     var themeIndex by remember { mutableIntStateOf(0) }
     var fontIndex by remember { mutableIntStateOf(0) }
@@ -90,55 +124,133 @@ fun TxtViewerScreen(
     val currentTheme = themes[themeIndex]
 
     Scaffold(
-
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (currentState) {
-                            is TxtLoadState.Success -> currentState.fileName
-                            else -> "Plain Text Editor"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate back"
+            if (searchExpanded) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            searchExpanded = false
+                            viewModel.setSearchQuery("", textFieldValue.text)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it, textFieldValue.text) },
+                            placeholder = { Text("Search text...") },
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true
                         )
+
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            IconButton(onClick = { viewModel.prevMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Prev match"
+                                )
+                            }
+                            IconButton(onClick = { viewModel.nextMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Next match"
+                                )
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "No matches",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
                     }
-                },
-                actions = {
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = when (currentState) {
+                                is TxtLoadState.Success -> currentState.fileName
+                                else -> "Plain Text Editor"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Navigate back"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (currentState is TxtLoadState.Success) {
+                            IconButton(onClick = { searchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search text"
+                                )
+                            }
+                        }
 
                         IconButton(onClick = { showFormatting = !showFormatting }) {
                             Icon(Icons.Default.Build, contentDescription = "Format")
                         }
 
-                    if (state is TxtLoadState.Success) {
-                        IconButton(
-                            onClick = {
-                                viewModel.saveTextFile(textContent)
+                        if (state is TxtLoadState.Success) {
+                            IconButton(
+                                onClick = {
+                                    viewModel.saveTextFile(textFieldValue.text)
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Save,
+                                    contentDescription = "Save changes",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Save,
-                                contentDescription = "Save changes",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
-            )
+            }
         }
     ) { paddingValues ->
         Box(
@@ -175,8 +287,13 @@ fun TxtViewerScreen(
                             .padding(16.dp)
                     ) {
                         TextField(
-                            value = textContent,
-                            onValueChange = { textContent = it },
+                            value = textFieldValue,
+                            onValueChange = { newValue ->
+                                textFieldValue = newValue
+                                if (searchExpanded && searchQuery.isNotEmpty()) {
+                                    viewModel.setSearchQuery(searchQuery, newValue.text)
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f, fill = false)
@@ -195,6 +312,12 @@ fun TxtViewerScreen(
                                     color = currentTheme.second.copy(alpha = 0.4f)
                                 )
                             },
+                            visualTransformation = TxtSearchVisualTransformation(
+                                searchQuery = searchQuery,
+                                currentMatchOffset = currentMatchOffset,
+                                highlightColor = Color.Yellow.copy(alpha = 0.6f),
+                                currentHighlightColor = Color(0xFFFF9800)
+                            ),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
@@ -368,10 +491,10 @@ fun TxtViewerScreen(
                     )
 
                     // Calculate metrics dynamically
-                    val paragraphs = if (textContent.isBlank()) 0 else textContent.split(Regex("\n+")).filter { it.isNotBlank() }.size
-                    val words = if (textContent.isBlank()) 0 else textContent.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-                    val charsWithSpaces = textContent.length
-                    val charsWithoutSpaces = textContent.filter { !it.isWhitespace() }.length
+                    val paragraphs = if (textFieldValue.text.isBlank()) 0 else textFieldValue.text.split(Regex("\n+")).filter { it.isNotBlank() }.size
+                    val words = if (textFieldValue.text.isBlank()) 0 else textFieldValue.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    val charsWithSpaces = textFieldValue.text.length
+                    val charsWithoutSpaces = textFieldValue.text.filter { !it.isWhitespace() }.length
                     val readingTimeMin = (words / 200.0).let { if (it > 0 && it < 1.0) 1 else it.toInt() }
 
                     Card(
@@ -435,6 +558,36 @@ fun TxtViewerScreen(
                 }
             }
         }
+    }
+}
+
+class TxtSearchVisualTransformation(
+    private val searchQuery: String,
+    private val currentMatchOffset: Int,
+    private val highlightColor: Color = Color(0xFFFFEB3B), // Yellow
+    private val currentHighlightColor: Color = Color(0xFFFF9800), // Orange
+    private val textColor: Color = Color.Black
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        if (searchQuery.isEmpty()) {
+            return TransformedText(text, OffsetMapping.Identity)
+        }
+        val builder = AnnotatedString.Builder()
+        builder.append(text.text)
+        
+        val fullText = text.text
+        var idx = fullText.indexOf(searchQuery, ignoreCase = true)
+        while (idx >= 0) {
+            val isCurrent = idx == currentMatchOffset
+            val bg = if (isCurrent) currentHighlightColor else highlightColor
+            builder.addStyle(
+                SpanStyle(background = bg, color = textColor),
+                idx,
+                idx + searchQuery.length
+            )
+            idx = fullText.indexOf(searchQuery, idx + 1, ignoreCase = true)
+        }
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
     }
 }
 

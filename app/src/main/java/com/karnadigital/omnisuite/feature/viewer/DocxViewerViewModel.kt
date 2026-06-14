@@ -45,8 +45,10 @@ data class DocxParagraph(
     val headingLevel: Int, // 0 = body, 1-6 = heading level
     val isHeading: Boolean,
     val comment: String? = null,
-    val spacingAfterPt: Int = 10,
-    val spacingBeforePt: Int = 0
+    val spacingAfterPt: Int = 0,
+    val spacingBeforePt: Int = 0,
+    val indentStartDp: Int = 0,      // left indentation in dp (twips / 20 / 1.33)
+    val firstLineIndentDp: Int = 0   // first-line indent in dp
 )
 
 data class DocxTableCell(val paragraphs: List<DocxParagraph>)
@@ -78,6 +80,7 @@ class DocxViewerViewModel @Inject constructor(
     val saveStatus = _saveStatus.asSharedFlow()
 
     private var activeDocument: XWPFDocument? = null
+    private var activeLegacyDocument: org.apache.poi.hwpf.HWPFDocument? = null
     private var activeFilePath: String? = null
 
     private val _searchQuery = MutableStateFlow("")
@@ -90,7 +93,7 @@ class DocxViewerViewModel @Inject constructor(
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
     /**
-     * Safely reads DOCX paragraphs inside coroutines using Apache POI,
+     * Safely reads DOCX/DOC paragraphs inside coroutines using Apache POI,
      * translating typography run formats, and updating Room DB logs.
      */
     fun loadWordFile(filePath: String) {
@@ -103,11 +106,18 @@ class DocxViewerViewModel @Inject constructor(
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                try {
+                    activeLegacyDocument?.close()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
                 activeDocument = null
+                activeLegacyDocument = null
                 activeFilePath = null
 
                 var fileInputStream: FileInputStream? = null
                 var doc: XWPFDocument? = null
+                var legacyDoc: org.apache.poi.hwpf.HWPFDocument? = null
                 try {
                     val file = File(filePath)
                     if (!file.exists() || !file.isFile) {
@@ -116,22 +126,40 @@ class DocxViewerViewModel @Inject constructor(
                     }
 
                     fileInputStream = FileInputStream(file)
-                    doc = XWPFDocument(fileInputStream)
 
-                    val parsedDoc = parseDocument(doc)
+                    if (filePath.endsWith(".doc", ignoreCase = true)) {
+                        legacyDoc = org.apache.poi.hwpf.HWPFDocument(fileInputStream)
+                        val parsedDoc = parseLegacyDocument(legacyDoc)
 
-                    activeDocument = doc
-                    activeFilePath = filePath
+                        activeLegacyDocument = legacyDoc
+                        activeFilePath = filePath
 
-                    _loadState.value = DocxLoadState.Success(
-                        document = parsedDoc,
-                        fileName = file.name
-                    )
+                        _loadState.value = DocxLoadState.Success(
+                            document = parsedDoc,
+                            fileName = file.name
+                        )
+                    } else {
+                        doc = XWPFDocument(fileInputStream)
+                        val parsedDoc = parseDocument(doc)
+
+                        activeDocument = doc
+                        activeFilePath = filePath
+
+                        _loadState.value = DocxLoadState.Success(
+                            document = parsedDoc,
+                            fileName = file.name
+                        )
+                    }
 
                 } catch (e: Exception) {
                     e.printStackTrace()
                     try {
                         doc?.close()
+                    } catch (ex: Exception) {
+                        ex.printStackTrace()
+                    }
+                    try {
+                        legacyDoc?.close()
                     } catch (ex: Exception) {
                         ex.printStackTrace()
                     }
@@ -145,6 +173,50 @@ class DocxViewerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun parseLegacyDocument(doc: org.apache.poi.hwpf.HWPFDocument): DocxDocument {
+        val elements = mutableListOf<DocxBodyElement>()
+        val range = doc.range
+        val numParagraphs = range.numParagraphs()
+        for (i in 0 until numParagraphs) {
+            val paragraph = range.getParagraph(i)
+            val runs = mutableListOf<DocxRun>()
+            val numCharacterRuns = paragraph.numCharacterRuns()
+            for (j in 0 until numCharacterRuns) {
+                val run = paragraph.getCharacterRun(j)
+                val text = run.text() ?: ""
+                runs.add(
+                    DocxRun(
+                        text = text,
+                        isBold = run.isBold,
+                        isItalic = run.isItalic,
+                        isUnderline = run.getUnderlineCode() != 0,
+                        isStrike = run.isStrikeThrough,
+                        fontFamily = run.fontName,
+                        fontSizePt = if (run.fontSize > 0) run.fontSize / 2 else null
+                    )
+                )
+            }
+            val alignment = when (paragraph.justification) {
+                1 -> "CENTER"
+                2 -> "RIGHT"
+                3 -> "JUSTIFY"
+                else -> "LEFT"
+            }
+            elements.add(
+                DocxBodyElement.Para(
+                    DocxParagraph(
+                        runs = runs,
+                        alignment = alignment,
+                        headingLevel = 0,
+                        isHeading = false,
+                        comment = null
+                    )
+                )
+            )
+        }
+        return DocxDocument(elements)
     }
 
     private fun loadParagraphComments(filePath: String): Map<Int, String> {
@@ -255,7 +327,10 @@ class DocxViewerViewModel @Inject constructor(
                 text = text, isBold = isBold, isItalic = isItalic,
                 isUnderline = isUnderline, isStrike = isStrike,
                 color = color, fontFamily = fontFamily,
-                fontSizePt = if (fontSize > 0) fontSize / 2 else null,
+                // XWPFRun.fontSize returns full points directly (unlike HWPF which uses half-points).
+                // Do NOT divide by 2 here — the legacy DOC path (CharacterRun.fontSize / 2) is correct
+                // for HWPF's half-point encoding, but this DOCX path must not be halved.
+                fontSizePt = if (fontSize > 0) fontSize else null,
                 hyperlinkUrl = hyperlinkUrl, imageUrl = imageUrl,
                 widthEmu = emuWidth, heightEmu = emuHeight
             ))
@@ -280,17 +355,26 @@ class DocxViewerViewModel @Inject constructor(
 
 
 
+        // Indentation: POI returns twips; convert to dp (twips ÷ 20 = pt, ÷ 1.33 ≈ dp at 160dpi)
+        val rawIndentLeft = paragraph.indentationLeft.coerceAtLeast(0)
+        val rawFirstLine = paragraph.indentationFirstLine.coerceAtLeast(0)
+        val indentStartDp = (rawIndentLeft / 20 / 1.33f).toInt()
+        val firstLineIndentDp = (rawFirstLine / 20 / 1.33f).toInt()
+
         return DocxParagraph(
             runs = runs,
             alignment = alignment,
             headingLevel = headingLevel,
             isHeading = headingLevel > 0,
             comment = comment,
-            spacingAfterPt = paragraph.spacingAfter.takeIf { it >= 0 }?.div(20) ?: 6,
-            spacingBeforePt = paragraph.spacingBefore.takeIf { it >= 0 }?.div(20) ?: 2
+            // spacingAfter/Before return -1 when not set (inherits from style).
+            // Use 0 as fallback so the Screen's own breathing room handles layout naturally.
+            spacingAfterPt = paragraph.spacingAfter.takeIf { it > 0 }?.div(20) ?: 0,
+            spacingBeforePt = paragraph.spacingBefore.takeIf { it > 0 }?.div(20) ?: 0,
+            indentStartDp = indentStartDp,
+            firstLineIndentDp = firstLineIndentDp
         )
     }
-
     /**
      * Replaces the text and formatting of the paragraph at index.
      */
@@ -303,6 +387,12 @@ class DocxViewerViewModel @Inject constructor(
         colorHex: String? = null,
         comment: String? = null
     ) {
+        if (activeLegacyDocument != null) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
+            }
+            return
+        }
         val doc = activeDocument ?: return
         val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
         if (index < 0 || index >= elements.size) return
@@ -338,6 +428,12 @@ class DocxViewerViewModel @Inject constructor(
     }
 
     fun insertImageIntoParagraph(index: Int, imagePath: String) {
+        if (activeLegacyDocument != null) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
+            }
+            return
+        }
         val doc = activeDocument ?: return
         val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
         if (index < 0 || index >= elements.size) return
@@ -375,6 +471,12 @@ class DocxViewerViewModel @Inject constructor(
      * Appends a new paragraph to the document.
      */
     fun appendParagraph(text: String) {
+        if (activeLegacyDocument != null) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
+            }
+            return
+        }
         val doc = activeDocument ?: return
         val newP = doc.createParagraph()
         newP.createRun().setText(text)
@@ -389,6 +491,10 @@ class DocxViewerViewModel @Inject constructor(
      */
     fun commitChanges() {
         viewModelScope.launch {
+            if (activeLegacyDocument != null) {
+                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
+                return@launch
+            }
             val doc = activeDocument
             val filePath = activeFilePath
             if (doc == null || filePath == null) {
@@ -426,6 +532,10 @@ class DocxViewerViewModel @Inject constructor(
         onFailure: (String) -> Unit
     ) {
         viewModelScope.launch {
+            if (activeLegacyDocument != null) {
+                onFailure("Exporting to PDF is not supported for legacy Word (.doc) documents. Please save as .docx to export.")
+                return@launch
+            }
             val docxPath = activeFilePath
             if (docxPath == null) {
                 onFailure("No active document loaded.")
@@ -467,7 +577,11 @@ class DocxViewerViewModel @Inject constructor(
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 val path = activeFilePath ?: return@withContext
-                val results = DocumentSearchEngine.searchDocx(path, query)
+                val results = if (path.endsWith(".doc", ignoreCase = true)) {
+                    DocumentSearchEngine.searchDoc(path, query)
+                } else {
+                    DocumentSearchEngine.searchDocx(path, query)
+                }
                 _searchResults.value = results
                 if (results.isNotEmpty()) {
                     _currentMatchIndex.value = 0
@@ -496,6 +610,11 @@ class DocxViewerViewModel @Inject constructor(
         super.onCleared()
         try {
             activeDocument?.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            activeLegacyDocument?.close()
         } catch (e: Exception) {
             e.printStackTrace()
         }

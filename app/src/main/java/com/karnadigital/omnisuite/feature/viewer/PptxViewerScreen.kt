@@ -41,6 +41,9 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -95,6 +98,22 @@ fun PptxViewerScreen(
     var blockIndexToEdit by remember { mutableStateOf(-1) }
     var showFormatter by remember { mutableStateOf(false) }
 
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+    var searchExpanded by remember { mutableStateOf(false) }
+
+    val pagerState = rememberPagerState(pageCount = { 
+        (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0 
+    })
+
+    LaunchedEffect(currentMatchIndex) {
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
+            val match = searchResults[currentMatchIndex]
+            pagerState.animateScrollToPage(match.pageIndex)
+        }
+    }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
@@ -113,48 +132,125 @@ fun PptxViewerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (val s = state) {
-                            is PptxLoadState.Success -> s.fileName
-                            else -> "Presentation Viewer"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate back"
-                        )
-                    }
-                },
-                actions = {
-                    if (state is PptxLoadState.Success) {
+            if (searchExpanded) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         IconButton(onClick = {
-                            if (isEditMode) {
-                                viewModel.commitChanges()
-                            }
-                            isEditMode = !isEditMode
+                            searchExpanded = false
+                            viewModel.setSearchQuery("")
                         }) {
                             Icon(
-                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                contentDescription = "Toggle Edit Mode",
-                                tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = { Text("Search text in slides...") },
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true
+                        )
+
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            IconButton(onClick = { viewModel.prevMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Prev match"
+                                )
+                            }
+                            IconButton(onClick = { viewModel.nextMatch() }) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Next match"
+                                )
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "No matches",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = when (val s = state) {
+                                is PptxLoadState.Success -> s.fileName
+                                else -> "Presentation Viewer"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Navigate back"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (state is PptxLoadState.Success) {
+                            IconButton(onClick = { searchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search text"
+                                )
+                            }
+                            IconButton(onClick = {
+                                if (isEditMode) {
+                                    viewModel.commitChanges()
+                                }
+                                isEditMode = !isEditMode
+                            }) {
+                                Icon(
+                                    imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                    contentDescription = "Toggle Edit Mode",
+                                    tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
-            )
+            }
         },
         bottomBar = {
             if (state is PptxLoadState.Success) {
@@ -330,8 +426,6 @@ fun PptxViewerScreen(
                     if (presentation.slides.isEmpty()) {
                         EmptyPresentationState()
                     } else {
-                        val pagerState = rememberPagerState(pageCount = { presentation.slides.size })
-                        
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -925,19 +1019,21 @@ fun SlideCardItem(
                         )
                         .padding(if (isEditMode) 4.dp else 0.dp)
                 ) {
-                    Text(
-                        text = title.text,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.Normal,
-                            fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                            textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                            fontSize = (title.fontSizePt * scaleFactor).sp,
-                            lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp
-                        ),
-                        color = titleColor,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = title.text,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                                textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                                fontSize = (title.fontSizePt * scaleFactor).sp,
+                                lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp
+                            ),
+                            color = titleColor,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -967,29 +1063,31 @@ fun SlideCardItem(
                         .padding(if (isEditMode) 4.dp else 0.dp),
                     contentAlignment = Alignment.TopStart
                 ) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        if (block.bulletLevel > 0) {
-                            Spacer(modifier = Modifier.width((block.bulletLevel * 8 * scaleFactor).dp))
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Row(verticalAlignment = Alignment.Top) {
+                            if (block.bulletLevel > 0) {
+                                Spacer(modifier = Modifier.width((block.bulletLevel * 8 * scaleFactor).dp))
+                            }
+                            Text(
+                                text = "• ",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = (block.fontSizePt * scaleFactor).sp
+                                ),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = block.text,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
+                                    fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                                    textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                                    fontSize = (block.fontSizePt * scaleFactor).sp,
+                                    lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp
+                                ),
+                                color = blockColor
+                            )
                         }
-                        Text(
-                            text = "• ",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = (block.fontSizePt * scaleFactor).sp
-                            ),
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Text(
-                            text = block.text,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
-                                fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                                textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                fontSize = (block.fontSizePt * scaleFactor).sp,
-                                lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp
-                            ),
-                            color = blockColor
-                        )
                     }
                 }
             }

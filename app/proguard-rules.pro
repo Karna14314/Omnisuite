@@ -61,4 +61,7 @@
 -dontwarn org.osgi.framework.ServiceReference
 -dontwarn com.gemalto.jp2.JP2Decoder
 -dontwarn com.gemalto.jp2.JP2Encoder
+# Keep java.awt stub classes used by Apache POI and reflection
+-keep class java.awt.Color { *; }
+-dontwarn java.awt.Color
 -dontwarn java.awt.Shape

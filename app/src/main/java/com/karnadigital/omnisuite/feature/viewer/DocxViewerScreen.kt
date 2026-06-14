@@ -30,7 +30,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.net.Uri
-import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import android.graphics.BitmapFactory
@@ -1081,10 +1082,12 @@ fun DocxParagraphItem(
         1 -> 16.dp
         2 -> 14.dp
         3 -> 12.dp
-        else -> if (paragraph.spacingAfterPt > 0) (paragraph.spacingAfterPt / 2).dp.coerceIn(4.dp, 20.dp) else 6.dp
+        // spacingAfterPt is already in points; use directly as dp (close enough for screen rendering).
+        // coerceIn ensures a reasonable minimum breathing room.
+        else -> if (paragraph.spacingAfterPt > 0) paragraph.spacingAfterPt.dp.coerceIn(4.dp, 20.dp) else 6.dp
     }
 
-    val spacingTop = if (paragraph.spacingBeforePt > 0) (paragraph.spacingBeforePt / 2).dp.coerceIn(4.dp, 20.dp) else 0.dp
+    val spacingTop = if (paragraph.spacingBeforePt > 0) paragraph.spacingBeforePt.dp.coerceIn(0.dp, 20.dp) else 0.dp
 
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
@@ -1095,19 +1098,33 @@ fun DocxParagraphItem(
             .padding(top = spacingTop)
     ) {
         SelectionContainer {
-            ClickableText(
+            var layoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+            Text(
                 text = annotatedString,
                 style = baseStyle.copy(textAlign = textAlign),
-                onClick = { offset ->
-                    annotatedString.getStringAnnotations("URL", offset, offset)
-                        .firstOrNull()?.let {
-                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) }
-                            catch (e: Exception) { }
-                        }
-                },
+                onTextLayout = { layoutResult = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = verticalPadding)
+                    // Only apply bottom padding here. Top spacing is on the outer Column
+                    // to avoid double-stacking spacingBefore + verticalPadding on the top.
+                    // Indentation: start = 20dp base + paragraph indent; end stays fixed.
+                    .padding(
+                        start = (20 + paragraph.indentStartDp).dp,
+                        end = 20.dp,
+                        bottom = verticalPadding
+                    )
+                    .pointerInput(annotatedString) {
+                        detectTapGestures { offset ->
+                            layoutResult?.let { layout ->
+                                val position = layout.getOffsetForPosition(offset)
+                                annotatedString.getStringAnnotations("URL", position, position)
+                                    .firstOrNull()?.let { annotation ->
+                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
+                                        catch (e: Exception) { }
+                                    }
+                            }
+                        }
+                    }
             )
         }
 

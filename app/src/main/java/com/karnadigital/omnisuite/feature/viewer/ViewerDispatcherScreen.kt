@@ -156,47 +156,14 @@ fun ViewerDispatcherScreen(
                     FileType.DOCX -> DocxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.XLSX -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.PPTX -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
-                    FileType.PPT_LEGACY -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ErrorCard(
-                                title = "Format Unsupported",
-                                message = "Legacy PowerPoint 97-2003 (.ppt) files are not fully supported. Please save as .pptx format to edit or view.",
-                                onBack = onBack
-                            )
-                        }
-                    }
+                    FileType.PPT_LEGACY -> PptxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.IMAGE -> ImageViewerScreen(
                         fileUri = currentState.cachedPath,
                         onBack = onBack,
                         onEditInImageLab = onOpenImageTool
                     )
-                    FileType.DOC_LEGACY -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ErrorCard(
-                                title = "Format Unsupported",
-                                message = "Legacy Word 97-2003 (.doc) files are not fully supported. Please save as .docx format to edit or view.",
-                                onBack = onBack
-                            )
-                        }
-                    }
-                    FileType.XLS_LEGACY -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ErrorCard(
-                                title = "Format Unsupported",
-                                message = "Legacy Excel 97-2003 (.xls) files are not fully supported. Please save as .xlsx format to edit or view.",
-                                onBack = onBack
-                            )
-                        }
-                    }
+                    FileType.DOC_LEGACY -> DocxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
+                    FileType.XLS_LEGACY -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.CSV -> XlsxViewerScreen(fileUri = currentState.cachedPath, onBack = onBack)
                     FileType.ARCHIVE -> ArchiveViewerScreen(
                         fileUri = currentState.cachedPath,

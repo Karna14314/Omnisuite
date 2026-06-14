@@ -32,7 +32,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.BorderStroke
@@ -105,6 +107,8 @@ fun XlsxViewerScreen(
     var bottomSheetValue by remember { mutableStateOf("") }
     var scale by remember { mutableStateOf(1f) }
     var selectedColForSort by remember { mutableStateOf<Int?>(null) }
+    // Tracks which row number is selected (header tap) — used to highlight the full row
+    var selectedRow by remember { mutableStateOf<Int?>(null) }
     var formulaBarValue by remember(selectedCell, state, activeSheetIndex) {
         val initialVal = if (selectedCell != null && state is XlsxLoadState.Success) {
             val activeSheet = (state as XlsxLoadState.Success).workbook.sheets.getOrNull(activeSheetIndex)
@@ -519,7 +523,10 @@ fun XlsxViewerScreen(
                                                             text = getColHeaderString(c),
                                                             widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                             isSelected = selectedColForSort == c,
-                                                            onSelect = { selectedColForSort = c },
+                                                            onSelect = {
+                                                                selectedColForSort = c
+                                                                selectedRow = null  // clear row selection on col tap
+                                                            },
                                                             onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
                                                             onContextAction = { action ->
                                                                 when (action) {
@@ -546,7 +553,10 @@ fun XlsxViewerScreen(
                                                              text = getColHeaderString(c),
                                                              widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                              isSelected = selectedColForSort == c,
-                                                             onSelect = { selectedColForSort = c },
+                                                             onSelect = {
+                                                                 selectedColForSort = c
+                                                                 selectedRow = null  // clear row selection on col tap
+                                                             },
                                                              onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
                                                              onContextAction = { action ->
                                                                  when (action) {
@@ -573,8 +583,11 @@ fun XlsxViewerScreen(
                                                             rowIndex = r,
                                                             text = (r + 1).toString(),
                                                             heightDp = rowHeight * scale,
-                                                            isSelected = selectedCell?.rowIndex == r,
-                                                            onSelect = { selectedCell = CellCoords(r, 0) },
+                                                            isSelected = selectedRow == r,
+                                                            onSelect = {
+                                                                selectedRow = r
+                                                                selectedCell = null  // clear cell selection when row selected
+                                                            },
                                                             onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, r, newHeight / scale) },
                                                             onContextAction = { action ->
                                                                 when (action) {
@@ -589,6 +602,7 @@ fun XlsxViewerScreen(
                                                                 for (c in 0 until actualFrozenCols) {
                                                                     val cellData = rowCells.getOrNull(c) ?: CellData("")
                                                                     val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
+                                                                    val isRowSelected = selectedRow == r
                                                                     val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                                         match.pageIndex == activeSheetIndex &&
                                                                         match.extraData?.split(",")?.let { parts ->
@@ -600,12 +614,16 @@ fun XlsxViewerScreen(
                                                                         colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                                         rowHeightDp = rowHeight * scale,
                                                                         isSelected = isSelected,
+                                                                        isRowSelected = isRowSelected,
                                                                         isSearchResult = isSearchResult,
                                                                         onClick = {
                                                                             selectedCell = CellCoords(r, c)
                                                                             selectedCellData = cellData
                                                                             bottomSheetValue = cellData.text
                                                                             showBottomSheet = true
+                                                                        },
+                                                                        onUpdateValue = { newValue ->
+                                                                            viewModel.updateCell(activeSheetIndex, r, c, newValue)
                                                                         }
                                                                     )
                                                                 }
@@ -616,6 +634,7 @@ fun XlsxViewerScreen(
                                                                 for (c in actualFrozenCols until rowCells.size) {
                                                                     val cellData = rowCells.getOrNull(c) ?: CellData("")
                                                                     val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
+                                                                    val isRowSelected = selectedRow == r
                                                                     val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                                         match.pageIndex == activeSheetIndex &&
                                                                         match.extraData?.split(",")?.let { parts ->
@@ -627,12 +646,16 @@ fun XlsxViewerScreen(
                                                                         colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                                         rowHeightDp = rowHeight * scale,
                                                                         isSelected = isSelected,
+                                                                        isRowSelected = isRowSelected,
                                                                         isSearchResult = isSearchResult,
                                                                         onClick = {
                                                                             selectedCell = CellCoords(r, c)
                                                                             selectedCellData = cellData
                                                                             bottomSheetValue = cellData.text
                                                                             showBottomSheet = true
+                                                                        },
+                                                                        onUpdateValue = { newValue ->
+                                                                            viewModel.updateCell(activeSheetIndex, r, c, newValue)
                                                                         }
                                                                     )
                                                                 }
@@ -663,8 +686,11 @@ fun XlsxViewerScreen(
                                                         rowIndex = rowIndex,
                                                         text = (rowIndex + 1).toString(),
                                                         heightDp = rowHeight * scale,
-                                                        isSelected = selectedCell?.rowIndex == rowIndex,
-                                                        onSelect = { selectedCell = CellCoords(rowIndex, 0) },
+                                                        isSelected = selectedRow == rowIndex,
+                                                        onSelect = {
+                                                            selectedRow = rowIndex
+                                                            selectedCell = null  // clear cell selection when row selected
+                                                        },
                                                         onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, rowIndex, newHeight / scale) },
                                                         onContextAction = { action ->
                                                             when (action) {
@@ -681,6 +707,7 @@ fun XlsxViewerScreen(
                                                             for (c in 0 until actualFrozenCols) {
                                                                 val cellData = rowCells.getOrNull(c) ?: CellData("")
                                                                 val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == c
+                                                                val isRowSelected = selectedRow == rowIndex
                                                                 val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                                     match.pageIndex == activeSheetIndex &&
                                                                     match.extraData?.split(",")?.let { parts ->
@@ -692,12 +719,16 @@ fun XlsxViewerScreen(
                                                                     colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
                                                                     rowHeightDp = rowHeight * scale,
                                                                     isSelected = isSelected,
+                                                                    isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, c)
                                                                         selectedCellData = cellData
                                                                         bottomSheetValue = cellData.text
                                                                         showBottomSheet = true
+                                                                    },
+                                                                    onUpdateValue = { newValue ->
+                                                                        viewModel.updateCell(activeSheetIndex, rowIndex, c, newValue)
                                                                     }
                                                                 )
                                                             }
@@ -712,6 +743,7 @@ fun XlsxViewerScreen(
                                                             for (colIndex in actualFrozenCols until rowCells.size) {
                                                                 val cellData = rowCells[colIndex]
                                                                 val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
+                                                                val isRowSelected = selectedRow == rowIndex
                                                                 val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
                                                                     match.pageIndex == activeSheetIndex &&
                                                                     match.extraData?.split(",")?.let { parts ->
@@ -723,12 +755,16 @@ fun XlsxViewerScreen(
                                                                     colWidthDp = activeSheet.columnWidthsDp.getOrElse(colIndex) { 80f } * scale,
                                                                     rowHeightDp = rowHeight * scale,
                                                                     isSelected = isSelected,
+                                                                    isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, colIndex)
                                                                         selectedCellData = cellData
                                                                         bottomSheetValue = cellData.text
                                                                         showBottomSheet = true
+                                                                    },
+                                                                    onUpdateValue = { newValue ->
+                                                                        viewModel.updateCell(activeSheetIndex, rowIndex, colIndex, newValue)
                                                                     }
                                                                 )
                                                             }
@@ -778,6 +814,7 @@ fun XlsxViewerScreen(
                                                 onClick = { 
                                                     activeSheetIndex = index 
                                                     selectedCell = null // Clear selection when sheet changes
+                                                    selectedRow = null  // Clear row selection when sheet changes
                                                 },
                                                 text = {
                                                     Text(
@@ -1140,39 +1177,57 @@ fun ColumnHeaderCell(
     var isDragging by remember { mutableStateOf(false) }
     val density = LocalDensity.current.density
 
+    // Use a Box wrapping both the header and the resize handle so the handle
+    // sits outside the combinedClickable boundary — preventing gesture conflict.
     Box(
         modifier = Modifier
             .width(widthDp.dp)
             .height(28.dp)
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
-            .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            .combinedClickable(
-                onClick = onSelect,
-                onLongClick = { showMenu = true }
-            ),
-        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Main clickable header area (full width minus 8dp handle zone on right)
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth()
+                .background(
+                    if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                .combinedClickable(
+                    onClick = onSelect,
+                    onLongClick = { showMenu = true }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-        // Right-edge drag handle for column resize
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(text = { Text("Insert Column Left") }, onClick = { showMenu = false; onContextAction("INSERT_LEFT") })
+                DropdownMenuItem(text = { Text("Insert Column Right") }, onClick = { showMenu = false; onContextAction("INSERT_RIGHT") })
+                DropdownMenuItem(text = { Text("Delete Column") }, onClick = { showMenu = false; onContextAction("DELETE") })
+                DropdownMenuItem(text = { Text("Best Fit Width") }, onClick = { showMenu = false; onContextAction("BEST_FIT") })
+            }
+        }
+
+        // Resize drag handle — sits at right edge, uses zIndex so it is above the header box.
+        // Placed as a sibling Box (not a child of combinedClickable) to avoid gesture conflict.
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .width(8.dp)
+                .width(12.dp)
                 .fillMaxHeight()
-                .pointerInput(Unit) {
+                .zIndex(2f)
+                .pointerInput(widthDp) {
                     var startWidth = widthDp
                     detectDragGestures(
-                        onDragStart = { offset ->
+                        onDragStart = {
                             startWidth = widthDp
                             isDragging = true
                         },
@@ -1185,18 +1240,19 @@ fun ColumnHeaderCell(
                         onDragEnd = { isDragging = false },
                         onDragCancel = { isDragging = false }
                     )
-                }
-                .background(
-                    if (isDragging) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    else Color.Transparent
-                )
-        )
-
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(text = { Text("Insert Column Left") }, onClick = { showMenu = false; onContextAction("INSERT_LEFT") })
-            DropdownMenuItem(text = { Text("Insert Column Right") }, onClick = { showMenu = false; onContextAction("INSERT_RIGHT") })
-            DropdownMenuItem(text = { Text("Delete Column") }, onClick = { showMenu = false; onContextAction("DELETE") })
-            DropdownMenuItem(text = { Text("Best Fit Width") }, onClick = { showMenu = false; onContextAction("BEST_FIT") })
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            // Visual divider line shown inside the handle zone
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .fillMaxHeight(0.6f)
+                    .background(
+                        if (isDragging) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    )
+            )
         }
     }
 }
@@ -1216,38 +1272,54 @@ fun RowHeaderCell(
     var isDragging by remember { mutableStateOf(false) }
     val density = LocalDensity.current.density
 
+    // Outer Box wraps both header and bottom-edge resize handle as siblings
+    // so pointerInput drag does not compete with combinedClickable.
     Box(
         modifier = Modifier
             .width(54.dp)
             .height(heightDp.dp)
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
-            .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            .combinedClickable(onClick = onSelect, onLongClick = { showMenu = true }),
-        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Main clickable header area
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                .combinedClickable(onClick = onSelect, onLongClick = { showMenu = true }),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-        // Bottom-edge drag handle for row resize
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(text = { Text("Insert Row Above") }, onClick = { showMenu = false; onContextAction("INSERT_ABOVE") })
+                DropdownMenuItem(text = { Text("Insert Row Below") }, onClick = { showMenu = false; onContextAction("INSERT_BELOW") })
+                DropdownMenuItem(text = { Text("Delete Row") }, onClick = { showMenu = false; onContextAction("DELETE") })
+            }
+        }
+
+        // Resize drag handle at the bottom edge — sits above header via zIndex.
+        // Sibling placement prevents gesture interference with combinedClickable.
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(8.dp)
-                .pointerInput(Unit) {
+                .height(12.dp)
+                .zIndex(2f)
+                .pointerInput(heightDp) {
                     var startHeight = heightDp
                     detectDragGestures(
-                        onDragStart = { 
+                        onDragStart = {
                             startHeight = heightDp
-                            isDragging = true 
+                            isDragging = true
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
@@ -1258,28 +1330,38 @@ fun RowHeaderCell(
                         onDragEnd = { isDragging = false },
                         onDragCancel = { isDragging = false }
                     )
-                }
-                .background(if (isDragging) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent)
-        )
-
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(text = { Text("Insert Row Above") }, onClick = { showMenu = false; onContextAction("INSERT_ABOVE") })
-            DropdownMenuItem(text = { Text("Insert Row Below") }, onClick = { showMenu = false; onContextAction("INSERT_BELOW") })
-            DropdownMenuItem(text = { Text("Delete Row") }, onClick = { showMenu = false; onContextAction("DELETE") })
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            // Visual divider line
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .height(2.dp)
+                    .background(
+                        if (isDragging) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    )
+            )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DataCell(
     cellData: CellData,
     colWidthDp: Float,
     rowHeightDp: Float,
     isSelected: Boolean,
+    isRowSelected: Boolean = false,  // true when the entire row this cell belongs to is selected via row header
     isSearchResult: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onUpdateValue: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    var showContextMenu by remember { mutableStateOf(false) }
 
     if (!cellData.isMergeAnchor) {
         // Covered by a merge — render invisible spacer
@@ -1288,7 +1370,8 @@ fun DataCell(
     }
 
     val bgColor = when {
-        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        isSelected     -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        isRowSelected  -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f)
         isSearchResult -> Color(0xFFFFF59D)
         cellData.colorHex != null -> try { Color(android.graphics.Color.parseColor(cellData.colorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.surface }
         else -> MaterialTheme.colorScheme.surface
@@ -1320,15 +1403,21 @@ fun DataCell(
                         else if (isSearchResult) Color(0xFFFBC02D)
                         else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
             )
-            .clickable {
-                if (cellData.hyperlinkUrl != null) {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(cellData.hyperlinkUrl)))
-                    } catch (e: Exception) { onClick() }
-                } else {
+            .combinedClickable(
+                onClick = {
+                    if (cellData.hyperlinkUrl != null) {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(cellData.hyperlinkUrl)))
+                        } catch (e: Exception) { onClick() }
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
                     onClick()
+                    showContextMenu = true
                 }
-            }
+            )
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = when (cellData.horizontalAlign) {
             "CENTER" -> Alignment.Center
@@ -1372,6 +1461,42 @@ fun DataCell(
                 }
                 drawPath(path, Color.Red)
             }
+        }
+
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Copy") },
+                onClick = {
+                    showContextMenu = false
+                    clipboardManager.setText(AnnotatedString(cellData.text))
+                    Toast.makeText(context, "Cell text copied!", Toast.LENGTH_SHORT).show()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Paste") },
+                onClick = {
+                    showContextMenu = false
+                    val pasteText = clipboardManager.getText()?.text ?: ""
+                    onUpdateValue(pasteText)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Clear") },
+                onClick = {
+                    showContextMenu = false
+                    onUpdateValue("")
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Edit") },
+                onClick = {
+                    showContextMenu = false
+                    onClick()
+                }
+            )
         }
     }
 }

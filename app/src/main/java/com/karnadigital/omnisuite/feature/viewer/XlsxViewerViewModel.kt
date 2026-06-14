@@ -86,7 +86,7 @@ class XlsxViewerViewModel @Inject constructor(
     private val _saveStatus = kotlinx.coroutines.flow.MutableSharedFlow<String>()
     val saveStatus = _saveStatus.asSharedFlow()
 
-    private var activeWorkbook: XSSFWorkbook? = null
+    private var activeWorkbook: org.apache.poi.ss.usermodel.Workbook? = null
     private var activeFilePath: String? = null
 
     private val _searchQuery = MutableStateFlow("")
@@ -99,7 +99,7 @@ class XlsxViewerViewModel @Inject constructor(
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
     /**
-     * Safely reads XLSX content off the main thread using Apache POI, formatting
+     * Safely reads XLSX/XLS/CSV content off the main thread using Apache POI, formatting
      * cell values properly, and updating Room DB logs.
      */
     fun loadExcelFile(filePath: String) {
@@ -116,7 +116,7 @@ class XlsxViewerViewModel @Inject constructor(
                 activeFilePath = null
 
                 var fileInputStream: FileInputStream? = null
-                var workbook: XSSFWorkbook? = null
+                var workbook: org.apache.poi.ss.usermodel.Workbook? = null
                 try {
                     val file = File(filePath)
                     if (!file.exists() || !file.isFile) {
@@ -124,9 +124,12 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    val isCsv = file.name.endsWith(".csv", ignoreCase = true) || !isZipFile(file)
+                    val isCsv = file.name.endsWith(".csv", ignoreCase = true) || (!file.name.endsWith(".xls", ignoreCase = true) && !isZipFile(file))
                     workbook = if (isCsv) {
                         loadCsvAsWorkbook(file)
+                    } else if (file.name.endsWith(".xls", ignoreCase = true)) {
+                        fileInputStream = FileInputStream(file)
+                        org.apache.poi.hssf.usermodel.HSSFWorkbook(fileInputStream)
                     } else {
                         fileInputStream = FileInputStream(file)
                         XSSFWorkbook(fileInputStream)
@@ -230,7 +233,7 @@ class XlsxViewerViewModel @Inject constructor(
         return result
     }
 
-    private fun parseWorkbook(wb: XSSFWorkbook): ExcelWorkbook {
+    private fun parseWorkbook(wb: org.apache.poi.ss.usermodel.Workbook): ExcelWorkbook {
         val dataFormatter = org.apache.poi.ss.usermodel.DataFormatter()
         val evaluator = try { wb.creationHelper.createFormulaEvaluator() } catch (e: Exception) { null }
         val sheetList = mutableListOf<ExcelSheet>()
@@ -238,7 +241,7 @@ class XlsxViewerViewModel @Inject constructor(
         val EXTRA_COLS = 10   // empty extension cols beyond data
 
         for (s in 0 until wb.numberOfSheets) {
-            val sheet = wb.getSheetAt(s) as org.apache.poi.xssf.usermodel.XSSFSheet
+            val sheet = wb.getSheetAt(s)
             val sheetName = sheet.sheetName ?: "Sheet ${s + 1}"
 
             // --- Column widths ---
@@ -262,7 +265,9 @@ class XlsxViewerViewModel @Inject constructor(
             data class MergeInfo(val colSpan: Int, val rowSpan: Int)
             val mergeAnchorMap = mutableMapOf<String, MergeInfo>()
             val coveredCells = mutableSetOf<String>()
-            for (region in sheet.mergedRegions) {
+            val numRegions = sheet.numMergedRegions
+            for (i in 0 until numRegions) {
+                val region = sheet.getMergedRegion(i)
                 val key = "${region.firstRow},${region.firstColumn}"
                 mergeAnchorMap[key] = MergeInfo(
                     colSpan = region.lastColumn - region.firstColumn + 1,
@@ -278,7 +283,11 @@ class XlsxViewerViewModel @Inject constructor(
             }
 
             // --- Freeze pane ---
-            val paneInfo = sheet.paneInformation
+            val paneInfo = when (sheet) {
+                is org.apache.poi.xssf.usermodel.XSSFSheet -> sheet.paneInformation
+                is org.apache.poi.hssf.usermodel.HSSFSheet -> sheet.paneInformation
+                else -> null
+            }
             // getHorizontalSplitPosition() = number of frozen rows for a freeze-pane
             // getVerticalSplitPosition()   = number of frozen columns for a freeze-pane
             val frozenRows = if (paneInfo?.isFreezePane == true) paneInfo.horizontalSplitPosition.toInt() else 0
@@ -312,7 +321,7 @@ class XlsxViewerViewModel @Inject constructor(
                     }
 
                     // --- Style ---
-                    val style = cell.cellStyle as? org.apache.poi.xssf.usermodel.XSSFCellStyle
+                    val style = cell.cellStyle
                     var colorHex: String? = null
                     var isBold = false
                     var isItalic = false
@@ -322,11 +331,22 @@ class XlsxViewerViewModel @Inject constructor(
                     var hAlign = "LEFT"
 
                     if (style != null) {
-                        val fgColor = style.fillForegroundXSSFColor
-                        if (fgColor != null && style.fillPattern != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL) {
-                            val rgb = fgColor.argbHex
-                            if (rgb != null && rgb.length >= 6 && !rgb.endsWith("000000") && !rgb.endsWith("FFFFFF") && !rgb.endsWith("ffffff")) {
-                                colorHex = "#" + rgb.substring(rgb.length - 6)
+                        if (style is org.apache.poi.xssf.usermodel.XSSFCellStyle) {
+                            val fgColor = style.fillForegroundXSSFColor
+                            if (fgColor != null && style.fillPattern != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL) {
+                                val rgb = fgColor.argbHex
+                                if (rgb != null && rgb.length >= 6 && !rgb.endsWith("000000") && !rgb.endsWith("FFFFFF") && !rgb.endsWith("ffffff")) {
+                                    colorHex = "#" + rgb.substring(rgb.length - 6)
+                                }
+                            }
+                        } else if (style is org.apache.poi.hssf.usermodel.HSSFCellStyle) {
+                            if (style.fillPattern != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL) {
+                                val palette = (wb as? org.apache.poi.hssf.usermodel.HSSFWorkbook)?.customPalette
+                                val color = palette?.getColor(style.fillForegroundColor)
+                                val rgb = color?.triplet
+                                if (rgb != null && rgb.size >= 3) {
+                                    colorHex = String.format("#%02X%02X%02X", rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt())
+                                }
                             }
                         }
                         val font = wb.getFontAt(style.fontIndexAsInt)
@@ -334,9 +354,18 @@ class XlsxViewerViewModel @Inject constructor(
                         isItalic = font.italic
                         isUnderline = font.underline != org.apache.poi.ss.usermodel.Font.U_NONE
                         fontSizePt = if (font.fontHeightInPoints > 0) font.fontHeightInPoints.toInt() else 10
-                        val xssfFont = font as? org.apache.poi.xssf.usermodel.XSSFFont
-                        xssfFont?.xssfColor?.argbHex?.let { rgb ->
-                            if (rgb.length >= 6) textColorHex = "#" + rgb.substring(rgb.length - 6)
+                        if (font is org.apache.poi.xssf.usermodel.XSSFFont) {
+                            font.xssfColor?.argbHex?.let { rgb ->
+                                if (rgb.length >= 6) textColorHex = "#" + rgb.substring(rgb.length - 6)
+                            }
+                        } else if (font is org.apache.poi.hssf.usermodel.HSSFFont) {
+                            val colorIndex = font.color
+                            val palette = (wb as? org.apache.poi.hssf.usermodel.HSSFWorkbook)?.customPalette
+                            val color = palette?.getColor(colorIndex)
+                            val rgb = color?.triplet
+                            if (rgb != null && rgb.size >= 3) {
+                                textColorHex = String.format("#%02X%02X%02X", rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt())
+                            }
                         }
                         hAlign = when (style.alignment) {
                             org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER -> "CENTER"
@@ -401,7 +430,9 @@ class XlsxViewerViewModel @Inject constructor(
             }
 
             // --- Charts ---
-            val charts = extractCharts(sheet)
+            val charts = if (sheet is org.apache.poi.xssf.usermodel.XSSFSheet) {
+                extractCharts(sheet)
+            } else emptyList()
 
             sheetList.add(ExcelSheet(
                 name = sheetName,
@@ -548,18 +579,27 @@ class XlsxViewerViewModel @Inject constructor(
         // Background Color Fill
         if (colorHex != null) {
             style.fillPattern = org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND
-            val xssfColor = org.apache.poi.xssf.usermodel.XSSFColor(
-                byteArrayOf(
-                    Integer.parseInt(colorHex.substring(1, 3), 16).toByte(),
-                    Integer.parseInt(colorHex.substring(3, 5), 16).toByte(),
-                    Integer.parseInt(colorHex.substring(5, 7), 16).toByte()
-                ),
-                null
-            )
-            (style as org.apache.poi.xssf.usermodel.XSSFCellStyle).setFillForegroundColor(xssfColor)
+            if (style is org.apache.poi.xssf.usermodel.XSSFCellStyle) {
+                val xssfColor = org.apache.poi.xssf.usermodel.XSSFColor(
+                    byteArrayOf(
+                        Integer.parseInt(colorHex.substring(1, 3), 16).toByte(),
+                        Integer.parseInt(colorHex.substring(3, 5), 16).toByte(),
+                        Integer.parseInt(colorHex.substring(5, 7), 16).toByte()
+                    ),
+                    null
+                )
+                style.setFillForegroundColor(xssfColor)
+            } else if (wb is org.apache.poi.hssf.usermodel.HSSFWorkbook) {
+                val palette = wb.customPalette
+                val r = Integer.parseInt(colorHex.substring(1, 3), 16)
+                val g = Integer.parseInt(colorHex.substring(3, 5), 16)
+                val b = Integer.parseInt(colorHex.substring(5, 7), 16)
+                val hssfColor = palette.findSimilarColor(r, g, b)
+                style.fillForegroundColor = hssfColor?.index ?: org.apache.poi.hssf.util.HSSFColor.HSSFColorPredefined.GREY_25_PERCENT.index
+            }
         } else {
             // Keep default style
-            val cellStyle = cell.cellStyle as? org.apache.poi.xssf.usermodel.XSSFCellStyle
+            val cellStyle = cell.cellStyle
             if (cellStyle != null) {
                 style.cloneStyleFrom(cellStyle)
             }
@@ -571,15 +611,21 @@ class XlsxViewerViewModel @Inject constructor(
         font.italic = isItalic
         font.underline = if (isUnderline) org.apache.poi.ss.usermodel.Font.U_SINGLE else org.apache.poi.ss.usermodel.Font.U_NONE
         if (textColorHex != null) {
-            val xssfFont = font as? org.apache.poi.xssf.usermodel.XSSFFont
-            if (xssfFont != null) {
+            if (font is org.apache.poi.xssf.usermodel.XSSFFont) {
                 val colorBytes = byteArrayOf(
                     Integer.parseInt(textColorHex.substring(1, 3), 16).toByte(),
                     Integer.parseInt(textColorHex.substring(3, 5), 16).toByte(),
                     Integer.parseInt(textColorHex.substring(5, 7), 16).toByte()
                 )
                 val xColor = org.apache.poi.xssf.usermodel.XSSFColor(colorBytes, null)
-                xssfFont.setColor(xColor)
+                font.setColor(xColor)
+            } else if (font is org.apache.poi.hssf.usermodel.HSSFFont && wb is org.apache.poi.hssf.usermodel.HSSFWorkbook) {
+                val palette = wb.customPalette
+                val r = Integer.parseInt(textColorHex.substring(1, 3), 16)
+                val g = Integer.parseInt(textColorHex.substring(3, 5), 16)
+                val b = Integer.parseInt(textColorHex.substring(5, 7), 16)
+                val hssfColor = palette.findSimilarColor(r, g, b)
+                font.color = hssfColor?.index ?: org.apache.poi.hssf.util.HSSFColor.HSSFColorPredefined.BLACK.index
             }
         }
         style.setFont(font)
@@ -627,11 +673,157 @@ class XlsxViewerViewModel @Inject constructor(
             e.printStackTrace()
         }
 
-        // Re-parse and update the screen representation state
-        val updatedWb = parseWorkbook(wb)
-        _loadState.value = XlsxLoadState.Success(updatedWb, File(activeFilePath!!).name)
-    }
+        // Targeted in-memory state update — rebuild only the changed cell's CellData
+        // instead of calling parseWorkbook() which re-reads every cell across all sheets.
+        // Full parseWorkbook() is reserved for structural operations (insert/delete row/col).
+        val currentState = _loadState.value as? XlsxLoadState.Success ?: run {
+            val updatedWb = parseWorkbook(wb)
+            _loadState.value = XlsxLoadState.Success(updatedWb, File(activeFilePath!!).name)
+            return
+        }
+        try {
+            val updatedCell = row.getCell(colIndex)
+            val newCellData = if (updatedCell != null) {
+                val coordKey = "$rowIndex,$colIndex"
+                data class MergeInfo(val colSpan: Int, val rowSpan: Int)
+                val mergeAnchorMap = mutableMapOf<String, MergeInfo>()
+                for (i in 0 until sheet.numMergedRegions) {
+                    val region = sheet.getMergedRegion(i)
+                    if (region.isInRange(rowIndex, colIndex)) {
+                        val colSpan = region.lastColumn - region.firstColumn + 1
+                        val rowSpan = region.lastRow - region.firstRow + 1
+                        val anchorKey = "${region.firstRow},${region.firstColumn}"
+                        mergeAnchorMap[anchorKey] = MergeInfo(colSpan, rowSpan)
+                    }
+                }
+                val mergeInfo = mergeAnchorMap[coordKey]
 
+                val style = updatedCell.cellStyle
+                var colorHex: String? = null
+                var isBold = false
+                var isItalic = false
+                var isUnderline = false
+                var textColorHex: String? = null
+                var fontSizePt = 10
+                var hAlign = "LEFT"
+
+                if (style != null) {
+                    if (style is org.apache.poi.xssf.usermodel.XSSFCellStyle) {
+                        val fgColor = style.fillForegroundXSSFColor
+                        if (fgColor != null && style.fillPattern != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL) {
+                            val rgb = fgColor.argbHex
+                            if (rgb != null && rgb.length >= 6 && !rgb.endsWith("000000") && !rgb.endsWith("FFFFFF") && !rgb.endsWith("ffffff")) {
+                                colorHex = "#" + rgb.substring(rgb.length - 6)
+                            }
+                        }
+                    } else if (style is org.apache.poi.hssf.usermodel.HSSFCellStyle) {
+                        if (style.fillPattern != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL) {
+                            val palette = (wb as? org.apache.poi.hssf.usermodel.HSSFWorkbook)?.customPalette
+                            val color = palette?.getColor(style.fillForegroundColor)
+                            val rgb = color?.triplet
+                            if (rgb != null && rgb.size >= 3) {
+                                colorHex = String.format("#%02X%02X%02X", rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt())
+                            }
+                        }
+                    }
+                    val font = wb.getFontAt(style.fontIndexAsInt)
+                    isBold = font.bold
+                    isItalic = font.italic
+                    isUnderline = font.underline != org.apache.poi.ss.usermodel.Font.U_NONE
+                    fontSizePt = if (font.fontHeightInPoints > 0) font.fontHeightInPoints.toInt() else 10
+                    if (font is org.apache.poi.xssf.usermodel.XSSFFont) {
+                        font.xssfColor?.argbHex?.let { rgb ->
+                            if (rgb.length >= 6) textColorHex = "#" + rgb.substring(rgb.length - 6)
+                        }
+                    } else if (font is org.apache.poi.hssf.usermodel.HSSFFont) {
+                        val colorIndex = font.color
+                        val palette = (wb as? org.apache.poi.hssf.usermodel.HSSFWorkbook)?.customPalette
+                        val color = palette?.getColor(colorIndex)
+                        val rgb = color?.triplet
+                        if (rgb != null && rgb.size >= 3) {
+                            textColorHex = String.format("#%02X%02X%02X", rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt())
+                        }
+                    }
+                    hAlign = when (style.alignment) {
+                        org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER -> "CENTER"
+                        org.apache.poi.ss.usermodel.HorizontalAlignment.RIGHT -> "RIGHT"
+                        else -> "LEFT"
+                    }
+                }
+
+                val formulaString = if (updatedCell.cellType == org.apache.poi.ss.usermodel.CellType.FORMULA) {
+                    "=${updatedCell.cellFormula}"
+                } else null
+
+                val dataFormatter = org.apache.poi.ss.usermodel.DataFormatter()
+                val evaluator = try { wb.creationHelper.createFormulaEvaluator() } catch(e: Exception) { null }
+
+                val displayText = try {
+                    if (updatedCell.cellType == org.apache.poi.ss.usermodel.CellType.FORMULA && evaluator != null) {
+                        val evaluated = evaluator.evaluate(updatedCell)
+                        when (evaluated?.cellType) {
+                            org.apache.poi.ss.usermodel.CellType.NUMERIC -> {
+                                if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(updatedCell)) {
+                                    dataFormatter.formatCellValue(updatedCell, evaluator)
+                                } else {
+                                    val n = evaluated.numberValue
+                                    if (n == n.toLong().toDouble()) n.toLong().toString() else n.toString()
+                                }
+                            }
+                            org.apache.poi.ss.usermodel.CellType.STRING -> evaluated.stringValue ?: ""
+                            org.apache.poi.ss.usermodel.CellType.BOOLEAN -> evaluated.booleanValue.toString()
+                            else -> dataFormatter.formatCellValue(updatedCell, evaluator)
+                        }
+                    } else {
+                        dataFormatter.formatCellValue(updatedCell)
+                    }
+                } catch (e: Exception) {
+                    try { updatedCell.toString() } catch (e2: Exception) { "" }
+                }
+
+                val hyperlinkUrl = try { updatedCell.hyperlink?.address } catch (e: Exception) { null }
+                val cellComment = try { updatedCell.cellComment?.string?.string } catch (e: Exception) { null }
+
+                CellData(
+                    text = displayText,
+                    formulaString = formulaString,
+                    colorHex = colorHex,
+                    isBold = isBold,
+                    isItalic = isItalic,
+                    isUnderline = isUnderline,
+                    textColorHex = textColorHex,
+                    fontSizePt = fontSizePt,
+                    comment = cellComment,
+                    hyperlinkUrl = hyperlinkUrl,
+                    mergeColSpan = mergeInfo?.colSpan ?: 1,
+                    mergeRowSpan = mergeInfo?.rowSpan ?: 1,
+                    isMergeAnchor = true,
+                    horizontalAlign = hAlign
+                )
+            } else {
+                CellData("")
+            }
+            val updatedSheets = currentState.workbook.sheets.mapIndexed { si, excelSheet ->
+                if (si != sheetIndex) excelSheet
+                else {
+                    val updatedRows = excelSheet.rows.mapIndexed { ri, rowList ->
+                        if (ri != rowIndex) rowList
+                        else rowList.mapIndexed { ci, cellData ->
+                            if (ci != colIndex) cellData else newCellData
+                        }
+                    }
+                    excelSheet.copy(rows = updatedRows)
+                }
+            }
+            _loadState.value = XlsxLoadState.Success(
+                ExcelWorkbook(updatedSheets),
+                currentState.fileName
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fall back to full re-parse only if targeted update fails
+        }
+    }
     fun insertRow(sheetIndex: Int, atRowIndex: Int, above: Boolean = true) {
         val wb = activeWorkbook ?: return
         val sheet = wb.getSheetAt(sheetIndex) ?: return
