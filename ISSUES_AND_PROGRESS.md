@@ -65,10 +65,32 @@ We have identified the following compilation/structural issues to address in the
   - Validate that reflection-based PDFBox and Apache POI loaders run without `ClassNotFoundException` runtime failures.
   - Ensure total compiled binary size conforms to the **under-30MB** budget.
 
+### Issue 4: Legacy PowerPoint (.ppt) Slides Parsing Crash
+- **Symptoms**: Trying to load legacy binary `.ppt` files results in `ClassNotFoundException` or `NoClassDefFoundError` for `java.awt.Color` or `java.awt.geom` elements.
+- **Root Cause**:
+  - Apache POI's `hslf` sub-library (used for parsing legacy binary PowerPoint files) heavily relies on standard Java SE AWT classes for parsing shape vectors, colors, and line coordinates.
+  - Unlike modern `xml` based OpenXML files (`.pptx`) where colors and dimensions are represented as clean raw strings in XML properties, legacy `.ppt` parsing requires AWT objects.
+  - Since Android does not include AWT classes on device, calling any shape property, placeholder, or paragraph method on `HSLFSlide` or `HSLFTextRun` objects causes JVM runtime failures.
+- **Recommended Solution**:
+  - Fully isolate legacy `.ppt` binary loads or use a pure-Kotlin/Java port of AWT shape utilities.
+  - Alternatively, convert legacy PPT binary files to PPTX files prior to rendering, or suppress shape details entirely and render only text extract runs without resolving AWT styles.
+
+### Issue 5: Docx Mobile Print Layout Text Clipping and Layout Overflow
+- **Symptoms**: Content on pages gets clipped or missing when switching to Mobile Print Layout.
+- **Root Cause**:
+  - The pagination model in `DocxViewerScreen.kt` uses a static heuristic of 55 lines per page budget and assumes `charsPerLine = 65` for wrapping.
+  - On actual mobile viewports, the rendered card size fits the A4 aspect ratio, but the screen width is narrow, causing text lines of 65 characters to wrap into 2-3 lines.
+  - The page content overflows the vertical height of the non-scrollable page card container and gets clipped (`.clip()`), hiding text and tables.
+- **Recommended Solution**:
+  - Replace the static text-length heuristic with a dynamic layout measurer using Compose `SubcomposeLayout` or `onGloballyPositioned` to measure the actual pixel heights of paragraphs on the screen.
+  - Break elements dynamically across pages based on exact pixel layout heights relative to the measured A4 card container height.
+
 ---
 
 ## 📋 Recommended Action Plan for Next Session
 
 1. **Fix layout declaration**: Update `WatermarkScreen.kt` border configuration.
 2. **Execute compilation task**: Run `./gradlew.bat compileDebugKotlin` to verify the main compilation passes cleanly.
-3. **Execute optimized release bundle**: Run `./gradlew.bat bundleRelease` to build the final production package.
+3. **Resolve AWT dependencies or suppress styles for legacy PPT**: Refactor HSLF parser references to avoid AWT lookups.
+4. **Implement dynamic layout height measurements**: Update Docx print pagination to prevent clipping.
+5. **Execute optimized release bundle**: Run `./gradlew.bat bundleRelease` to build the final production package.

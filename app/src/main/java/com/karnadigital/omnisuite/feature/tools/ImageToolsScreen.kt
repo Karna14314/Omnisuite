@@ -773,6 +773,17 @@ fun ImageToolsScreen(
         } ?: "image/jpeg",
         onOpenFile = onOpenFile
     )
+
+    if (showCropDialog && uiState.previewBitmap != null) {
+        VisualCropDialog(
+            bitmap = uiState.previewBitmap!!,
+            onDismiss = { showCropDialog = false },
+            onCropApplied = { left, top, right, bottom ->
+                viewModel.applyCropRatios(left, top, right, bottom)
+                showCropDialog = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -1012,5 +1023,233 @@ private fun formatSize(bytes: Long): String {
     val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
     val pre = "KMGTPE"[exp - 1]
     return String.format("%.1f %sB", bytes / Math.pow(1024.0, exp.toDouble()), pre)
+}
+
+@Composable
+private fun VisualCropDialog(
+    bitmap: Bitmap,
+    onDismiss: () -> Unit,
+    onCropApplied: (Float, Float, Float, Float) -> Unit
+) {
+    var cropLeft by remember { mutableStateOf(0.1f) }
+    var cropTop by remember { mutableStateOf(0.1f) }
+    var cropRight by remember { mutableStateOf(0.9f) }
+    var cropBottom by remember { mutableStateOf(0.9f) }
+
+    var activeHandle by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                    Text(
+                        text = "Crop Image",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    IconButton(
+                        onClick = {
+                            onCropApplied(cropLeft, cropTop, cropRight, cropBottom)
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Default.Check, contentDescription = "Apply", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+
+                // Crop area
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val containerWidth = constraints.maxWidth.toFloat()
+                    val containerHeight = constraints.maxHeight.toFloat()
+
+                    val bmpWidth = bitmap.width.toFloat()
+                    val bmpHeight = bitmap.height.toFloat()
+
+                    val bmpRatio = bmpWidth / bmpHeight
+                    val containerRatio = containerWidth / containerHeight
+
+                    val drawWidth: Float
+                    val drawHeight: Float
+                    val offsetX: Float
+                    val offsetY: Float
+
+                    if (bmpRatio > containerRatio) {
+                        drawWidth = containerWidth
+                        drawHeight = containerWidth / bmpRatio
+                        offsetX = 0f
+                        offsetY = (containerHeight - drawHeight) / 2f
+                    } else {
+                        drawWidth = containerHeight * bmpRatio
+                        drawHeight = containerHeight
+                        offsetX = (containerWidth - drawWidth) / 2f
+                        offsetY = 0f
+                    }
+
+                    val pxLeft = offsetX + cropLeft * drawWidth
+                    val pxTop = offsetY + cropTop * drawHeight
+                    val pxRight = offsetX + cropRight * drawWidth
+                    val pxBottom = offsetY + cropBottom * drawHeight
+
+                    // Render Image inside the same bounding box
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+
+                    // Touch interaction canvas overlay
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(bitmap) {
+                                val touchRadius = 30.dp.toPx()
+                                detectDragGestures(
+                                    onDragStart = { startOffset ->
+                                        val x = startOffset.x
+                                        val y = startOffset.y
+
+                                        fun distSq(x1: Float, y1: Float, x2: Float, y2: Float) = (x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
+                                        val tlD = distSq(x, y, pxLeft, pxTop)
+                                        val trD = distSq(x, y, pxRight, pxTop)
+                                        val blD = distSq(x, y, pxLeft, pxBottom)
+                                        val brD = distSq(x, y, pxRight, pxBottom)
+
+                                        val rSq = touchRadius * touchRadius
+                                        activeHandle = when {
+                                            tlD < rSq -> "TL"
+                                            trD < rSq -> "TR"
+                                            blD < rSq -> "BL"
+                                            brD < rSq -> "BR"
+                                            x >= pxLeft && x <= pxRight && y >= pxTop && y <= pxBottom -> "BODY"
+                                            else -> null
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        val handle = activeHandle ?: return@detectDragGestures
+                                        val pos = change.position
+
+                                        val relX = ((pos.x - offsetX) / drawWidth).coerceIn(0f, 1f)
+                                        val relY = ((pos.y - offsetY) / drawHeight).coerceIn(0f, 1f)
+
+                                        val minGap = 0.05f
+
+                                        when (handle) {
+                                            "TL" -> {
+                                                cropLeft = relX.coerceAtMost(cropRight - minGap)
+                                                cropTop = relY.coerceAtMost(cropBottom - minGap)
+                                            }
+                                            "TR" -> {
+                                                cropRight = relX.coerceAtLeast(cropLeft + minGap)
+                                                cropTop = relY.coerceAtMost(cropBottom - minGap)
+                                            }
+                                            "BL" -> {
+                                                cropLeft = relX.coerceAtMost(cropRight - minGap)
+                                                cropBottom = relY.coerceAtLeast(cropTop + minGap)
+                                            }
+                                            "BR" -> {
+                                                cropRight = relX.coerceAtLeast(cropLeft + minGap)
+                                                cropBottom = relY.coerceAtLeast(cropTop + minGap)
+                                            }
+                                            "BODY" -> {
+                                                val deltaX = dragAmount.x / drawWidth
+                                                val deltaY = dragAmount.y / drawHeight
+                                                val w = cropRight - cropLeft
+                                                val h = cropBottom - cropTop
+                                                val newLeft = (cropLeft + deltaX).coerceIn(0f, 1f - w)
+                                                val newTop = (cropTop + deltaY).coerceIn(0f, 1f - h)
+                                                cropLeft = newLeft
+                                                cropRight = newLeft + w
+                                                cropTop = newTop
+                                                cropBottom = newTop + h
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        activeHandle = null
+                                    }
+                                )
+                            }
+                    ) {
+                        val dimColor = Color(0x99000000)
+
+                        // Top dim
+                        drawRect(
+                            color = dimColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(offsetX, offsetY),
+                            size = androidx.compose.ui.geometry.Size(drawWidth, pxTop - offsetY)
+                        )
+                        // Bottom dim
+                        drawRect(
+                            color = dimColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(offsetX, pxBottom),
+                            size = androidx.compose.ui.geometry.Size(drawWidth, offsetY + drawHeight - pxBottom)
+                        )
+                        // Left dim
+                        drawRect(
+                            color = dimColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(offsetX, pxTop),
+                            size = androidx.compose.ui.geometry.Size(pxLeft - offsetX, pxBottom - pxTop)
+                        )
+                        // Right dim
+                        drawRect(
+                            color = dimColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(pxRight, pxTop),
+                            size = androidx.compose.ui.geometry.Size(offsetX + drawWidth - pxRight, pxBottom - pxTop)
+                        )
+
+                        // Draw crop rect stroke
+                        drawRect(
+                            color = Color.White,
+                            topLeft = androidx.compose.ui.geometry.Offset(pxLeft, pxTop),
+                            size = androidx.compose.ui.geometry.Size(pxRight - pxLeft, pxBottom - pxTop),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                        )
+
+                        // Draw corner handle circles
+                        val handleRadius = 8.dp.toPx()
+                        val handleColor = Color.White
+                        drawCircle(color = handleColor, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(pxLeft, pxTop))
+                        drawCircle(color = handleColor, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(pxRight, pxTop))
+                        drawCircle(color = handleColor, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(pxLeft, pxBottom))
+                        drawCircle(color = handleColor, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(pxRight, pxBottom))
+                    }
+                }
+
+                // Bottom instructions
+                Text(
+                    text = "Drag corners to resize, drag center to move crop area.",
+                    color = Color.LightGray,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp)
+                )
+            }
+        }
+    }
 }
 
