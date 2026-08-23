@@ -539,38 +539,35 @@ fun DocxViewerScreen(
                                         Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .aspectRatio(1f / 1.4142f)
-                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                .defaultMinSize(minHeight = 500.dp)
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
                                             shape = RoundedCornerShape(4.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color.White),
                                             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                                         ) {
-                                            Box(modifier = Modifier.fillMaxSize()) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 32.dp),
-                                                    verticalArrangement = Arrangement.Top
-                                                ) {
-                                                    pageParagraphs.forEach { element ->
-                                                        when (element) {
-                                                            is DocxBodyElement.Para -> DocxParagraphItem(
-                                                                paragraph = element.paragraph,
-                                                                isHighlighted = false,
-                                                                searchQuery = searchQuery
-                                                            )
-                                                            is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
-                                                        }
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp)
+                                            ) {
+                                                pageParagraphs.forEach { element ->
+                                                    when (element) {
+                                                        is DocxBodyElement.Para -> DocxParagraphItem(
+                                                            paragraph = element.paragraph,
+                                                            isHighlighted = false,
+                                                            searchQuery = searchQuery
+                                                        )
+                                                        is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
                                                     }
                                                 }
+                                                Spacer(modifier = Modifier.height(16.dp))
                                                 // Page number footer
                                                 Text(
                                                     text = "Page ${pageIndex + 1} of ${pages.size}",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color.Gray,
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomCenter)
-                                                        .padding(bottom = 8.dp)
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth()
                                                 )
                                             }
                                         }

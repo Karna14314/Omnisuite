@@ -344,89 +344,147 @@ class PptxViewerViewModel @Inject constructor(
             var titleBlock = PptxTextBlock(
                 id = "title",
                 text = "Slide ${index + 1}",
-                fontSizePt = 28f,
+                fontSizePt = 24f,
                 shapeLeft = 0.05f,
-                shapeTop = 0.08f,
+                shapeTop = 0.05f,
                 shapeWidth = 0.9f,
-                shapeHeight = 0.18f
+                shapeHeight = 0.15f
             )
             var bodyCount = 0
 
-            val slideShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
+            // Helper function to recursively flatten group shapes and collect all shapes
+            val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
+            fun collectShapes(shapeList: List<org.apache.poi.sl.usermodel.Shape<*, *>>) {
+                for (sh in shapeList) {
+                    if (sh is org.apache.poi.sl.usermodel.GroupShape<*, *>) {
+                        val nested = try { sh.shapes } catch (t: Throwable) { emptyList() }
+                        collectShapes(nested)
+                    } else {
+                        allShapes.add(sh)
+                    }
+                }
+            }
+            val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
+            collectShapes(rootShapes)
 
-            for (shape in slideShapes) {
+            for (shape in allShapes) {
                 try {
                     if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
-                        val text = try { shape.text ?: "" } catch (t: Throwable) { "" }
-                        if (text.isNotBlank()) {
+                        val shapeText = try { shape.text ?: "" } catch (t: Throwable) { "" }
+                        if (shapeText.isNotBlank()) {
                             val isTitle = try {
                                 shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
                             } catch (t: Throwable) {
                                 shape.shapeName.lowercase().contains("title")
                             }
 
-                            val firstParagraph = try { shape.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
-                            val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
-
-                            val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
-                            val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
-                            val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
-                            val colorHex = firstRun?.let { extractTextRunColorHex(it) }
-
-                            val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
-                            val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else (if (isTitle) 28f else 16f)
-                            val bulletLevel = try { firstParagraph?.indentLevel ?: 0 } catch (t: Throwable) { 0 }
-
-                            val alignment = try {
-                                when (firstParagraph?.textAlign) {
-                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
-                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
-                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
-                                    else -> "LEFT"
-                                }
-                            } catch (t: Throwable) { "LEFT" }
-
                             val bounds = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
-                            val shapeLeft = bounds?.get(0) ?: (if (isTitle) 0.05f else 0.05f)
-                            val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.08f else (0.3f + bodyCount * 0.15f).coerceAtMost(0.8f))
-                            val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.18f else 0.15f)
 
                             if (isTitle) {
+                                val firstParagraph = try { shape.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
+                                val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
+                                val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { true }
+                                val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                val colorHex = firstRun?.let { extractTextRunColorHex(it) }
+                                val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
+                                val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 24f
+
+                                val alignment = try {
+                                    when (firstParagraph?.textAlign) {
+                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                        else -> "LEFT"
+                                    }
+                                } catch (t: Throwable) { "LEFT" }
+
                                 titleBlock = PptxTextBlock(
                                     id = "title",
-                                    text = text,
+                                    text = shapeText.trim(),
                                     isBold = isBold,
                                     isItalic = isItalic,
                                     isUnderline = isUnderline,
                                     textColorHex = colorHex,
                                     fontSizePt = fontSizePt,
-                                    bulletLevel = bulletLevel,
+                                    bulletLevel = 0,
                                     alignment = alignment,
-                                    shapeLeft = shapeLeft,
-                                    shapeTop = shapeTop,
-                                    shapeWidth = shapeWidthVal,
-                                    shapeHeight = shapeHeightVal
+                                    shapeLeft = bounds?.get(0) ?: 0.05f,
+                                    shapeTop = bounds?.get(1) ?: 0.05f,
+                                    shapeWidth = bounds?.get(2) ?: 0.9f,
+                                    shapeHeight = bounds?.get(3) ?: 0.15f
                                 )
                             } else {
-                                textBlocks.add(
-                                    PptxTextBlock(
-                                        id = "body_$bodyCount",
-                                        text = text,
-                                        isBold = isBold,
-                                        isItalic = isItalic,
-                                        isUnderline = isUnderline,
-                                        textColorHex = colorHex,
-                                        fontSizePt = fontSizePt,
-                                        bulletLevel = bulletLevel,
-                                        alignment = alignment,
-                                        shapeLeft = shapeLeft,
-                                        shapeTop = shapeTop,
-                                        shapeWidth = shapeWidthVal,
-                                        shapeHeight = shapeHeightVal
+                                // Extract each paragraph in the text box so bullet levels and formatting are preserved
+                                val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
+                                if (paragraphs.isNotEmpty()) {
+                                    for (p in paragraphs) {
+                                        val pRuns = try { p.textRuns } catch (t: Throwable) { emptyList() }
+                                        val pText = pRuns.joinToString("") { run ->
+                                            try { run.rawText ?: "" } catch (t: Throwable) { "" }
+                                        }.ifBlank {
+                                            try { p.toString().trim() } catch (t: Throwable) { "" }
+                                        }
+
+                                        if (pText.isNotBlank()) {
+                                            val firstRun = pRuns.firstOrNull()
+                                            val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
+                                            val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                            val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                            val colorHex = firstRun?.let { extractTextRunColorHex(it) }
+
+                                            val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
+                                            val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 15f
+                                            val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
+
+                                            val alignment = try {
+                                                when (p.textAlign) {
+                                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                                    org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                                    else -> "LEFT"
+                                                }
+                                            } catch (t: Throwable) { "LEFT" }
+
+                                            val shapeLeft = bounds?.get(0) ?: 0.05f
+                                            val shapeTop = bounds?.get(1) ?: (0.24f + bodyCount * 0.08f).coerceAtMost(0.85f)
+                                            val shapeWidthVal = bounds?.get(2) ?: 0.9f
+                                            val shapeHeightVal = bounds?.get(3) ?: 0.1f
+
+                                            textBlocks.add(
+                                                PptxTextBlock(
+                                                    id = "body_$bodyCount",
+                                                    text = pText.trim(),
+                                                    isBold = isBold,
+                                                    isItalic = isItalic,
+                                                    isUnderline = isUnderline,
+                                                    textColorHex = colorHex,
+                                                    fontSizePt = fontSizePt,
+                                                    bulletLevel = bulletLevel,
+                                                    alignment = alignment,
+                                                    shapeLeft = shapeLeft,
+                                                    shapeTop = shapeTop,
+                                                    shapeWidth = shapeWidthVal,
+                                                    shapeHeight = shapeHeightVal
+                                                )
+                                            )
+                                            bodyCount++
+                                        }
+                                    }
+                                } else {
+                                    textBlocks.add(
+                                        PptxTextBlock(
+                                            id = "body_$bodyCount",
+                                            text = shapeText.trim(),
+                                            fontSizePt = 15f,
+                                            shapeLeft = bounds?.get(0) ?: 0.05f,
+                                            shapeTop = bounds?.get(1) ?: (0.24f + bodyCount * 0.08f),
+                                            shapeWidth = bounds?.get(2) ?: 0.9f,
+                                            shapeHeight = bounds?.get(3) ?: 0.1f
+                                        )
                                     )
-                                )
-                                bodyCount++
+                                    bodyCount++
+                                }
                             }
                         }
                     } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
@@ -457,7 +515,7 @@ class PptxViewerViewModel @Inject constructor(
                                     textBlocks.add(
                                         PptxTextBlock(
                                             id = "table_cell_${r}_${c}",
-                                            text = text,
+                                            text = text.trim(),
                                             isBold = isBold,
                                             isItalic = isItalic,
                                             isUnderline = isUnderline,
@@ -479,34 +537,68 @@ class PptxViewerViewModel @Inject constructor(
                         try {
                             val picData = shape.pictureData
                             val dataBytes = picData.data
-                            val hash = dataBytes.contentHashCode().toString()
-                            val cacheKey = "${index}_$hash"
-                            val cachedFile = tempImageCache[cacheKey]
-                            val file = if (cachedFile != null && cachedFile.exists()) {
-                                cachedFile
-                            } else {
-                                val suggestExt = picData.contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
-                                val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
-                                tempFile.writeBytes(dataBytes)
-                                tempImageCache[cacheKey] = tempFile
-                                tempFile
+                            if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                val hash = dataBytes.contentHashCode().toString()
+                                val cacheKey = "${index}_$hash"
+                                val cachedFile = tempImageCache[cacheKey]
+                                val file = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+                                    cachedFile
+                                } else {
+                                    val suggestExt = picData.contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
+                                    val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
+                                    tempFile.outputStream().use { it.write(dataBytes) }
+                                    tempImageCache[cacheKey] = tempFile
+                                    tempFile
+                                }
+
+                                val bounds = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
+                                val left = bounds?.get(0) ?: 0.1f
+                                val top = bounds?.get(1) ?: 0.3f
+                                val width = bounds?.get(2) ?: 0.5f
+                                val height = bounds?.get(3) ?: 0.4f
+
+                                images.add(PptxImage(file.absolutePath, left, top, width, height))
                             }
-
-                            val bounds = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
-                            val left = bounds?.get(0) ?: 0.1f
-                            val top = bounds?.get(1) ?: 0.3f
-                            val width = bounds?.get(2) ?: 0.5f
-                            val height = bounds?.get(3) ?: 0.4f
-
-                            images.add(PptxImage(file.absolutePath, left, top, width, height))
                         } catch (t: Throwable) {
                             t.printStackTrace()
                         }
                     }
                 } catch (t: Throwable) {
-                    // Safe shape isolation: a corrupt shape won't crash the entire slide
                     t.printStackTrace()
                 }
+            }
+
+            // Also check slide package relationship parts for any embedded pictures
+            if (slide is XSLFSlide) {
+                try {
+                    val relParts = slide.relationParts
+                    for (rp in relParts) {
+                        val rel = try { rp.relationship } catch (t: Throwable) { null } ?: continue
+                        if (rel.relationshipType.contains("image", ignoreCase = true)) {
+                            val part = try {
+                                val m = rp.javaClass.getMethod("getDocumentPart")
+                                m.invoke(rp) as? org.apache.poi.ooxml.POIXMLDocumentPart
+                            } catch (t: Throwable) {
+                                try {
+                                    val f = rp.javaClass.getDeclaredField("documentPart")
+                                    f.isAccessible = true
+                                    f.get(rp) as? org.apache.poi.ooxml.POIXMLDocumentPart
+                                } catch (t2: Throwable) { null }
+                            }
+                            val bytes = try { part?.packagePart?.inputStream?.use { it.readBytes() } } catch (t: Throwable) { null }
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                val hash = bytes.contentHashCode().toString()
+                                val cacheKey = "${index}_rel_$hash"
+                                if (!images.any { it.filePath.contains(hash) } && !tempImageCache.containsKey(cacheKey)) {
+                                    val tempFile = File.createTempFile("pptx_img_rel_", ".png")
+                                    tempFile.outputStream().use { it.write(bytes) }
+                                    tempImageCache[cacheKey] = tempFile
+                                    images.add(PptxImage(tempFile.absolutePath, 0.1f, 0.3f, 0.8f, 0.4f))
+                                }
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {}
             }
 
             slides.add(

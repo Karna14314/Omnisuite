@@ -974,16 +974,19 @@ fun SlideCardItem(
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+            .defaultMinSize(minHeight = 280.dp)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp)
             )
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val scaleFactor = (maxWidth.value / 720f).coerceIn(0.1f, 2f)
-
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             // 1. Title Block
             val title = slide.title
             if (title.text.isNotBlank()) {
@@ -997,15 +1000,10 @@ fun SlideCardItem(
                     "JUSTIFY" -> TextAlign.Justify
                     else -> TextAlign.Start
                 }
-                
+
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(title.shapeWidth.coerceIn(0.1f, 1f))
-                        .fillMaxHeight(title.shapeHeight.coerceIn(0.05f, 1f))
-                        .offset(
-                            x = (title.shapeLeft * maxWidth.value).dp,
-                            y = (title.shapeTop * maxHeight.value).dp
-                        )
+                        .fillMaxWidth()
                         .clickable(enabled = isEditMode) {
                             onTextBlockClick(title, true, -1)
                         }
@@ -1021,23 +1019,27 @@ fun SlideCardItem(
                         Text(
                             text = title.text,
                             style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.SemiBold,
                                 fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                                 textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                fontSize = (title.fontSizePt * scaleFactor).sp,
-                                lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp,
+                                fontSize = 22.sp,
+                                lineHeight = 28.sp,
                                 textAlign = titleAlign
                             ),
                             color = titleColor,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
+
+                HorizontalDivider(
+                    color = titleColor.copy(alpha = 0.15f),
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
             }
 
-            // 2. Body Text Blocks
+            // 2. Body Content & Text Blocks
             slide.textBlocks.forEachIndexed { idx, block ->
                 val blockColor = block.textColorHex?.let {
                     try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
@@ -1052,12 +1054,7 @@ fun SlideCardItem(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(block.shapeWidth.coerceIn(0.1f, 1f))
-                        .fillMaxHeight(block.shapeHeight.coerceIn(0.05f, 1f))
-                        .offset(
-                            x = (block.shapeLeft * maxWidth.value).dp,
-                            y = (block.shapeTop * maxHeight.value).dp
-                        )
+                        .fillMaxWidth()
                         .clickable(enabled = isEditMode) {
                             onTextBlockClick(block, false, idx)
                         }
@@ -1076,24 +1073,24 @@ fun SlideCardItem(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             if (block.bulletLevel > 0) {
-                                Spacer(modifier = Modifier.width((block.bulletLevel * 8 * scaleFactor).dp))
+                                Spacer(modifier = Modifier.width((block.bulletLevel * 12).dp))
                                 Text(
                                     text = "• ",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                    style = MaterialTheme.typography.bodyLarge.copy(
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = (block.fontSizePt * scaleFactor).sp
+                                        fontSize = 16.sp
                                     ),
-                                    color = MaterialTheme.colorScheme.secondary
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Text(
                                 text = block.text,
-                                style = MaterialTheme.typography.bodyMedium.copy(
+                                style = MaterialTheme.typography.bodyLarge.copy(
                                     fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
                                     fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                                     textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                    fontSize = (block.fontSizePt * scaleFactor).sp,
-                                    lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp,
                                     textAlign = textAlign
                                 ),
                                 color = blockColor,
@@ -1104,22 +1101,20 @@ fun SlideCardItem(
                 }
             }
 
-            // 3. Images
-            slide.images.forEach { img ->
-                AsyncImage(
-                    model = File(img.filePath),
-                    contentDescription = "Slide Image",
-                    modifier = Modifier
-                        .fillMaxWidth(img.width.coerceIn(0.05f, 1f))
-                        .fillMaxHeight(img.height.coerceIn(0.05f, 1f))
-                        .offset(
-                            x = (img.left * maxWidth.value).dp,
-                            y = (img.top * maxHeight.value).dp
-                        )
-                        .clip(RoundedCornerShape(4.dp))
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                )
+            // 3. Embedded Images
+            if (slide.images.isNotEmpty()) {
+                slide.images.forEach { img ->
+                    AsyncImage(
+                        model = File(img.filePath),
+                        contentDescription = "Slide Image",
+                        modifier = Modifier
+                            .fillMaxWidth(0.95f)
+                            .heightIn(max = 240.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                }
             }
         }
     }

@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import coil.compose.AsyncImage
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -799,20 +800,25 @@ fun XlsxViewerScreen(
                                                 }
                                             }
 
-                                            // Draw sheet charts below the grid inside the scrollable column area
-                                            if (activeSheet.charts.isNotEmpty()) {
+                                            // Draw sheet charts and embedded images below the grid
+                                            if (activeSheet.charts.isNotEmpty() || activeSheet.images.isNotEmpty()) {
                                                 item {
                                                     Spacer(modifier = Modifier.height(24.dp))
                                                     Text(
-                                                        text = "Charts & Drawings",
+                                                        text = "Visualizations & Images (${activeSheet.charts.size + activeSheet.images.size})",
                                                         style = MaterialTheme.typography.titleMedium,
                                                         fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
                                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                                     )
                                                 }
                                                 items(activeSheet.charts.size) { chartIndex ->
                                                     val chart = activeSheet.charts[chartIndex]
                                                     SheetChartView(chart)
+                                                }
+                                                items(activeSheet.images.size) { imageIndex ->
+                                                    val img = activeSheet.images[imageIndex]
+                                                    SheetImageView(img)
                                                 }
                                             }
                                         }
@@ -1266,19 +1272,24 @@ fun ColumnHeaderCell(
             )
 
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(text = { Text("Auto-Fit Width") }, onClick = { showMenu = false; onContextAction("BEST_FIT") })
+                DropdownMenuItem(text = { Text("Width: Compact (60dp)") }, onClick = { showMenu = false; onResize(60f) })
+                DropdownMenuItem(text = { Text("Width: Standard (90dp)") }, onClick = { showMenu = false; onResize(90f) })
+                DropdownMenuItem(text = { Text("Width: Wide (150dp)") }, onClick = { showMenu = false; onResize(150f) })
+                DropdownMenuItem(text = { Text("Width: Extra Wide (220dp)") }, onClick = { showMenu = false; onResize(220f) })
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(text = { Text("Insert Column Left") }, onClick = { showMenu = false; onContextAction("INSERT_LEFT") })
                 DropdownMenuItem(text = { Text("Insert Column Right") }, onClick = { showMenu = false; onContextAction("INSERT_RIGHT") })
                 DropdownMenuItem(text = { Text("Delete Column") }, onClick = { showMenu = false; onContextAction("DELETE") })
-                DropdownMenuItem(text = { Text("Best Fit Width") }, onClick = { showMenu = false; onContextAction("BEST_FIT") })
             }
         }
 
-        // Sleek Right-Edge Resize Handle
+        // Sleek Right-Edge Resize Handle with generous 24dp touch target
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .offset(x = 6.dp)
-                .width(14.dp)
+                .offset(x = 12.dp)
+                .width(24.dp)
                 .fillMaxHeight()
                 .zIndex(10f)
                 .pointerInput(widthDp) {
@@ -1304,15 +1315,15 @@ fun ColumnHeaderCell(
                 Box(
                     modifier = Modifier
                         .width(3.dp)
-                        .fillMaxHeight(0.85f)
+                        .fillMaxHeight(0.9f)
                         .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .width(1.dp)
-                        .fillMaxHeight(0.6f)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                        .width(1.5.dp)
+                        .fillMaxHeight(0.65f)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                 )
             }
         }
@@ -1364,19 +1375,23 @@ fun RowHeaderCell(
             )
 
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(text = { Text("Height: Standard (24dp)") }, onClick = { showMenu = false; onResize(24f) })
+                DropdownMenuItem(text = { Text("Height: Medium (36dp)") }, onClick = { showMenu = false; onResize(36f) })
+                DropdownMenuItem(text = { Text("Height: Large (54dp)") }, onClick = { showMenu = false; onResize(54f) })
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(text = { Text("Insert Row Above") }, onClick = { showMenu = false; onContextAction("INSERT_ABOVE") })
                 DropdownMenuItem(text = { Text("Insert Row Below") }, onClick = { showMenu = false; onContextAction("INSERT_BELOW") })
                 DropdownMenuItem(text = { Text("Delete Row") }, onClick = { showMenu = false; onContextAction("DELETE") })
             }
         }
 
-        // Sleek Bottom-Edge Resize Handle
+        // Sleek Bottom-Edge Resize Handle with generous 24dp touch target
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = 6.dp)
+                .offset(y = 12.dp)
                 .fillMaxWidth()
-                .height(14.dp)
+                .height(24.dp)
                 .zIndex(10f)
                 .pointerInput(heightDp) {
                     var startHeight = heightDp
@@ -1402,17 +1417,48 @@ fun RowHeaderCell(
                 Box(
                     modifier = Modifier
                         .height(3.dp)
-                        .fillMaxWidth(0.85f)
+                        .fillMaxWidth(0.9f)
                         .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .height(1.dp)
-                        .fillMaxWidth(0.6f)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                        .height(1.5.dp)
+                        .fillMaxWidth(0.65f)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun SheetImageView(image: SheetImage) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                text = "Embedded Image (Row ${image.fromRow + 1}, Col ${image.fromCol + 1})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            AsyncImage(
+                model = File(image.filePath),
+                contentDescription = "Sheet Image",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+            )
         }
     }
 }

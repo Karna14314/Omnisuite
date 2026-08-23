@@ -43,6 +43,14 @@ data class CellData(
     val horizontalAlign: String = "LEFT" // ADD: "LEFT", "CENTER", "RIGHT"
 )
 
+data class SheetImage(
+    val filePath: String,
+    val fromRow: Int,
+    val fromCol: Int,
+    val colSpan: Int = 3,
+    val rowSpan: Int = 4
+)
+
 data class ExcelSheet(
     val name: String,
     val rows: List<List<CellData>>,
@@ -50,7 +58,8 @@ data class ExcelSheet(
     val rowHeightsDp: List<Float>,       // ADD: height per row in dp (derived from POI row height)
     val frozenRowCount: Int = 0,         // ADD: rows to freeze (from paneInformation)
     val frozenColCount: Int = 0,         // ADD: cols to freeze (from paneInformation)
-    val charts: List<SheetChart> = emptyList() // ADD: extracted charts
+    val charts: List<SheetChart> = emptyList(), // ADD: extracted charts
+    val images: List<SheetImage> = emptyList()  // ADD: extracted images
 )
 
 data class SheetChart(
@@ -88,6 +97,7 @@ class XlsxViewerViewModel @Inject constructor(
 
     private var activeWorkbook: org.apache.poi.ss.usermodel.Workbook? = null
     private var activeFilePath: String? = null
+    private val tempImageCache = mutableMapOf<String, File>()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -434,6 +444,9 @@ class XlsxViewerViewModel @Inject constructor(
                 extractCharts(sheet)
             } else emptyList()
 
+            // --- Images ---
+            val images = extractImages(sheet)
+
             sheetList.add(ExcelSheet(
                 name = sheetName,
                 rows = rowList,
@@ -441,10 +454,104 @@ class XlsxViewerViewModel @Inject constructor(
                 rowHeightsDp = rowHeightsDp,
                 frozenRowCount = frozenRows,
                 frozenColCount = frozenCols,
-                charts = charts
+                charts = charts,
+                images = images
             ))
         }
         return ExcelWorkbook(sheetList)
+    }
+
+    /**
+     * Extracts images embedded in the worksheet (both XSSF and HSSF) to local temp files.
+     */
+    private fun extractImages(sheet: org.apache.poi.ss.usermodel.Sheet): List<SheetImage> {
+        val images = mutableListOf<SheetImage>()
+        try {
+            if (sheet is org.apache.poi.xssf.usermodel.XSSFSheet) {
+                val drawing = sheet.drawingPatriarch
+                if (drawing != null) {
+                    val shapes = try { drawing.shapes } catch (e: Throwable) { emptyList() }
+                    for (shape in shapes) {
+                        if (shape is org.apache.poi.xssf.usermodel.XSSFPicture) {
+                            try {
+                                val picData = shape.pictureData
+                                val dataBytes = picData.data
+                                if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                    val hash = dataBytes.contentHashCode().toString()
+                                    val cacheKey = "xlsx_${sheet.sheetName}_$hash"
+                                    val cachedFile = tempImageCache[cacheKey]
+                                    val file = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+                                        cachedFile
+                                    } else {
+                                        val suggestExt = picData.suggestFileExtension() ?: "png"
+                                        val tempFile = File.createTempFile("xlsx_img_", ".$suggestExt")
+                                        tempFile.outputStream().use { it.write(dataBytes) }
+                                        tempImageCache[cacheKey] = tempFile
+                                        tempFile
+                                    }
+                                    val anchor = shape.clientAnchor
+                                    val fromRow = anchor?.row1?.toInt() ?: 0
+                                    val fromCol = anchor?.col1?.toInt() ?: 0
+                                    val toRow = anchor?.row2?.toInt() ?: (fromRow + 4)
+                                    val toCol = anchor?.col2?.toInt() ?: (fromCol + 3)
+                                    images.add(
+                                        SheetImage(
+                                            filePath = file.absolutePath,
+                                            fromRow = fromRow,
+                                            fromCol = fromCol,
+                                            colSpan = (toCol - fromCol).coerceAtLeast(1),
+                                            rowSpan = (toRow - fromRow).coerceAtLeast(1)
+                                        )
+                                    )
+                                }
+                            } catch (t: Throwable) { t.printStackTrace() }
+                        }
+                    }
+                }
+            } else if (sheet is org.apache.poi.hssf.usermodel.HSSFSheet) {
+                val drawing = sheet.drawingPatriarch
+                if (drawing != null) {
+                    val children = try { drawing.children } catch (e: Throwable) { emptyList() }
+                    for (shape in children) {
+                        if (shape is org.apache.poi.hssf.usermodel.HSSFPicture) {
+                            try {
+                                val picData = shape.pictureData
+                                val dataBytes = picData.data
+                                if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                    val hash = dataBytes.contentHashCode().toString()
+                                    val cacheKey = "xls_${sheet.sheetName}_$hash"
+                                    val cachedFile = tempImageCache[cacheKey]
+                                    val file = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+                                        cachedFile
+                                    } else {
+                                        val suggestExt = picData.suggestFileExtension() ?: "png"
+                                        val tempFile = File.createTempFile("xls_img_", ".$suggestExt")
+                                        tempFile.outputStream().use { it.write(dataBytes) }
+                                        tempImageCache[cacheKey] = tempFile
+                                        tempFile
+                                    }
+                                    val anchor = shape.anchor as? org.apache.poi.hssf.usermodel.HSSFClientAnchor
+                                    val fromRow = anchor?.row1?.toInt() ?: 0
+                                    val fromCol = anchor?.col1?.toInt() ?: 0
+                                    val toRow = anchor?.row2?.toInt() ?: (fromRow + 4)
+                                    val toCol = anchor?.col2?.toInt() ?: (fromCol + 3)
+                                    images.add(
+                                        SheetImage(
+                                            filePath = file.absolutePath,
+                                            fromRow = fromRow,
+                                            fromCol = fromCol,
+                                            colSpan = (toCol - fromCol).coerceAtLeast(1),
+                                            rowSpan = (toRow - fromRow).coerceAtLeast(1)
+                                        )
+                                    )
+                                }
+                            } catch (t: Throwable) { t.printStackTrace() }
+                        }
+                    }
+                }
+            }
+        } catch (t: Throwable) { t.printStackTrace() }
+        return images
     }
 
     /**
@@ -1176,6 +1283,10 @@ class XlsxViewerViewModel @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        tempImageCache.values.forEach { file ->
+            try { if (file.exists()) file.delete() } catch (t: Throwable) {}
+        }
+        tempImageCache.clear()
     }
 
     /**
