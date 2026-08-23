@@ -38,6 +38,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -175,11 +176,11 @@ fun XlsxViewerScreen(
         }
     )
 
-    LaunchedEffect(state) {
-        if (state is XlsxLoadState.Success) {
-            activeSheetIndex = 0
-            selectedCell = null
-        }
+    LaunchedEffect(fileUri) {
+        activeSheetIndex = 0
+        selectedCell = null
+        selectedRow = null
+        selectedColForSort = null
     }
 
     LaunchedEffect(Unit) {
@@ -839,29 +840,39 @@ fun XlsxViewerScreen(
                             // 3. Multi-Sheet Footer Selector TabRow
                             if (workbook.sheets.size > 1) {
                                 Surface(
-                                    tonalElevation = 3.dp,
-                                    shadowElevation = 3.dp,
+                                    tonalElevation = 4.dp,
+                                    shadowElevation = 4.dp,
+                                    color = MaterialTheme.colorScheme.surface,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     ScrollableTabRow(
-                                        selectedTabIndex = activeSheetIndex,
-                                        edgePadding = 16.dp,
+                                        selectedTabIndex = activeSheetIndex.coerceIn(0, (workbook.sheets.size - 1).coerceAtLeast(0)),
+                                        edgePadding = 12.dp,
                                         containerColor = MaterialTheme.colorScheme.surface,
                                         contentColor = MaterialTheme.colorScheme.primary,
+                                        divider = {
+                                            HorizontalDivider(
+                                                thickness = 1.dp,
+                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                            )
+                                        },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         workbook.sheets.forEachIndexed { index, sheet ->
+                                            val isSelected = activeSheetIndex == index
                                             Tab(
-                                                selected = activeSheetIndex == index,
+                                                selected = isSelected,
                                                 onClick = { 
                                                     activeSheetIndex = index 
                                                     selectedCell = null // Clear selection when sheet changes
                                                     selectedRow = null  // Clear row selection when sheet changes
+                                                    selectedColForSort = null
                                                 },
                                                 text = {
                                                     Text(
                                                         text = sheet.name,
-                                                        fontWeight = if (activeSheetIndex == index) FontWeight.Bold else FontWeight.Normal,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
@@ -1223,23 +1234,21 @@ fun ColumnHeaderCell(
     var isDragging by remember { mutableStateOf(false) }
     val density = LocalDensity.current.density
 
-    // Use a Box wrapping both the header and the resize handle so the handle
-    // sits outside the combinedClickable boundary — preventing gesture conflict.
+    // Outer container wrapping header cell and edge resize handle
     Box(
         modifier = Modifier
             .width(widthDp.dp)
             .height(28.dp)
     ) {
-        // Main clickable header area (full width minus handle zone on right)
+        // Main clickable column header
         Box(
             modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth()
+                .fillMaxSize()
                 .background(
                     if (isSelected) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 )
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                 .combinedClickable(
                     onClick = onSelect,
                     onLongClick = { showMenu = true }
@@ -1264,13 +1273,12 @@ fun ColumnHeaderCell(
             }
         }
 
-        // Resize drag handle — sits at right edge, uses zIndex so it is above the header box.
-        // Placed as a sibling Box (not a child of combinedClickable) to avoid gesture conflict.
+        // Sleek Right-Edge Resize Handle
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .offset(x = 10.dp) // center it on the boundary (width is 20.dp)
-                .width(20.dp)
+                .offset(x = 6.dp)
+                .width(14.dp)
                 .fillMaxHeight()
                 .zIndex(10f)
                 .pointerInput(widthDp) {
@@ -1292,47 +1300,19 @@ fun ColumnHeaderCell(
                 },
             contentAlignment = Alignment.Center
         ) {
-            val handleColor = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            // Two parallel vertical lines
-            Row(
-                modifier = Modifier.fillMaxHeight(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            if (isDragging) {
                 Box(
                     modifier = Modifier
-                        .width(1.5.dp)
-                        .fillMaxHeight(0.7f)
-                        .background(handleColor)
+                        .width(3.dp)
+                        .fillMaxHeight(0.85f)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
                 )
+            } else {
                 Box(
                     modifier = Modifier
-                        .width(1.5.dp)
-                        .fillMaxHeight(0.7f)
-                        .background(handleColor)
-                )
-            }
-            // Center badge pill with "<| |>"
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = handleColor,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "<| |>",
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isDragging) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
+                        .width(1.dp)
+                        .fillMaxHeight(0.6f)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 )
             }
         }
@@ -1355,14 +1335,13 @@ fun RowHeaderCell(
     var isDragging by remember { mutableStateOf(false) }
     val density = LocalDensity.current.density
 
-    // Outer Box wraps both header and bottom-edge resize handle as siblings
-    // so pointerInput drag does not compete with combinedClickable.
+    // Outer container wrapping header cell and edge resize handle
     Box(
         modifier = Modifier
             .width(54.dp)
             .height(heightDp.dp)
     ) {
-        // Main clickable header area
+        // Main clickable row header
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1370,7 +1349,7 @@ fun RowHeaderCell(
                     if (isSelected) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 )
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                 .combinedClickable(onClick = onSelect, onLongClick = { showMenu = true }),
             contentAlignment = Alignment.Center
         ) {
@@ -1391,14 +1370,13 @@ fun RowHeaderCell(
             }
         }
 
-        // Resize drag handle at the bottom edge — sits above header via zIndex.
-        // Sibling placement prevents gesture interference with combinedClickable.
+        // Sleek Bottom-Edge Resize Handle
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = 10.dp)
+                .offset(y = 6.dp)
                 .fillMaxWidth()
-                .height(20.dp)
+                .height(14.dp)
                 .zIndex(10f)
                 .pointerInput(heightDp) {
                     var startHeight = heightDp
@@ -1420,47 +1398,19 @@ fun RowHeaderCell(
                 },
             contentAlignment = Alignment.Center
         ) {
-            val handleColor = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            // Two parallel horizontal lines
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            if (isDragging) {
                 Box(
                     modifier = Modifier
-                        .height(1.5.dp)
-                        .fillMaxWidth(0.7f)
-                        .background(handleColor)
+                        .height(3.dp)
+                        .fillMaxWidth(0.85f)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.5.dp))
                 )
+            } else {
                 Box(
                     modifier = Modifier
-                        .height(1.5.dp)
-                        .fillMaxWidth(0.7f)
-                        .background(handleColor)
-                )
-            }
-            // Center badge pill with "▲▼"
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = handleColor,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "▲▼",
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isDragging) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
+                        .height(1.dp)
+                        .fillMaxWidth(0.6f)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 )
             }
         }

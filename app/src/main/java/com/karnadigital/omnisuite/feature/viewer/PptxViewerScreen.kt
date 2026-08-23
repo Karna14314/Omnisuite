@@ -990,6 +990,13 @@ fun SlideCardItem(
                 val titleColor = title.textColorHex?.let {
                     try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.primary }
                 } ?: MaterialTheme.colorScheme.primary
+
+                val titleAlign = when (title.alignment) {
+                    "CENTER" -> TextAlign.Center
+                    "RIGHT" -> TextAlign.Right
+                    "JUSTIFY" -> TextAlign.Justify
+                    else -> TextAlign.Start
+                }
                 
                 Box(
                     modifier = Modifier
@@ -1018,11 +1025,13 @@ fun SlideCardItem(
                                 fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                                 textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
                                 fontSize = (title.fontSizePt * scaleFactor).sp,
-                                lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp
+                                lineHeight = (title.fontSizePt * scaleFactor * 1.25f).sp,
+                                textAlign = titleAlign
                             ),
                             color = titleColor,
                             maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
@@ -1033,6 +1042,13 @@ fun SlideCardItem(
                 val blockColor = block.textColorHex?.let {
                     try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
                 } ?: MaterialTheme.colorScheme.onSurface
+
+                val textAlign = when (block.alignment) {
+                    "CENTER" -> TextAlign.Center
+                    "RIGHT" -> TextAlign.Right
+                    "JUSTIFY" -> TextAlign.Justify
+                    else -> TextAlign.Start
+                }
 
                 Box(
                     modifier = Modifier
@@ -1055,18 +1071,21 @@ fun SlideCardItem(
                     contentAlignment = Alignment.TopStart
                 ) {
                     androidx.compose.foundation.text.selection.SelectionContainer {
-                        Row(verticalAlignment = Alignment.Top) {
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             if (block.bulletLevel > 0) {
                                 Spacer(modifier = Modifier.width((block.bulletLevel * 8 * scaleFactor).dp))
+                                Text(
+                                    text = "• ",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (block.fontSizePt * scaleFactor).sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
                             }
-                            Text(
-                                text = "• ",
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = (block.fontSizePt * scaleFactor).sp
-                                ),
-                                color = MaterialTheme.colorScheme.secondary
-                            )
                             Text(
                                 text = block.text,
                                 style = MaterialTheme.typography.bodyMedium.copy(
@@ -1074,9 +1093,11 @@ fun SlideCardItem(
                                     fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                                     textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
                                     fontSize = (block.fontSizePt * scaleFactor).sp,
-                                    lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp
+                                    lineHeight = (block.fontSizePt * scaleFactor * 1.25f).sp,
+                                    textAlign = textAlign
                                 ),
-                                color = blockColor
+                                color = blockColor,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
                     }

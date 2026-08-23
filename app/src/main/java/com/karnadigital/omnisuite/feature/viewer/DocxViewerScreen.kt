@@ -472,54 +472,54 @@ fun DocxViewerScreen(
                     } else {
                         if (isPrintLayout) {
                             val pages = remember(document.elements) {
-                                // A4 at 11pt body = ~55 body lines per page
-                                // Heading 1 = ~3 body-line equivalents, Heading 2 = ~2, body = 1 per line
-                                // Image = 8 line equivalents minimum
-                                val PAGE_LINE_BUDGET = 55
+                                // Real A4 page budget: standard A4 page contains ~500-600 words / 3500 chars (~50-60 lines)
+                                // Total vertical capacity: 1200 units
+                                val PAGE_BUDGET_UNITS = 1200
 
                                 val result = mutableListOf<List<DocxBodyElement>>()
                                 var currentPage = mutableListOf<DocxBodyElement>()
-                                var currentLines = 0
+                                var currentUnits = 0
 
-                                fun estimateLines(element: DocxBodyElement): Int {
+                                fun estimateUnits(element: DocxBodyElement): Int {
                                     return when (element) {
                                         is DocxBodyElement.Para -> {
                                             val para = element.paragraph
                                             val hasImage = para.runs.any { it.imageUrl != null }
-                                            if (hasImage) return 10
+                                            if (hasImage) return 240
                                             val text = para.runs.joinToString("") { it.text }
-                                            if (text.isBlank()) return 1  // empty spacer
-                                            val charsPerLine = 65  // approx chars per line at body size
-                                            val lineCount = (text.length / charsPerLine).coerceAtLeast(1)
-                                            val headingWeight = when (para.headingLevel) {
-                                                1 -> 3; 2 -> 2; 3 -> 2; else -> 1
+                                            if (text.isBlank()) return 16
+                                            val charsPerLine = 80
+                                            val lineCount = ((text.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
+                                            val unitPerLine = when (para.headingLevel) {
+                                                1 -> 36
+                                                2 -> 30
+                                                3 -> 26
+                                                else -> 20
                                             }
-                                            (lineCount * headingWeight) + 1  // +1 for paragraph spacing
+                                            val headingOverhead = when (para.headingLevel) {
+                                                1 -> 32
+                                                2 -> 20
+                                                3 -> 14
+                                                else -> 8
+                                            }
+                                            (lineCount * unitPerLine) + headingOverhead
                                         }
                                         is DocxBodyElement.Table -> {
-                                            val maxCellLines = element.rows.sumOf { row ->
-                                                row.cells.maxOfOrNull { cell ->
-                                                    cell.paragraphs.sumOf { para ->
-                                                        val text = para.runs.joinToString("") { it.text }
-                                                        (text.length / 30).coerceAtLeast(1)  // narrower cols
-                                                    }
-                                                } ?: 2
-                                            }
-                                            maxCellLines + 2  // border overhead
+                                            val rowCount = element.rows.size
+                                            (rowCount * 32) + 24
                                         }
                                     }
                                 }
 
                                 for (element in document.elements) {
-                                    val cost = estimateLines(element)
-                                    // If adding this element would overflow AND page isn't empty, start new page
-                                    if (currentLines + cost > PAGE_LINE_BUDGET && currentPage.isNotEmpty()) {
+                                    val cost = estimateUnits(element)
+                                    if (currentUnits + cost > PAGE_BUDGET_UNITS && currentPage.isNotEmpty()) {
                                         result.add(currentPage)
                                         currentPage = mutableListOf()
-                                        currentLines = 0
+                                        currentUnits = 0
                                     }
                                     currentPage.add(element)
-                                    currentLines += cost
+                                    currentUnits += cost
                                 }
                                 if (currentPage.isNotEmpty()) result.add(currentPage)
                                 result
@@ -543,14 +543,13 @@ fun DocxViewerScreen(
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                                             shape = RoundedCornerShape(4.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color.White),
-                                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                                         ) {
                                             Box(modifier = Modifier.fillMaxSize()) {
                                                 Column(
                                                     modifier = Modifier
                                                         .fillMaxSize()
-                                                        .padding(start = 36.dp, end = 24.dp, top = 28.dp, bottom = 28.dp)
-                                                        .clip(RoundedCornerShape(0.dp)),  // clips overflow
+                                                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 32.dp),
                                                     verticalArrangement = Arrangement.Top
                                                 ) {
                                                     pageParagraphs.forEach { element ->
@@ -566,8 +565,8 @@ fun DocxViewerScreen(
                                                 }
                                                 // Page number footer
                                                 Text(
-                                                    text = "— ${pageIndex + 1} —",
-                                                    style = MaterialTheme.typography.bodySmall,
+                                                    text = "Page ${pageIndex + 1} of ${pages.size}",
+                                                    style = MaterialTheme.typography.labelSmall,
                                                     color = Color.Gray,
                                                     modifier = Modifier
                                                         .align(Alignment.BottomCenter)
@@ -585,7 +584,7 @@ fun DocxViewerScreen(
                                 LazyColumn(
                                     state = lazyListState,
                                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
                                 ) {
                                     itemsIndexed(document.elements) { index, element ->
                                         when (element) {
@@ -951,7 +950,7 @@ fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(vertical = 6.dp),
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -1043,7 +1042,7 @@ fun DocxParagraphItem(
                         else -> TextDecoration.None
                     },
                     color = runColor,
-                    fontSize = runFontSize,
+                    fontSize = if (run.fontSizePt != null && run.fontSizePt > 0) run.fontSizePt.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
                     fontFamily = mapFontFamily(run.fontFamily)
                 )
                 addStyle(spanStyle, start, end)
@@ -1072,26 +1071,58 @@ fun DocxParagraphItem(
         else -> TextAlign.Left
     }
 
-    // Heading styles based on level
+    // Clean, modern typography scale
     val baseStyle = when (paragraph.headingLevel) {
-        1 -> MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-        2 -> MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        3 -> MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-        4 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-        5 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
-        else -> MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp)
+        1 -> MaterialTheme.typography.headlineSmall.copy(
+            fontSize = 22.sp,
+            lineHeight = 28.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        2 -> MaterialTheme.typography.titleLarge.copy(
+            fontSize = 18.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        3 -> MaterialTheme.typography.titleMedium.copy(
+            fontSize = 16.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        4 -> MaterialTheme.typography.titleSmall.copy(
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        5 -> MaterialTheme.typography.bodyMedium.copy(
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        else -> MaterialTheme.typography.bodyMedium.copy(
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 
     val verticalPadding = when (paragraph.headingLevel) {
-        1 -> 16.dp
-        2 -> 14.dp
-        3 -> 12.dp
-        // spacingAfterPt is already in points; use directly as dp (close enough for screen rendering).
-        // coerceIn ensures a reasonable minimum breathing room.
-        else -> if (paragraph.spacingAfterPt > 0) paragraph.spacingAfterPt.dp.coerceIn(4.dp, 20.dp) else 6.dp
+        1 -> 8.dp
+        2 -> 6.dp
+        3 -> 6.dp
+        else -> if (paragraph.spacingAfterPt > 0) paragraph.spacingAfterPt.dp.coerceIn(2.dp, 10.dp) else 4.dp
     }
 
-    val spacingTop = if (paragraph.spacingBeforePt > 0) paragraph.spacingBeforePt.dp.coerceIn(0.dp, 20.dp) else 0.dp
+    val spacingTop = if (paragraph.spacingBeforePt > 0) {
+        paragraph.spacingBeforePt.dp.coerceIn(0.dp, 12.dp)
+    } else {
+        if (paragraph.headingLevel in 1..3) 8.dp else 0.dp
+    }
 
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
 
@@ -1109,12 +1140,9 @@ fun DocxParagraphItem(
                 onTextLayout = { layoutResult = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Only apply bottom padding here. Top spacing is on the outer Column
-                    // to avoid double-stacking spacingBefore + verticalPadding on the top.
-                    // Indentation: start = 20dp base + paragraph indent; end stays fixed.
                     .padding(
-                        start = (20 + paragraph.indentStartDp).dp,
-                        end = 20.dp,
+                        start = paragraph.indentStartDp.dp,
+                        end = 0.dp,
                         bottom = verticalPadding
                     )
                     .pointerInput(annotatedString) {
