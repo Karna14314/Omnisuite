@@ -20,16 +20,31 @@ import java.io.IOException
 object UriCacheUtils {
 
     /**
+     * Returns true when the given URI [scheme] is allowed for offline-only caching.
+     *
+     * OmniSuite is strictly offline: only `content://` and `file://` schemes
+     * (and a null scheme treated as a bare file path) are permitted. Network
+     * schemes such as `http`/`https` are rejected.
+     */
+    fun isOfflineScheme(scheme: String?): Boolean = UriSchemeUtils.isOfflineScheme(scheme)
+
+    /**
      * Copies a Content Uri's data into a temporary file in `cacheDir` and returns the file handle.
      *
      * Runs strictly on [Dispatchers.IO] to guarantee non-blocking asynchronous storage ops.
      *
      * @param context The Android context.
      * @param uri The incoming Storage Access Framework (SAF) Uri.
-     * @return The local cached [File], or null if the read/write operation fails.
+     * @return The local cached [File], or null if the read/write operation fails or the
+     *         scheme is unsupported (e.g. network URIs are intentionally rejected).
      */
     suspend fun cacheUriToFile(context: Context, uri: Uri): File? = withContext(Dispatchers.IO) {
         val scheme = uri.scheme?.lowercase()
+        if (!isOfflineScheme(scheme)) {
+            // Reject network schemes to honor the strict offline-only spec.
+            return@withContext null
+        }
+
         if (scheme == "file" || scheme == null) {
             val path = uri.path
             if (path != null) {
@@ -49,50 +64,27 @@ object UriCacheUtils {
                 cacheFile.delete()
             }
 
-            if (scheme == "http" || scheme == "https") {
-                val url = java.net.URL(uri.toString())
-                val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15000
-                connection.readTimeout = 15000
-                connection.requestMethod = "GET"
-                connection.instanceFollowRedirects = true
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                connection.connect()
-                
-                if (connection.responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                    connection.inputStream.use { inputStream ->
-                        FileOutputStream(cacheFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                    pruneCache(context, keepFile = cacheFile)
-                    cacheFile
-                } else {
-                    null
-                }
-            } else {
-                val pfd = try {
-                    context.contentResolver.openFileDescriptor(uri, "r")
-                } catch (e: Exception) {
-                    null
-                }
-                if (pfd != null) {
-                    java.io.FileInputStream(pfd.fileDescriptor).use { inputStream ->
-                        FileOutputStream(cacheFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                    pfd.close()
-                } else {
-                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                        FileOutputStream(cacheFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                }
-                pruneCache(context, keepFile = cacheFile)
-                cacheFile
+            val pfd = try {
+                context.contentResolver.openFileDescriptor(uri, "r")
+            } catch (e: Exception) {
+                null
             }
+            if (pfd != null) {
+                java.io.FileInputStream(pfd.fileDescriptor).use { inputStream ->
+                    FileOutputStream(cacheFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                pfd.close()
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    FileOutputStream(cacheFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+            }
+            pruneCache(context, keepFile = cacheFile)
+            cacheFile
         } catch (e: Exception) {
             e.printStackTrace()
             null

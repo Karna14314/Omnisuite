@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.karnadigital.omnisuite.core.engine.document.OfficeConverter
 import com.karnadigital.omnisuite.core.engine.DocumentSearchEngine
+import com.karnadigital.omnisuite.core.util.SpreadsheetUtils
 import com.karnadigital.omnisuite.core.engine.SearchResult
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -134,7 +135,7 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    val isCsv = file.name.endsWith(".csv", ignoreCase = true) || (!file.name.endsWith(".xls", ignoreCase = true) && !isZipFile(file))
+                    val isCsv = SpreadsheetUtils.isCsvFile(file)
                     workbook = if (isCsv) {
                         loadCsvAsWorkbook(file)
                     } else if (file.name.endsWith(".xls", ignoreCase = true)) {
@@ -171,19 +172,6 @@ class XlsxViewerViewModel @Inject constructor(
                     }
                 }
             }
-        }
-    }
-
-    private fun isZipFile(file: File): Boolean {
-        if (!file.exists() || file.length() < 4) return false
-        return try {
-            val bytes = ByteArray(4)
-            FileInputStream(file).use { fis ->
-                fis.read(bytes)
-            }
-            bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()
-        } catch (e: Exception) {
-            false
         }
     }
 
@@ -1111,7 +1099,10 @@ class XlsxViewerViewModel @Inject constructor(
             val cell = row.getCell(colIndex)
             val sortKey = if (cell != null) getFormattedCellValue(cell) else ""
             Pair(r, sortKey)
-        }.sortedWith(compareBy { if (ascending) it.second else "\uffff" + it.second })
+        }.sortedWith { o1, o2 ->
+            val cmp = SpreadsheetUtils.compareCellValues(o1.second, o2.second)
+            if (ascending) cmp else -cmp
+        }
 
         // Re-create rows in sorted order (copy cell values)
         val snapshotValues = rowsData.map { (origIdx, _) ->

@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,7 +155,24 @@ fun PdfViewerScreen(
         coroutineScope.launch(Dispatchers.IO) {
             var doc: com.tom_roush.pdfbox.pdmodel.PDDocument? = null
             try {
-                doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(File(fileUri))
+                val sourceUri = android.net.Uri.parse(fileUri)
+                val pdfFile = if (sourceUri.scheme == "content") {
+                    // SAF content URIs must be cached to a real file before PDFBox can read them.
+                    UriCacheUtils.cacheUriToFile(context, sourceUri)
+                } else {
+                    val f = java.io.File(fileUri)
+                    if (f.exists()) f else null
+                }
+
+                if (pdfFile == null) {
+                    withContext(Dispatchers.Main) {
+                        isExtractingText = false
+                        Toast.makeText(context, "Could not resolve PDF file for text extraction.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(pdfFile)
                 val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
                 stripper.startPage = pageIdx
                 stripper.endPage = pageIdx
@@ -593,13 +612,7 @@ fun PdfViewerScreen(
                                             val pathsData = (pagePaths[idx] ?: emptyList()).map { path ->
                                                 DrawingPathData(
                                                     points = path.points.map { DrawingPointData(it.x, it.y) },
-                                                    colorHex = when(path.color) {
-                                                        Color.Yellow -> "#FFFF00"
-                                                        Color.Blue -> "#0000FF"
-                                                        Color.Black -> "#000000"
-                                                        Color(0xFF10B981) -> "#10B981"
-                                                        else -> "#FF0000"
-                                                    },
+                                                    colorHex = String.format("#%08X", path.color.toArgb()),
                                                     strokeWidth = path.strokeWidth,
                                                     isHighlight = path.isHighlight
                                                 )

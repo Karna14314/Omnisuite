@@ -7,6 +7,7 @@ import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.DateUtil
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.apache.poi.xwpf.usermodel.XWPFDocument
+import com.karnadigital.omnisuite.core.util.TextSearchUtils
 import java.io.File
 import java.io.FileInputStream
 
@@ -33,15 +34,13 @@ object DocumentSearchEngine {
                 stripper.startPage = i + 1
                 stripper.endPage = i + 1
                 val text = stripper.getText(doc) ?: ""
-                var pos = text.indexOf(query, ignoreCase = true)
-                while (pos >= 0) {
+                for (pos in TextSearchUtils.findAllMatchIndices(text, query)) {
                     val start = maxOf(0, pos - 25)
                     val end = minOf(text.length, pos + query.length + 25)
                     val snippet = (if (start > 0) "..." else "") + 
                                   text.substring(start, end).replace('\n', ' ').trim() + 
                                   (if (end < text.length) "..." else "")
                     results.add(SearchResult(pageIndex = i, textSnippet = snippet))
-                    pos = text.indexOf(query, pos + 1, ignoreCase = true)
                 }
             }
         } catch (e: Exception) {
@@ -70,8 +69,7 @@ object DocumentSearchEngine {
             val paragraphs = doc.paragraphs
             paragraphs.forEachIndexed { i, paragraph ->
                 val text = paragraph.text ?: ""
-                var pos = text.indexOf(query, ignoreCase = true)
-                while (pos >= 0) {
+                for (pos in TextSearchUtils.findAllMatchIndices(text, query)) {
                     val start = maxOf(0, pos - 25)
                     val end = minOf(text.length, pos + query.length + 25)
                     val snippet = (if (start > 0) "..." else "") + 
@@ -84,7 +82,6 @@ object DocumentSearchEngine {
                             extraData = "Paragraph ${i + 1}"
                         )
                     )
-                    pos = text.indexOf(query, pos + 1, ignoreCase = true)
                 }
             }
         } catch (e: Exception) {
@@ -120,8 +117,7 @@ object DocumentSearchEngine {
             for (i in 0 until numParagraphs) {
                 val paragraph = range.getParagraph(i)
                 val text = paragraph.text() ?: ""
-                var pos = text.indexOf(query, ignoreCase = true)
-                while (pos >= 0) {
+                for (pos in TextSearchUtils.findAllMatchIndices(text, query)) {
                     val start = maxOf(0, pos - 25)
                     val end = minOf(text.length, pos + query.length + 25)
                     val snippet = (if (start > 0) "..." else "") + 
@@ -134,7 +130,6 @@ object DocumentSearchEngine {
                             extraData = "Paragraph ${i + 1}"
                         )
                     )
-                    pos = text.indexOf(query, pos + 1, ignoreCase = true)
                 }
             }
         } catch (e: Exception) {
@@ -270,15 +265,13 @@ object DocumentSearchEngine {
                     }
                 }
                 val slideText = text.toString()
-                var pos = slideText.indexOf(query, ignoreCase = true)
-                while (pos >= 0) {
+                for (pos in TextSearchUtils.findAllMatchIndices(slideText, query)) {
                     val start = maxOf(0, pos - 25)
                     val end = minOf(slideText.length, pos + query.length + 25)
                     val snippet = (if (start > 0) "..." else "") + 
                                   slideText.substring(start, end).replace('\n', ' ').trim() + 
                                   (if (end < slideText.length) "..." else "")
                     results.add(SearchResult(pageIndex = i, textSnippet = "Slide ${i + 1}: $snippet"))
-                    pos = slideText.indexOf(query, pos + 1, ignoreCase = true)
                 }
             }
         } catch (e: Exception) {
@@ -301,15 +294,13 @@ object DocumentSearchEngine {
             if (file.exists() && file.isFile) {
                 val lines = file.readLines()
                 lines.forEachIndexed { i, line ->
-                    var pos = line.indexOf(query, ignoreCase = true)
-                    while (pos >= 0) {
+                    for (pos in TextSearchUtils.findAllMatchIndices(line, query)) {
                         val start = maxOf(0, pos - 25)
                         val end = minOf(line.length, pos + query.length + 25)
                         val snippet = (if (start > 0) "..." else "") + 
                                       line.substring(start, end).trim() + 
                                       (if (end < line.length) "..." else "")
                         results.add(SearchResult(pageIndex = i, textSnippet = "Line ${i + 1}: $snippet"))
-                        pos = line.indexOf(query, pos + 1, ignoreCase = true)
                     }
                 }
             }

@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.core.util.ZipSecurity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -158,11 +159,18 @@ fun ArchiveViewerScreen(
                             val fileBytes = outStream.toByteArray()
 
                             // Extract strictly to Ephemeral Cache
-                            val cleanFileName = name.substringAfterLast('/')
                             val extractionDir = File(context.cacheDir, "omnisuite_extracted_${archiveName}")
                             if (!extractionDir.exists()) extractionDir.mkdirs()
-                            
-                            val tempFile = File(extractionDir, cleanFileName)
+
+                            val tempFile = ZipSecurity.safeResolveEntryFile(extractionDir, name)
+                            if (tempFile == null) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Skipped unsafe entry: $name", Toast.LENGTH_SHORT).show()
+                                }
+                                zipInputStream.closeEntry()
+                                entry = zipInputStream.nextEntry
+                                continue
+                            }
                             FileOutputStream(tempFile).use { fos ->
                                 fos.write(fileBytes)
                             }
@@ -326,11 +334,19 @@ fun ArchiveViewerScreen(
                                                     val zipInputStream = ZipInputStream(FileInputStream(zipFile))
                                                     var currentEntry: ZipEntry? = zipInputStream.nextEntry
                                                     while (currentEntry != null) {
-                                                        if (currentEntry.name == entry.name) {
-                                                            val cleanFileName = entry.name.substringAfterLast('/')
-                                                            // Save in cache dir with unique prefix
-                                                            val tempFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_$cleanFileName")
-                                                            
+                                                         if (currentEntry.name == entry.name) {
+                                                            // Resolve safely inside cache dir to prevent Zip Slip traversal
+                                                            val tempFile = ZipSecurity.safeResolveEntryFile(
+                                                                context.cacheDir,
+                                                                "extracted_${System.currentTimeMillis()}_${entry.name}"
+                                                            )
+                                                            if (tempFile == null) {
+                                                                withContext(Dispatchers.Main) {
+                                                                    Toast.makeText(context, "Skipped unsafe entry: ${entry.name}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                                break
+                                                            }
+
                                                             val buffer = ByteArray(4096)
                                                             FileOutputStream(tempFile).use { fos ->
                                                                 var len = zipInputStream.read(buffer)
