@@ -5,15 +5,20 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
-object FileOutputManager {
+@Singleton
+class FileOutputManager @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
     /**
      * Saves a byte array as a file under the default Documents/OmniSuite/<subfolder> directory.
      * Works on Android 10+ (API 29+) using Scoped Storage MediaStore without explicit permissions.
      */
     fun saveToDefault(
-        context: Context,
         bytes: ByteArray,
         filename: String,
         mimeType: String,

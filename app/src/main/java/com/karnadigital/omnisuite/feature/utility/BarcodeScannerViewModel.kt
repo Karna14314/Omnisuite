@@ -23,7 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class BarcodeScannerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: RecentFileRepository
+    private val repository: RecentFileRepository,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     var scanResultFileUri by mutableStateOf<Uri?>(null)
@@ -44,8 +45,7 @@ class BarcodeScannerViewModel @Inject constructor(
                 try {
                     val bytes = barcode.toByteArray()
                     val fileName = "Scan_${System.currentTimeMillis()}.txt"
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = fileName,
                         mimeType = "text/plain",

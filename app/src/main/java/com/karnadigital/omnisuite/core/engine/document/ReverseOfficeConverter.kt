@@ -22,7 +22,8 @@ import javax.inject.Singleton
 
 @Singleton
 class ReverseOfficeConverter @Inject constructor(
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
+    private val fileOutputManager: FileOutputManager
 ) {
 
     suspend fun convertPdfToDocx(uri: Uri): Uri? = withContext(Dispatchers.IO) {
@@ -45,8 +46,7 @@ class ReverseOfficeConverter @Inject constructor(
             docx.write(outStream)
             docx.close()
 
-            val outputFileUri = FileOutputManager.saveToDefault(
-                context = context,
+            val outputFileUri = fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.docx",
                 mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -84,8 +84,7 @@ class ReverseOfficeConverter @Inject constructor(
             pptx.write(outStream)
             pptx.close()
 
-            val outputFileUri = FileOutputManager.saveToDefault(
-                context = context,
+            val outputFileUri = fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.pptx",
                 mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -124,8 +123,7 @@ class ReverseOfficeConverter @Inject constructor(
             xlsx.write(outStream)
             xlsx.close()
 
-            val outputFileUri = FileOutputManager.saveToDefault(
-                context = context,
+            val outputFileUri = fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "converted_${System.currentTimeMillis()}.xlsx",
                 mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -156,8 +154,7 @@ class ReverseOfficeConverter @Inject constructor(
             doc.save(outStream)
             doc.close()
 
-            val outputFileUri = FileOutputManager.saveToDefault(
-                context = context,
+            val outputFileUri = fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "filled_form_${System.currentTimeMillis()}.pdf",
                 mimeType = "application/pdf",

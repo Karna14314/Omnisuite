@@ -29,7 +29,8 @@ import javax.inject.Inject
 @HiltViewModel
 class WatermarkViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     init {
@@ -155,12 +156,11 @@ class WatermarkViewModel @Inject constructor(
 
                     val outName = customFilename ?: "watermarked_${System.currentTimeMillis()}.pdf"
                     val bytes = tempOutputFile!!.readBytes()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
-                        bytes = bytes,
-                        filename = outName,
-                        mimeType = "application/pdf",
-                        subfolder = "Watermarked"
+                     val savedUri = fileOutputManager.saveToDefault(
+                         bytes = bytes,
+                         filename = outName,
+                         mimeType = "application/pdf",
+                         subfolder = "Watermarked"
                     ) ?: throw Exception("Failed to save watermarked PDF to OmniSuite folder.")
 
                     // Register in RecentFiles DB log

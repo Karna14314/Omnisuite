@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
-import com.karnadigital.omnisuite.core.util.FileOutputManager
 import com.karnadigital.omnisuite.core.util.ZipSecurity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

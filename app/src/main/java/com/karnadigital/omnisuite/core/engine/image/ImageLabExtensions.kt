@@ -18,7 +18,8 @@ import javax.inject.Singleton
 
 @Singleton
 class ImageLabExtensions @Inject constructor(
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
+    private val fileOutputManager: FileOutputManager
 ) {
 
     suspend fun stitchImagesVertically(uris: List<Uri>): Uri? = withContext(Dispatchers.IO) {
@@ -43,8 +44,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            FileOutputManager.saveToDefault(
-                context = context,
+            fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "stitched_${System.currentTimeMillis()}.jpg",
                 mimeType = "image/jpeg",
@@ -69,8 +69,7 @@ class ImageLabExtensions @Inject constructor(
                         val ext = if (entry.name.endsWith(".png")) "png" else "jpg"
                         val mime = if (ext == "png") "image/png" else "image/jpeg"
 
-                        FileOutputManager.saveToDefault(
-                            context = context,
+                        fileOutputManager.saveToDefault(
                             bytes = outStream.toByteArray(),
                             filename = "extracted_${System.currentTimeMillis()}.$ext",
                             mimeType = mime,
@@ -117,8 +116,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            FileOutputManager.saveToDefault(
-                context = context,
+            fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "id_template_${System.currentTimeMillis()}.jpg",
                 mimeType = "image/jpeg",
@@ -151,8 +149,7 @@ class ImageLabExtensions @Inject constructor(
             val outStream = ByteArrayOutputStream()
             result.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
 
-            FileOutputManager.saveToDefault(
-                context = context,
+            fileOutputManager.saveToDefault(
                 bytes = outStream.toByteArray(),
                 filename = "watermarked_${System.currentTimeMillis()}.jpg",
                 mimeType = "image/jpeg",

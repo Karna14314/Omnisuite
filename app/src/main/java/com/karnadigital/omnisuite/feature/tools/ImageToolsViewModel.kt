@@ -68,7 +68,8 @@ data class ImageToolsUiState(
 class ImageToolsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val recentFileRepository: RecentFileRepository,
-    private val imageLabExtensions: ImageLabExtensions
+    private val imageLabExtensions: ImageLabExtensions,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ImageToolsUiState())
@@ -416,8 +417,7 @@ class ImageToolsViewModel @Inject constructor(
 
                     // 5. Save to content provider Uri on IO pool
                     withContext(Dispatchers.IO) {
-                        val savedUri = FileOutputManager.saveToDefault(
-                            context = context,
+                        val savedUri = fileOutputManager.saveToDefault(
                             bytes = encodedBytes,
                             filename = outName,
                             mimeType = mimeType,

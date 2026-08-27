@@ -31,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import com.karnadigital.omnisuite.ui.theme.OmniColors
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -52,6 +53,7 @@ fun ImagesToPdfScreen(
     viewModel: PdfToolsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val fileOutputManager = coreEntryPoint(context).fileOutputManager()
     val coroutineScope = rememberCoroutineScope()
     
     var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -375,8 +377,7 @@ fun ImagesToPdfScreen(
                                         val bytes = stream.toByteArray()
                                         
                                         val filename = if (outputFileName.isBlank()) "compiled_images.pdf" else "${outputFileName.trim()}.pdf"
-                                        val savedUri = FileOutputManager.saveToDefault(
-                                            context = context,
+                                        val savedUri = fileOutputManager.saveToDefault(
                                             bytes = bytes,
                                             filename = filename,
                                             mimeType = "application/pdf",

@@ -31,7 +31,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SignatureViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     init {
@@ -234,13 +235,12 @@ class SignatureViewModel @Inject constructor(
 
                     val outName = customFilename ?: "signed_${System.currentTimeMillis()}.pdf"
                     val bytes = tempOutputFile!!.readBytes()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
-                        bytes = bytes,
-                        filename = outName,
-                        mimeType = "application/pdf",
-                        subfolder = "Signed"
-                    ) ?: throw Exception("Failed to save signed PDF to OmniSuite folder.")
+                     val savedUri = fileOutputManager.saveToDefault(
+                         bytes = bytes,
+                         filename = outName,
+                         mimeType = "application/pdf",
+                         subfolder = "Signed"
+                     ) ?: throw Exception("Failed to save signed PDF to OmniSuite folder.")
 
                     // Register to recent files database
                     val recent = RecentFile(

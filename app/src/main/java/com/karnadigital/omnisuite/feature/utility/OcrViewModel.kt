@@ -27,7 +27,8 @@ import javax.inject.Inject
 @HiltViewModel
 class OcrViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recentFileRepository: RecentFileRepository
+    private val recentFileRepository: RecentFileRepository,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     // OCR Screen State
@@ -164,8 +165,7 @@ class OcrViewModel @Inject constructor(
                 try {
                     val bytes = text.toByteArray()
                     val fileName = "Ocr_${System.currentTimeMillis()}.txt"
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = fileName,
                         mimeType = "text/plain",

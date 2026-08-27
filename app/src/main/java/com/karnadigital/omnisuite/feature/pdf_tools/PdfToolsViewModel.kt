@@ -41,7 +41,8 @@ import javax.inject.Inject
 class PdfToolsViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
     @ApplicationContext private val context: Context,
-    private val reverseOfficeConverter: ReverseOfficeConverter
+    private val reverseOfficeConverter: ReverseOfficeConverter,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     init {
@@ -178,8 +179,7 @@ class PdfToolsViewModel @Inject constructor(
 
                     val outName = customFilename ?: "merged_${System.currentTimeMillis()}.pdf"
                     val bytes = tempOutputFile!!.readBytes()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -279,8 +279,7 @@ class PdfToolsViewModel @Inject constructor(
                                 }
 
                                 val bytes = tempSubFile.readBytes()
-                                val savedUri = FileOutputManager.saveToDefault(
-                                    context = context,
+                                val savedUri = fileOutputManager.saveToDefault(
                                     bytes = bytes,
                                     filename = subFileName,
                                     mimeType = "application/pdf",
@@ -364,8 +363,7 @@ class PdfToolsViewModel @Inject constructor(
 
                     val outName = customFilename ?: "secured_${System.currentTimeMillis()}.pdf"
                     val bytes = tempOutputFile!!.readBytes()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -481,8 +479,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_converted.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -556,8 +553,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_converted.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -609,8 +605,7 @@ class PdfToolsViewModel @Inject constructor(
                     val bytes = scannedFile.readBytes()
                     val outName = "Scan_${System.currentTimeMillis()}.pdf"
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -707,8 +702,7 @@ class PdfToolsViewModel @Inject constructor(
 
                         val imageName = "${originalName}_page_${i + 1}.png"
 
-                        val savedUri = FileOutputManager.saveToDefault(
-                            context = context,
+                        val savedUri = fileOutputManager.saveToDefault(
                             bytes = bytes,
                             filename = imageName,
                             mimeType = "image/png",
@@ -973,8 +967,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_compressed.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1050,8 +1043,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_flattened.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1120,8 +1112,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_converted.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1209,8 +1200,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_unlocked.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1286,8 +1276,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_rotated.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1365,8 +1354,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_extracted.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1446,8 +1434,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_modified.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -1520,8 +1507,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_text.txt"
                     val bytes = textBuilder.toString().toByteArray(Charsets.UTF_8)
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "text/plain",
@@ -1603,8 +1589,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_excel.xlsx"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1723,8 +1708,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_csv.csv"
                     val bytes = csvBuilder.toString().toByteArray(Charsets.UTF_8)
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "text/csv",
@@ -1796,8 +1780,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = "${originalName}_slides.txt"
                     val bytes = textBuilder.toString().toByteArray(Charsets.UTF_8)
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "text/plain",
@@ -1944,8 +1927,7 @@ class PdfToolsViewModel @Inject constructor(
                     val outName = if (filename.endsWith(".pdf", ignoreCase = true)) filename else "$filename.pdf"
                     val bytes = tempOutputFile!!.readBytes()
 
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/pdf",
@@ -2059,8 +2041,7 @@ class PdfToolsViewModel @Inject constructor(
 
                     val outName = if (outputName.endsWith(".tar", ignoreCase = true)) outputName else "$outputName.tar"
                     val bytes = tempOutputFile!!.readBytes()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = outName,
                         mimeType = "application/x-tar",
@@ -2167,8 +2148,7 @@ class PdfToolsViewModel @Inject constructor(
                     }
 
                     val firstFile = extractedFiles.first()
-                    val savedUri = FileOutputManager.saveToDefault(
-                        context = context,
+                    val savedUri = fileOutputManager.saveToDefault(
                         bytes = firstFile.readBytes(),
                         filename = firstFile.name.substringAfterLast('_'),
                         mimeType = "*/*",
@@ -2237,8 +2217,7 @@ class PdfToolsViewModel @Inject constructor(
                             viewModelScope.launch(Dispatchers.IO) {
                                 try {
                                     val bytes = tempOutputFile.readBytes()
-                                    val savedUri = FileOutputManager.saveToDefault(
-                                        context = context,
+                                    val savedUri = fileOutputManager.saveToDefault(
                                         bytes = bytes,
                                         filename = filename,
                                         mimeType = "application/pdf",

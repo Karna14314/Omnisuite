@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.karnadigital.omnisuite.core.util.ZoomableBox
+import com.karnadigital.omnisuite.di.coreEntryPoint
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -90,6 +91,7 @@ fun PptxViewerScreen(
     viewModel: PptxViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val fileOutputManager = coreEntryPoint(context).fileOutputManager()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(fileUri) {
@@ -354,8 +356,7 @@ fun PptxViewerScreen(
                                                     com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "image")
                                                 }
                                                 // Save to public Documents/OmniSuite/
-                                                val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
-                                                    context = context,
+                                                val savedUri = fileOutputManager.saveToDefault(
                                                     bytes = tempPdfFile.readBytes(),
                                                     filename = File(fileUri).name.substringBeforeLast(".") + "_converted.pdf",
                                                     mimeType = "application/pdf",
@@ -383,8 +384,7 @@ fun PptxViewerScreen(
                                                     com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "text")
                                                 }
                                                 // Save to public Documents/OmniSuite/
-                                                val savedUri = com.karnadigital.omnisuite.core.util.FileOutputManager.saveToDefault(
-                                                    context = context,
+                                                val savedUri = fileOutputManager.saveToDefault(
                                                     bytes = tempPdfFile.readBytes(),
                                                     filename = File(fileUri).name.substringBeforeLast(".") + "_reflowed.pdf",
                                                     mimeType = "application/pdf",

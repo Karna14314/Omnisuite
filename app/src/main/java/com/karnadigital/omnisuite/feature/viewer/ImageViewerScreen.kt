@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -80,6 +81,7 @@ fun ImageViewerScreen(
     viewModel: ImageViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val fileOutputManager = coreEntryPoint(context).fileOutputManager()
     val coroutineScope = rememberCoroutineScope()
 
     var activeUriList by remember(fileUri) {
@@ -290,8 +292,7 @@ fun ImageViewerScreen(
                                         }
                                         val bytes = tempPdfFile.readBytes()
                                         val newName = activeFileName.substringBeforeLast(".") + "_image.pdf"
-                                        val savedUri = FileOutputManager.saveToDefault(
-                                            context = context,
+                                        val savedUri = fileOutputManager.saveToDefault(
                                             bytes = bytes,
                                             filename = newName,
                                             mimeType = "application/pdf",
@@ -883,8 +884,7 @@ fun ImageViewerScreen(
                                     bitmap.recycle()
 
                                     val newName = activeFileName.substringBeforeLast(".") + "_edited." + ext
-                                    val savedUri = FileOutputManager.saveToDefault(
-                                        context = context,
+                                    val savedUri = fileOutputManager.saveToDefault(
                                         bytes = bytes,
                                         filename = newName,
                                         mimeType = mimeType,

@@ -9,6 +9,7 @@ import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.FileOutputManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +40,9 @@ sealed class ZipMakerState {
 
 @HiltViewModel
 class ZipMakerViewModel @Inject constructor(
-    private val repository: RecentFileRepository
+    private val repository: RecentFileRepository,
+    @ApplicationContext private val context: Context,
+    private val fileOutputManager: FileOutputManager
 ) : ViewModel() {
 
     private val _selectedFiles = MutableStateFlow<List<SelectedFile>>(emptyList())
@@ -106,13 +109,12 @@ class ZipMakerViewModel @Inject constructor(
                     // Save output bytes to default storage path
                     val bytes = tempZipFile.readBytes()
                     bytesLength = bytes.size.toLong()
-                    val uri = FileOutputManager.saveToDefault(
-                        context = context,
-                        bytes = bytes,
-                        filename = filename,
-                        mimeType = "application/zip",
-                        subfolder = "Archives"
-                    )
+                     val uri = fileOutputManager.saveToDefault(
+                         bytes = bytes,
+                         filename = filename,
+                         mimeType = "application/zip",
+                         subfolder = "Archives"
+                     )
                     
                     if (tempZipFile.exists()) {
                         tempZipFile.delete()

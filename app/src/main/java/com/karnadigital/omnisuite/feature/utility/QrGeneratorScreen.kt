@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 enum class QrCategory {
@@ -125,6 +126,7 @@ fun QrGeneratorScreen(
     viewModel: QrGeneratorViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val fileOutputManager = coreEntryPoint(context).fileOutputManager()
     val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
 
@@ -991,8 +993,7 @@ fun QrGeneratorScreen(
                                     val bytes = stream.toByteArray()
                                     val outName = if (activeTabState == 0) "QR_${System.currentTimeMillis()}.png" else "BARCODE_${System.currentTimeMillis()}.png"
 
-                                    val savedUri = FileOutputManager.saveToDefault(
-                                        context = context,
+                                    val savedUri = fileOutputManager.saveToDefault(
                                         bytes = bytes,
                                         filename = outName,
                                         mimeType = "image/png",
