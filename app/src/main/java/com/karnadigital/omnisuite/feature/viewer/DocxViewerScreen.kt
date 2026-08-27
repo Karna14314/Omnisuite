@@ -12,9 +12,12 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.TextSnippet
 import java.io.File
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -313,6 +316,30 @@ fun DocxViewerScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Print") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Print)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Share)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Open in...") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.OpenIn)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Export to PDF") },
                                     onClick = {
                                         showMenu = false
@@ -320,12 +347,15 @@ fun DocxViewerScreen(
                                         val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
                                         exportPdfLauncher.launch(defaultName)
                                     },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.PictureAsPdf,
-                                            contentDescription = "PDF Export"
-                                        )
-                                    }
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to TXT") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.DocxToTxt.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
                                 )
                             }
                         }
@@ -358,41 +388,16 @@ fun DocxViewerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            onToolAction(ViewerTool.OpenIn)
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Save,
+                            title = "Save"
+                        ) {
+                            viewModel.commitChanges()
                         }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            onToolAction(ViewerTool.Print)
-                        }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            onToolAction(ViewerTool.Share)
-                        }
-
-                        val docxTools = docxToolActions(fileUri) + listOf(
-                            ViewerTool.ExportPdf to "📕 Export to PDF"
-                        )
-                        ViewerQuickToolsMenu(
-                            fileUri = fileUri,
-                            toolActions = docxTools,
-                            onToolClick = { tool ->
-                                when (tool) {
-                                    is ViewerTool.ExportPdf -> {
-                                        val currentSuccess = state as? DocxLoadState.Success
-                                        val defaultName = currentSuccess?.fileName?.substringBeforeLast(".")?.plus(".pdf") ?: "document.pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    }
-                                    else -> handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
-                                        onToolAction(ViewerTool.Navigate(route))
-                                    })
-                                }
-                            }
-                        )
                     }
                 }
             }

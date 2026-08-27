@@ -287,7 +287,7 @@ fun PdfViewerScreen(
                                         if (!isPdfEditingActive) {
                                             annotationMode = AnnotationMode.NONE
                                         } else {
-                                            annotationMode = AnnotationMode.MARKER // Default to marker pen mode
+                                            annotationMode = AnnotationMode.MARKER
                                         }
                                     },
                                     colors = IconButtonDefaults.iconButtonColors(
@@ -304,6 +304,63 @@ fun PdfViewerScreen(
                                 // Search
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
+
+                                // 3-dot menu with all tools
+                                var showMoreMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { showMoreMenu = true }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showMoreMenu,
+                                        onDismissRequest = { showMoreMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Print") },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                onToolAction(ViewerTool.Print)
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Share") },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                onToolAction(ViewerTool.Share)
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Open in...") },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                onToolAction(ViewerTool.OpenIn)
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Select Text") },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                extractPageText(currentPageIndex)
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
+                                        )
+                                        HorizontalDivider()
+                                        pdfToolActions(fileUri).forEach { (tool, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                                        onToolAction(ViewerTool.Navigate(route))
+                                                    })
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -645,26 +702,10 @@ fun PdfViewerScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceAround,
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                                onToolAction(ViewerTool.OpenIn)
-                            }
-
-                            ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                                onToolAction(ViewerTool.Print)
-                            }
-
-                            ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                                onToolAction(ViewerTool.Share)
-                            }
-
-                            ViewerActionColumnButton(icon = Icons.Default.TextSnippet, title = "Select Text") {
-                                extractPageText(currentPageIndex)
-                            }
-
                             val pdfTools = pdfToolActions(fileUri)
                             ViewerQuickToolsMenu(
                                 fileUri = fileUri,

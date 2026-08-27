@@ -55,13 +55,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -322,6 +328,30 @@ fun XlsxViewerScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Print") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Print)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Share)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Open in...") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.OpenIn)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Export to PDF") },
                                     onClick = {
                                         showMenu = false
@@ -329,12 +359,23 @@ fun XlsxViewerScreen(
                                         val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
                                         exportPdfLauncher.launch(defaultName)
                                     },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.PictureAsPdf,
-                                            contentDescription = "PDF Export"
-                                        )
-                                    }
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to CSV") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.XlsxToCsv.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import CSV") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.CsvToXlsx.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
                                 )
                             }
                         }
@@ -356,41 +397,16 @@ fun XlsxViewerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            onToolAction(ViewerTool.OpenIn)
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Save,
+                            title = "Save"
+                        ) {
+                            viewModel.commitChanges()
                         }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            onToolAction(ViewerTool.Print)
-                        }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            onToolAction(ViewerTool.Share)
-                        }
-
-                        val xlsxTools = xlsxToolActions(fileUri) + listOf(
-                            ViewerTool.ExportPdf to "📕 Export to PDF"
-                        )
-                        ViewerQuickToolsMenu(
-                            fileUri = fileUri,
-                            toolActions = xlsxTools,
-                            onToolClick = { tool ->
-                                when (tool) {
-                                    is ViewerTool.ExportPdf -> {
-                                        val currentSuccess = state as? XlsxLoadState.Success
-                                        val defaultName = currentSuccess?.fileName?.substringBeforeLast(".")?.plus(".pdf") ?: "spreadsheet.pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    }
-                                    else -> handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
-                                        onToolAction(ViewerTool.Navigate(route))
-                                    })
-                                }
-                            }
-                        )
                     }
                 }
             }

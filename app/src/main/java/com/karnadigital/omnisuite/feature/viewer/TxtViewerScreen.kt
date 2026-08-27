@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -222,28 +223,49 @@ fun TxtViewerScreen(
                     },
                     actions = {
                         if (currentState is TxtLoadState.Success) {
+                            var showMenu by remember { mutableStateOf(false) }
+
                             IconButton(onClick = { searchExpanded = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "Search text"
                                 )
                             }
-                        }
 
-                        IconButton(onClick = { showFormatting = !showFormatting }) {
-                            Icon(Icons.Default.Build, contentDescription = "Format")
-                        }
+                            IconButton(onClick = { showFormatting = !showFormatting }) {
+                                Icon(Icons.Default.Build, contentDescription = "Format")
+                            }
 
-                        if (state is TxtLoadState.Success) {
-                            IconButton(
-                                onClick = {
-                                    viewModel.saveTextFile(textFieldValue.text)
-                                }
-                            ) {
+                            IconButton(onClick = { viewModel.saveTextFile(textFieldValue.text) }) {
                                 Icon(
                                     imageVector = Icons.Default.Save,
                                     contentDescription = "Save changes",
                                     tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Print") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Print)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Share)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
                                 )
                             }
                         }
@@ -565,35 +587,6 @@ fun TxtViewerScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
-            }
-
-            if (state is TxtLoadState.Success) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Print,
-                            title = "Print"
-                        ) {
-                            onToolAction(ViewerTool.Print)
-                        }
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Share,
-                            title = "Share"
-                        ) {
-                            onToolAction(ViewerTool.Share)
-                        }
-                    }
-                }
             }
         }
     }

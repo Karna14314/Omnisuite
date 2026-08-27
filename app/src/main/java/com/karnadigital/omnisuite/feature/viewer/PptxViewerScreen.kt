@@ -39,13 +39,19 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextSnippet
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -243,6 +249,8 @@ fun PptxViewerScreen(
                     },
                     actions = {
                         if (state is PptxLoadState.Success) {
+                            var showMenu by remember { mutableStateOf(false) }
+
                             IconButton(onClick = { searchExpanded = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
@@ -261,6 +269,54 @@ fun PptxViewerScreen(
                                     tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
                             }
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Print") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Print)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Share)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Open in...") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.OpenIn)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to PDF") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptToPdf.route))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Extract Text to TXT") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptxToTxt.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -270,46 +326,7 @@ fun PptxViewerScreen(
                 )
             }
         },
-        bottomBar = {
-            if (state is PptxLoadState.Success) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            onToolAction(ViewerTool.OpenIn)
-                        }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            onToolAction(ViewerTool.Print)
-                        }
-
-                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            onToolAction(ViewerTool.Share)
-                        }
-
-                        val pptxTools = pptxToolActions(fileUri)
-                        ViewerQuickToolsMenu(
-                            fileUri = fileUri,
-                            toolActions = pptxTools,
-                            onToolClick = { tool ->
-                                handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
-                                    onToolAction(ViewerTool.Navigate(route))
-                                })
-                            }
-                        )
-                    }
-                }
-            }
-        }
+        bottomBar = {}
     ) { paddingValues ->
         Box(
             modifier = Modifier
