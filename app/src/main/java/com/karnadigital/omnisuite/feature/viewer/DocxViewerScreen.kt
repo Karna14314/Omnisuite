@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.material.icons.filled.Info
 import com.karnadigital.omnisuite.core.util.ZoomableBox
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +101,8 @@ fun DocxViewerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     
     val context = LocalContext.current
+    val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
+    val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
     var isExporting by remember { mutableStateOf(false) }
 
@@ -118,7 +121,7 @@ fun DocxViewerScreen(
         onResult = { uri ->
             uri?.let {
                 coroutineScope.launch {
-                    val cachedFile = com.karnadigital.omnisuite.core.util.UriCacheUtils.cacheUriToFile(context, it)
+                    val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
                         viewModel.insertImageIntoParagraph(activeIndexToEdit, cachedFile.absolutePath)
                         paragraphToEdit = null
@@ -377,7 +380,7 @@ fun DocxViewerScreen(
                                 val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertDocxToPdf(context, File(fileUri), tempPdfFile)
+                                        officeConverter.convertDocxToPdf(File(fileUri), tempPdfFile)
                                     }
                                     val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
                                     val jobName = "OmniSuite Word Print"

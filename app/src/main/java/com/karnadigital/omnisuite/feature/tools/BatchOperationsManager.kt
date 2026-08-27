@@ -46,7 +46,8 @@ data class BatchUiState(
 @HiltViewModel
 class BatchOperationsManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recentFileRepository: RecentFileRepository
+    private val recentFileRepository: RecentFileRepository,
+    private val uriCacheUtils: UriCacheUtils
 ) : ViewModel() {
 
     init {
@@ -276,7 +277,7 @@ class BatchOperationsManager @Inject constructor(
                             val baseName = originalName.substringBeforeLast(".")
                             val outputName = "${baseName}_protected.pdf"
 
-                            tempInputFile = UriCacheUtils.cacheUriToFile(context, uri)
+                            tempInputFile = uriCacheUtils.cacheUriToFile(uri)
                                 ?: throw Exception("Could not open source PDF file.")
 
                             tempOutputFile = File(context.cacheDir, "secured_batch_${System.currentTimeMillis()}.pdf")

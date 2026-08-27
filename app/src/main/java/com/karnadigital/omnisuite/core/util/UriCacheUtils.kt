@@ -3,11 +3,13 @@ package com.karnadigital.omnisuite.core.util
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Suspending engine utility that isolates files opened via Storage Access Framework (SAF)
@@ -17,7 +19,10 @@ import java.io.IOException
  * engines (such as Apache POI and PDFBox Android) which require absolute file paths 
  * rather than direct content resolver streams.
  */
-object UriCacheUtils {
+@Singleton
+class UriCacheUtils @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
     /**
      * Returns true when the given URI [scheme] is allowed for offline-only caching.
@@ -33,12 +38,11 @@ object UriCacheUtils {
      *
      * Runs strictly on [Dispatchers.IO] to guarantee non-blocking asynchronous storage ops.
      *
-     * @param context The Android context.
      * @param uri The incoming Storage Access Framework (SAF) Uri.
      * @return The local cached [File], or null if the read/write operation fails or the
      *         scheme is unsupported (e.g. network URIs are intentionally rejected).
      */
-    suspend fun cacheUriToFile(context: Context, uri: Uri): File? = withContext(Dispatchers.IO) {
+    suspend fun cacheUriToFile(uri: Uri): File? = withContext(Dispatchers.IO) {
         val scheme = uri.scheme?.lowercase()
         if (!isOfflineScheme(scheme)) {
             // Reject network schemes to honor the strict offline-only spec.
@@ -55,7 +59,7 @@ object UriCacheUtils {
             }
         }
 
-        val fileName = getFileName(context, uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
+        val fileName = getFileName(uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
         val cacheFile = File(context.cacheDir, fileName)
 
         try {
@@ -83,7 +87,7 @@ object UriCacheUtils {
                     }
                 }
             }
-            pruneCache(context, keepFile = cacheFile)
+            pruneCache(keepFile = cacheFile)
             cacheFile
         } catch (e: Exception) {
             e.printStackTrace()
@@ -94,7 +98,7 @@ object UriCacheUtils {
     /**
      * Checks the cache directory's size and deletes the oldest cached files if the size exceeds maxCacheSize (default 50MB).
      */
-    private fun pruneCache(context: Context, maxCacheSize: Long = 50 * 1024 * 1024L, keepFile: File? = null) {
+    private fun pruneCache(maxCacheSize: Long = 50 * 1024 * 1024L, keepFile: File? = null) {
         try {
             val files = context.cacheDir.listFiles()?.filter { it.isFile && it.absolutePath != keepFile?.absolutePath } ?: return
             var totalSize = files.sumOf { it.length() }
@@ -117,7 +121,7 @@ object UriCacheUtils {
     /**
      * Extracts the user-facing display name of a Content Uri.
      */
-    private fun getFileName(context: Context, uri: Uri): String? {
+    private fun getFileName(uri: Uri): String? {
         var name: String? = null
         if (uri.scheme == "content") {
             try {
@@ -146,7 +150,7 @@ object UriCacheUtils {
     /**
      * Recursively clears all files inside `context.cacheDir` to maintain size discipline.
      */
-    suspend fun clearCache(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun clearCache() = withContext(Dispatchers.IO) {
         try {
             context.cacheDir.listFiles()?.forEach { file ->
                 file.deleteRecursively()

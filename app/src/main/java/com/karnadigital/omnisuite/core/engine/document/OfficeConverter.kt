@@ -24,18 +24,23 @@ import org.apache.poi.sl.usermodel.Placeholder
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Offline-first office document format (Word, Excel) to PDF conversion engine.
  * Synthesizes formatted text blocks and landscape cell tables into standard paginated PDFs.
  * Runs fully on Dispatchers.IO background contexts with aggressive resource management.
  */
-object OfficeConverter {
+@Singleton
+class OfficeConverter @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
+) {
 
     /**
      * Converts a DOCX Word file paragraph-by-paragraph to an A4 PDF with dynamic line-wrapping and pagination.
      */
-    suspend fun convertDocxToPdf(context: Context, docxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
+    suspend fun convertDocxToPdf(docxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
         // Enforce PDFBox resource loading setup
         PDFBoxResourceLoader.init(context)
 
@@ -341,7 +346,7 @@ object OfficeConverter {
     /**
      * Converts a XLSX spreadsheet sheet-by-sheet to landscape A4 PDFs drawing clean cell gridlines.
      */
-    suspend fun convertXlsxToPdf(context: Context, xlsxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
+    suspend fun convertXlsxToPdf(xlsxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
         PDFBoxResourceLoader.init(context)
 
         var xlsxStream: FileInputStream? = null
@@ -495,7 +500,7 @@ object OfficeConverter {
      * Supports "image" mode (accurate slide shapes and text locations rendered to bitmaps)
      * and "text" mode (clean reflowed text and title elements).
      */
-    suspend fun convertPptxToPdf(context: Context, pptxFile: File, pdfFile: File, renderMode: String) = withContext(Dispatchers.IO) {
+    suspend fun convertPptxToPdf(pptxFile: File, pdfFile: File, renderMode: String) = withContext(Dispatchers.IO) {
         PDFBoxResourceLoader.init(context)
 
         var pptxStream: FileInputStream? = null

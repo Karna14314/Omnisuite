@@ -18,7 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.karnadigital.omnisuite.feature.viewer.ImageViewerScreen
@@ -83,6 +83,7 @@ fun ViewerDispatcherScreen(
     }
 
     val context = LocalContext.current
+    val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
     var state by remember { mutableStateOf<DispatcherState>(DispatcherState.Loading) }
 
     LaunchedEffect(fileUri) {
@@ -92,7 +93,7 @@ fun ViewerDispatcherScreen(
                 return@LaunchedEffect
             }
             val parsedUri = Uri.parse(fileUri)
-            val cachedFile = UriCacheUtils.cacheUriToFile(context, parsedUri)
+            val cachedFile = uriCacheUtils.cacheUriToFile(parsedUri)
             if (cachedFile != null && cachedFile.exists()) {
                 val fileType = determineFileType(context, fileUri, cachedFile)
                 if (fileType != null) {

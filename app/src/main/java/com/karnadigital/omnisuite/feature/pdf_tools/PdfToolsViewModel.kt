@@ -12,6 +12,7 @@ import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.core.engine.document.OfficeConverter
 import com.karnadigital.omnisuite.core.engine.document.ReverseOfficeConverter
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
@@ -42,7 +43,9 @@ class PdfToolsViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
     @ApplicationContext private val context: Context,
     private val reverseOfficeConverter: ReverseOfficeConverter,
-    private val fileOutputManager: FileOutputManager
+    private val fileOutputManager: FileOutputManager,
+    private val uriCacheUtils: UriCacheUtils,
+    private val officeConverter: OfficeConverter
 ) : ViewModel() {
 
     init {
@@ -156,7 +159,7 @@ class PdfToolsViewModel @Inject constructor(
                 // Cache incoming SAF content streams to sandbox files
                 withContext(Dispatchers.IO) {
                     selectedMergeUris.forEach { uri ->
-                        val file = UriCacheUtils.cacheUriToFile(context, uri)
+                        val file = uriCacheUtils.cacheUriToFile( uri)
                         if (file != null) {
                             tempFiles.add(file)
                         } else {
@@ -243,7 +246,7 @@ class PdfToolsViewModel @Inject constructor(
             try {
                 withContext(Dispatchers.IO) {
                     // Cache the source PDF file
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
 
                     // Parse ranges
@@ -343,7 +346,7 @@ class PdfToolsViewModel @Inject constructor(
             try {
                 withContext(Dispatchers.IO) {
                     // Cache the source PDF file
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
 
                     tempOutputFile = File(context.cacheDir, "secured_${System.currentTimeMillis()}.pdf")
@@ -463,14 +466,13 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open Word document.")
 
                     tempOutputFile = File(context.cacheDir, "docx_converted_${System.currentTimeMillis()}.pdf")
 
                     // Call the engine
-                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertDocxToPdf(
-                        context,
+                    officeConverter.convertDocxToPdf(
                         tempInputFile!!,
                         tempOutputFile!!
                     )
@@ -536,14 +538,13 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open PowerPoint document.")
 
                     tempOutputFile = File(context.cacheDir, "pptx_converted_${System.currentTimeMillis()}.pdf")
 
                     // Call the engine
-                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(
-                        context,
+                    officeConverter.convertPptxToPdf(
                         tempInputFile!!,
                         tempOutputFile!!,
                         pptRenderMode
@@ -656,7 +657,7 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF document.")
 
                     val parcelFileDescriptor = android.os.ParcelFileDescriptor.open(
@@ -932,7 +933,7 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
 
                     tempOutputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.pdf")
@@ -1021,7 +1022,7 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
 
                     tempOutputFile = File(context.cacheDir, "flattened_${System.currentTimeMillis()}.pdf")
@@ -1097,13 +1098,12 @@ class PdfToolsViewModel @Inject constructor(
 
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open Excel workbook.")
 
                     tempOutputFile = File(context.cacheDir, "xlsx_converted_${System.currentTimeMillis()}.pdf")
 
-                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertXlsxToPdf(
-                        context,
+                    officeConverter.convertXlsxToPdf(
                         tempInputFile!!,
                         tempOutputFile!!
                     )
@@ -1183,7 +1183,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempOutputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
                     tempOutputFile = File(context.cacheDir, "decrypted_${System.currentTimeMillis()}.pdf")
 
@@ -1253,7 +1253,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempOutputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
                     tempOutputFile = File(context.cacheDir, "rotated_${System.currentTimeMillis()}.pdf")
 
@@ -1332,7 +1332,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempOutputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
                     tempOutputFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}.pdf")
 
@@ -1410,7 +1410,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempOutputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source PDF file.")
                     tempOutputFile = File(context.cacheDir, "deleted_pages_${System.currentTimeMillis()}.pdf")
 
@@ -1485,7 +1485,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempInputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source file.")
 
                     val textBuilder = StringBuilder()
@@ -1558,7 +1558,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempOutputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source file.")
                     tempOutputFile = File(context.cacheDir, "converted_${System.currentTimeMillis()}.xlsx")
 
@@ -1674,7 +1674,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempInputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source file.")
 
                     val csvBuilder = StringBuilder()
@@ -1758,7 +1758,7 @@ class PdfToolsViewModel @Inject constructor(
             var tempInputFile: File? = null
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source file.")
 
                     val textBuilder = StringBuilder()
@@ -1977,7 +1977,7 @@ class PdfToolsViewModel @Inject constructor(
             try {
                 withContext(Dispatchers.IO) {
                     tarInputUris.forEach { uri ->
-                        val file = UriCacheUtils.cacheUriToFile(context, uri)
+                        val file = uriCacheUtils.cacheUriToFile( uri)
                         val name = getFileNameFromUri(uri) ?: "file_${System.currentTimeMillis()}"
                         if (file != null) {
                             cachedFiles.add(Pair(file, name))
@@ -2093,7 +2093,7 @@ class PdfToolsViewModel @Inject constructor(
             val extractedFiles = mutableListOf<File>()
             try {
                 withContext(Dispatchers.IO) {
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, inputUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile( inputUri)
                         ?: throw Exception("Could not open source TAR file.")
 
                     java.io.FileInputStream(tempInputFile!!).use { fis ->

@@ -30,7 +30,8 @@ import javax.inject.Inject
 class WatermarkViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
     @ApplicationContext private val context: Context,
-    private val fileOutputManager: FileOutputManager
+    private val fileOutputManager: FileOutputManager,
+    private val uriCacheUtils: UriCacheUtils
 ) : ViewModel() {
 
     init {
@@ -96,7 +97,7 @@ class WatermarkViewModel @Inject constructor(
 
                 try {
                     // Cache the source PDF file locally
-                    tempInputFile = UriCacheUtils.cacheUriToFile(context, pdfUri)
+                    tempInputFile = uriCacheUtils.cacheUriToFile(pdfUri)
                         ?: throw Exception("Could not cache source PDF file.")
 
                     doc = PDDocument.load(tempInputFile)

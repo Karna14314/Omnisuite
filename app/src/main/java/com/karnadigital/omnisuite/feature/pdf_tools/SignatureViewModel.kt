@@ -32,7 +32,8 @@ import javax.inject.Inject
 class SignatureViewModel @Inject constructor(
     private val recentFileRepository: RecentFileRepository,
     @ApplicationContext private val context: Context,
-    private val fileOutputManager: FileOutputManager
+    private val fileOutputManager: FileOutputManager,
+    private val uriCacheUtils: UriCacheUtils
 ) : ViewModel() {
 
     init {
@@ -95,7 +96,7 @@ class SignatureViewModel @Inject constructor(
                 try {
                     closeRenderer()
                     
-                    val cachedFile = UriCacheUtils.cacheUriToFile(context, uri)
+                    val cachedFile = uriCacheUtils.cacheUriToFile( uri)
                     if (cachedFile == null || !cachedFile.exists()) {
                         throw Exception("Failed to cache source PDF file.")
                     }
@@ -255,7 +256,7 @@ class SignatureViewModel @Inject constructor(
                     // Reload the cache representation with new signed document to allow progressive stamps
                     closeRenderer()
                     
-                    val newCachedFile = UriCacheUtils.cacheUriToFile(context, savedUri)
+                    val newCachedFile = uriCacheUtils.cacheUriToFile( savedUri)
                     if (newCachedFile != null) {
                         cachedPdfFile = newCachedFile
                         fileDescriptor = ParcelFileDescriptor.open(newCachedFile, ParcelFileDescriptor.MODE_READ_ONLY)

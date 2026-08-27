@@ -92,6 +92,8 @@ fun PptxViewerScreen(
 ) {
     val context = LocalContext.current
     val fileOutputManager = coreEntryPoint(context).fileOutputManager()
+    val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
+    val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(fileUri) {
@@ -134,7 +136,7 @@ fun PptxViewerScreen(
         onResult = { uri ->
             uri?.let {
                 coroutineScope.launch {
-                    val cachedFile = com.karnadigital.omnisuite.core.util.UriCacheUtils.cacheUriToFile(context, it)
+                    val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
                         val slideIndex = activeIndexToEdit ?: 0
                         viewModel.insertImageIntoSlide(slideIndex, cachedFile.absolutePath)
@@ -306,7 +308,7 @@ fun PptxViewerScreen(
                                 val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "image")
+                                        officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "image")
                                     }
                                     val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
                                     val jobName = "OmniSuite Presentation Print"
@@ -353,7 +355,7 @@ fun PptxViewerScreen(
                                             val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
                                             try {
                                                 withContext(Dispatchers.IO) {
-                                                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "image")
+                                                    officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "image")
                                                 }
                                                 // Save to public Documents/OmniSuite/
                                                 val savedUri = fileOutputManager.saveToDefault(
@@ -381,7 +383,7 @@ fun PptxViewerScreen(
                                             val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
                                             try {
                                                 withContext(Dispatchers.IO) {
-                                                    com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertPptxToPdf(context, File(fileUri), tempPdfFile, "text")
+                                                    officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "text")
                                                 }
                                                 // Save to public Documents/OmniSuite/
                                                 val savedUri = fileOutputManager.saveToDefault(

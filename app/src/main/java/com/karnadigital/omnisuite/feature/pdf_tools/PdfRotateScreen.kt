@@ -31,7 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -45,6 +45,7 @@ fun PdfRotateScreen(
     onOpenFile: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
     var showResultSheet by remember { mutableStateOf(false) }
     var pageBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var pageRotations by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) } // map of pageIndex -> angleToAdd
@@ -67,7 +68,7 @@ fun PdfRotateScreen(
             pageRotations = emptyMap()
             withContext(Dispatchers.IO) {
                 try {
-                    val file = UriCacheUtils.cacheUriToFile(context, uri)
+                    val file = uriCacheUtils.cacheUriToFile(uri)
                     if (file != null) {
                         context.contentResolver.openFileDescriptor(Uri.fromFile(file), "r")?.use { pfd ->
                             val renderer = android.graphics.pdf.PdfRenderer(pfd)

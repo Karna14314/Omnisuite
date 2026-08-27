@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import com.karnadigital.omnisuite.di.coreEntryPoint
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,6 +89,7 @@ fun PdfViewerScreen(
     viewModel: PdfViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(fileUri) {
@@ -158,7 +159,7 @@ fun PdfViewerScreen(
                 val sourceUri = android.net.Uri.parse(fileUri)
                 val pdfFile = if (sourceUri.scheme == "content") {
                     // SAF content URIs must be cached to a real file before PDFBox can read them.
-                    UriCacheUtils.cacheUriToFile(context, sourceUri)
+                    uriCacheUtils.cacheUriToFile(sourceUri)
                 } else {
                     val f = java.io.File(fileUri)
                     if (f.exists()) f else null

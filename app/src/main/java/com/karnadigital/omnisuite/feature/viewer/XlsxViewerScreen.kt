@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.karnadigital.omnisuite.di.coreEntryPoint
 
 data class CellCoords(val rowIndex: Int, val colIndex: Int)
 
@@ -153,6 +154,7 @@ fun XlsxViewerScreen(
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
     var isExporting by remember { mutableStateOf(false) }
 
@@ -376,7 +378,7 @@ fun XlsxViewerScreen(
                                 val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        com.karnadigital.omnisuite.core.engine.document.OfficeConverter.convertXlsxToPdf(context, File(fileUri), tempPdfFile)
+                                        officeConverter.convertXlsxToPdf(File(fileUri), tempPdfFile)
                                     }
                                     val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
                                     val jobName = "OmniSuite Spreadsheet Print"

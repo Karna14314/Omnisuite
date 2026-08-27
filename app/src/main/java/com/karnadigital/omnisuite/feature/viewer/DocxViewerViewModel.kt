@@ -70,7 +70,8 @@ sealed class DocxLoadState {
 @HiltViewModel
 class DocxViewerViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
-    private val recentFileRepository: RecentFileRepository
+    private val recentFileRepository: RecentFileRepository,
+    private val officeConverter: OfficeConverter
 ) : ViewModel() {
 
     private val _loadState = MutableStateFlow<DocxLoadState>(DocxLoadState.Loading)
@@ -544,7 +545,7 @@ class DocxViewerViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 val tempPdfFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.pdf")
                 try {
-                    OfficeConverter.convertDocxToPdf(context, File(docxPath), tempPdfFile)
+                    officeConverter.convertDocxToPdf(File(docxPath), tempPdfFile)
                     context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
                         tempPdfFile.inputStream().use { inputStream ->
                             inputStream.copyTo(outputStream)

@@ -87,7 +87,8 @@ sealed class XlsxLoadState {
 
 @HiltViewModel
 class XlsxViewerViewModel @Inject constructor(
-    private val recentFileRepository: RecentFileRepository
+    private val recentFileRepository: RecentFileRepository,
+    private val officeConverter: OfficeConverter
 ) : ViewModel() {
 
     private val _loadState = MutableStateFlow<XlsxLoadState>(XlsxLoadState.Loading)
@@ -1209,7 +1210,7 @@ class XlsxViewerViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 val tempPdfFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.pdf")
                 try {
-                    OfficeConverter.convertXlsxToPdf(context, File(xlsxPath), tempPdfFile)
+                    officeConverter.convertXlsxToPdf(File(xlsxPath), tempPdfFile)
                     context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
                         tempPdfFile.inputStream().use { inputStream ->
                             inputStream.copyTo(outputStream)

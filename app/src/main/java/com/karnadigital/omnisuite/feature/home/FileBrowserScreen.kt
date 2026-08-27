@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.model.RecentFile
-import com.karnadigital.omnisuite.core.util.UriCacheUtils
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
