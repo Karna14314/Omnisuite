@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.karnadigital.omnisuite.feature.home.HomeScreen
+import com.karnadigital.omnisuite.feature.home.NavigationEvent
 import com.karnadigital.omnisuite.feature.utility.QrGeneratorScreen
 import com.karnadigital.omnisuite.feature.utility.BarcodeScannerScreen
 import com.karnadigital.omnisuite.feature.settings.SettingsScreen
@@ -62,116 +63,47 @@ fun OmniNavGraph(
         // 1. Root Main Shell Screen (Dashboard & History Bottom Tabs)
         composable(route = Screen.MainShell.route) {
             HomeScreen(
-                onNavigateToSettings = {
-                    navController.navigate(Screen.Settings.route)
-                },
-                onNavigateToQrGenerator = {
-                    navController.navigate(Screen.QrGenerator.route)
-                },
-                onNavigateToBarcodeScanner = {
-                    navController.navigate(Screen.BarcodeScanner.route)
-                },
-                onNavigateToImageTools = {
-                    navController.navigate(Screen.ImageTools.route)
-                },
-                onNavigateToPdfMerge = {
-                    navController.navigate(Screen.PdfMerge.route)
-                },
-                onNavigateToPdfSplit = {
-                    navController.navigate(Screen.PdfSplit.route)
-                },
-                onNavigateToPdfLock = {
-                    navController.navigate(Screen.PdfLock.route)
-                },
-                onNavigateToDocToPdf = {
-                    navController.navigate(Screen.DocToPdf.route)
-                },
-                onNavigateToPptToPdf = {
-                    navController.navigate(Screen.PptToPdf.route)
-                },
-                onNavigateToScanToPdf = {
-                    navController.navigate(Screen.ScanToPdf.route)
-                },
-                onNavigateToPdfToImages = {
-                    navController.navigate(Screen.PdfToImages.route)
-                },
-                onNavigateToOcr = {
-                    navController.navigate(Screen.Ocr.route)
-                },
-                onNavigateToSignaturePad = {
-                    navController.navigate(Screen.SignaturePad.route)
-                },
-                onNavigateToWatermark = {
-                    navController.navigate(Screen.Watermark.route)
-                },
-                onNavigateToPdfToWord = {
-                    navController.navigate(Screen.PdfToWord.route)
-                },
-                onNavigateToPdfToPpt = {
-                    navController.navigate(Screen.PdfToPpt.route)
-                },
-                onNavigateToPdfToExcel = {
-                    navController.navigate(Screen.PdfToExcel.route)
-                },
-                onNavigateToPdfFormFiller = {
-                    navController.navigate(Screen.PdfFormFiller.route)
-                },
-                onNavigateToBatchTools = {
-                    navController.navigate(Screen.BatchTools.route)
-                },
-                onNavigateToZipMaker = {
-                    navController.navigate(Screen.ZipMaker.route)
-                },
-                onNavigateToImagesToPdf = {
-                    navController.navigate(Screen.ImagesToPdf.route)
-                },
-                onNavigateToPdfCompress = {
-                    navController.navigate(Screen.PdfCompress.route)
-                },
-                onNavigateToPdfFlatten = {
-                    navController.navigate(Screen.PdfFlatten.route)
-                },
-                onNavigateToXlsToPdf = {
-                    navController.navigate(Screen.XlsToPdf.route)
-                },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
-                },
-                onNavigateToPdfDecrypt = {
-                    navController.navigate(Screen.PdfDecrypt.createRoute())
-                },
-                onNavigateToPdfRotate = {
-                    navController.navigate(Screen.PdfRotate.createRoute())
-                },
-                onNavigateToPdfExtract = {
-                    navController.navigate(Screen.PdfExtract.createRoute())
-                },
-                onNavigateToPdfDelete = {
-                    navController.navigate(Screen.PdfDelete.createRoute())
-                },
-                onNavigateToWebToPdf = {
-                    navController.navigate(Screen.WebToPdf.route)
-                },
-                onNavigateToHtmlToPdf = {
-                    navController.navigate(Screen.HtmlToPdf.route)
-                },
-                onNavigateToMarkdownToPdf = {
-                    navController.navigate(Screen.MarkdownToPdf.route)
-                },
-                onNavigateToDocxToTxt = {
-                    navController.navigate(Screen.DocxToTxt.createRoute())
-                },
-                onNavigateToCsvToXlsx = {
-                    navController.navigate(Screen.CsvToXlsx.createRoute())
-                },
-                onNavigateToXlsxToCsv = {
-                    navController.navigate(Screen.XlsxToCsv.createRoute())
-                },
-                onNavigateToPptxToTxt = {
-                    navController.navigate(Screen.PptxToTxt.createRoute())
-                },
-                onNavigateToTarTools = {
-                    navController.navigate(Screen.TarTools.route)
+                onEvent = { event ->
+                    when (event) {
+                        is NavigationEvent.NavigateToSettings -> navController.navigate(Screen.Settings.route)
+                        is NavigationEvent.NavigateToQrGenerator -> navController.navigate(Screen.QrGenerator.route)
+                        is NavigationEvent.NavigateToBarcodeScanner -> navController.navigate(Screen.BarcodeScanner.route)
+                        is NavigationEvent.NavigateToImageTools -> navController.navigate(Screen.ImageTools.route)
+                        is NavigationEvent.NavigateToPdfMerge -> navController.navigate(Screen.PdfMerge.route)
+                        is NavigationEvent.NavigateToPdfSplit -> navController.navigate(Screen.PdfSplit.route)
+                        is NavigationEvent.NavigateToPdfLock -> navController.navigate(Screen.PdfLock.route)
+                        is NavigationEvent.NavigateToDocToPdf -> navController.navigate(Screen.DocToPdf.route)
+                        is NavigationEvent.NavigateToPptToPdf -> navController.navigate(Screen.PptToPdf.route)
+                        is NavigationEvent.NavigateToScanToPdf -> navController.navigate(Screen.ScanToPdf.route)
+                        is NavigationEvent.NavigateToPdfToImages -> navController.navigate(Screen.PdfToImages.route)
+                        is NavigationEvent.NavigateToOcr -> navController.navigate(Screen.Ocr.route)
+                        is NavigationEvent.NavigateToSignaturePad -> navController.navigate(Screen.SignaturePad.route)
+                        is NavigationEvent.NavigateToWatermark -> navController.navigate(Screen.Watermark.route)
+                        is NavigationEvent.NavigateToPdfToWord -> navController.navigate(Screen.PdfToWord.route)
+                        is NavigationEvent.NavigateToPdfToPpt -> navController.navigate(Screen.PdfToPpt.route)
+                        is NavigationEvent.NavigateToPdfToExcel -> navController.navigate(Screen.PdfToExcel.route)
+                        is NavigationEvent.NavigateToPdfFormFiller -> navController.navigate(Screen.PdfFormFiller.route)
+                        is NavigationEvent.NavigateToImagesToPdf -> navController.navigate(Screen.ImagesToPdf.route)
+                        is NavigationEvent.NavigateToPdfCompress -> navController.navigate(Screen.PdfCompress.route)
+                        is NavigationEvent.NavigateToPdfFlatten -> navController.navigate(Screen.PdfFlatten.route)
+                        is NavigationEvent.NavigateToXlsToPdf -> navController.navigate(Screen.XlsToPdf.route)
+                        is NavigationEvent.NavigateToBatchTools -> navController.navigate(Screen.BatchTools.route)
+                        is NavigationEvent.NavigateToZipMaker -> navController.navigate(Screen.ZipMaker.route)
+                        is NavigationEvent.NavigateToPdfDecrypt -> navController.navigate(Screen.PdfDecrypt.createRoute())
+                        is NavigationEvent.NavigateToPdfRotate -> navController.navigate(Screen.PdfRotate.createRoute())
+                        is NavigationEvent.NavigateToPdfExtract -> navController.navigate(Screen.PdfExtract.createRoute())
+                        is NavigationEvent.NavigateToPdfDelete -> navController.navigate(Screen.PdfDelete.createRoute())
+                        is NavigationEvent.NavigateToWebToPdf -> navController.navigate(Screen.WebToPdf.route)
+                        is NavigationEvent.NavigateToHtmlToPdf -> navController.navigate(Screen.HtmlToPdf.route)
+                        is NavigationEvent.NavigateToMarkdownToPdf -> navController.navigate(Screen.MarkdownToPdf.route)
+                        is NavigationEvent.NavigateToDocxToTxt -> navController.navigate(Screen.DocxToTxt.createRoute())
+                        is NavigationEvent.NavigateToCsvToXlsx -> navController.navigate(Screen.CsvToXlsx.createRoute())
+                        is NavigationEvent.NavigateToXlsxToCsv -> navController.navigate(Screen.XlsxToCsv.createRoute())
+                        is NavigationEvent.NavigateToPptxToTxt -> navController.navigate(Screen.PptxToTxt.createRoute())
+                        is NavigationEvent.NavigateToTarTools -> navController.navigate(Screen.TarTools.route)
+                        is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
+                        is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
+                    }
                 }
             )
         }

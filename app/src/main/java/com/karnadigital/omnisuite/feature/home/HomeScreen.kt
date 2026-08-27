@@ -39,52 +39,11 @@ import com.karnadigital.omnisuite.ui.theme.OmniColors
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-/**
- * Premium 5-Tab Root Navigation cockpit shell viewport container for OmniSuite.
- * Manages dynamic viewport swapping, active bottom indicators, and background intents.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeScreenViewModel = hiltViewModel(),
-    onNavigateToSettings: () -> Unit,
-    onNavigateToQrGenerator: () -> Unit,
-    onNavigateToBarcodeScanner: () -> Unit,
-    onNavigateToImageTools: () -> Unit,
-    onNavigateToPdfMerge: () -> Unit,
-    onNavigateToPdfSplit: () -> Unit,
-    onNavigateToPdfLock: () -> Unit,
-    onNavigateToDocToPdf: () -> Unit,
-    onNavigateToPptToPdf: () -> Unit,
-    onNavigateToScanToPdf: () -> Unit,
-    onNavigateToPdfToImages: () -> Unit,
-    onNavigateToOcr: () -> Unit,
-    onNavigateToSignaturePad: () -> Unit,
-    onNavigateToWatermark: () -> Unit,
-    onNavigateToPdfToWord: () -> Unit,
-    onNavigateToPdfToPpt: () -> Unit,
-    onNavigateToPdfToExcel: () -> Unit,
-    onNavigateToPdfFormFiller: () -> Unit,
-    onNavigateToImagesToPdf: () -> Unit,
-    onNavigateToPdfCompress: () -> Unit,
-    onNavigateToPdfFlatten: () -> Unit,
-    onNavigateToXlsToPdf: () -> Unit,
-    onNavigateToBatchTools: () -> Unit,
-    onNavigateToZipMaker: () -> Unit,
-    onOpenFile: (String) -> Unit,
-    // New parameters for upgraded tools
-    onNavigateToPdfDecrypt: () -> Unit,
-    onNavigateToPdfRotate: () -> Unit,
-    onNavigateToPdfExtract: () -> Unit,
-    onNavigateToPdfDelete: () -> Unit,
-    onNavigateToWebToPdf: () -> Unit,
-    onNavigateToHtmlToPdf: () -> Unit,
-    onNavigateToMarkdownToPdf: () -> Unit,
-    onNavigateToDocxToTxt: () -> Unit,
-    onNavigateToCsvToXlsx: () -> Unit,
-    onNavigateToXlsxToCsv: () -> Unit,
-    onNavigateToPptxToTxt: () -> Unit,
-    onNavigateToTarTools: () -> Unit
+    onEvent: (NavigationEvent) -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -93,7 +52,6 @@ fun HomeScreen(
     var lastRequestedType by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Reusable Storage Access Framework picker launcher
     val documentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -102,8 +60,7 @@ fun HomeScreen(
                 try {
                     val fileName = getFileName(context, it) ?: "file"
                     val fileExtension = fileName.substringAfterLast('.').lowercase(Locale.ROOT)
-                    
-                    // Validate file type based on tool request
+
                     val type = lastRequestedType
                     if (type != null) {
                         val isValid = when (type) {
@@ -117,7 +74,7 @@ fun HomeScreen(
                             "zip" -> fileExtension == "zip"
                             else -> true
                         }
-                        
+
                         if (!isValid) {
                             val formatMessage = when (type) {
                                 "pdf" -> "PDF (.pdf)"
@@ -135,11 +92,10 @@ fun HomeScreen(
                             return@launch
                         }
                     }
-                    
+
                     lastRequestedType = null
-                    
-                    // Persist access permission
-                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or 
+
+                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
                             android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                     try {
                         context.contentResolver.takePersistableUriPermission(it, takeFlags)
@@ -158,14 +114,14 @@ fun HomeScreen(
                         fileName.endsWith(".zip") -> "application/zip"
                         else -> "*/*"
                     }
-                    
+
                     viewModel.addRecentFile(
-                        fileUri = it.toString(), // Save original SAF content URI!
+                        fileUri = it.toString(),
                         fileName = fileName,
                         mimeType = mimeType,
                         fileSize = fileSize
                     )
-                    onOpenFile(it.toString())
+                    onEvent(NavigationEvent.OpenFile(it.toString()))
                 } catch (e: Exception) {
                     e.printStackTrace()
                     Toast.makeText(context, "Import error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -230,7 +186,6 @@ fun HomeScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp)
                     ) {
-                        // 1. OmniTopBar Header cockpit
                         OmniTopBar(
                             showActions = true,
                             onNotificationsClick = {
@@ -239,7 +194,6 @@ fun HomeScreen(
                             onSettingsClick = { selectedTab = HomeTab.Settings }
                         )
 
-                        // 2. Outlined search bar with rounded 14dp corners
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -260,11 +214,10 @@ fun HomeScreen(
                             singleLine = true
                         )
 
-                        // 3. Quick Open & Offline Tools Grid (2-column narrow tabs)
                         Spacer(modifier = Modifier.height(12.dp))
                         SectionHeader(title = "Quick Open & Tools")
                         Spacer(modifier = Modifier.height(6.dp))
-                        
+
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -342,7 +295,7 @@ fun HomeScreen(
                                     borderColor = Color(0xFF0F9D58).copy(alpha = 0.4f),
                                     textColor = Color(0xFF0F9D58),
                                     modifier = Modifier.weight(1f),
-                                    onClick = onNavigateToBarcodeScanner
+                                    onClick = { onEvent(NavigationEvent.NavigateToBarcodeScanner) }
                                 )
                                 HomeGridToolCard(
                                     title = "🎨 Image Lab",
@@ -350,12 +303,11 @@ fun HomeScreen(
                                     borderColor = Color(0xFFE91E63).copy(alpha = 0.4f),
                                     textColor = Color(0xFFE91E63),
                                     modifier = Modifier.weight(1f),
-                                    onClick = onNavigateToImageTools
+                                    onClick = { onEvent(NavigationEvent.NavigateToImageTools) }
                                 )
                             }
                         }
-                        
-                        // 4. Clean File Manager Navigator
+
                         Spacer(modifier = Modifier.height(20.dp))
                         SectionHeader(title = "Local File Explorer")
                         Spacer(modifier = Modifier.height(4.dp))
@@ -456,55 +408,21 @@ fun HomeScreen(
                     AllToolsScreen(
                         isInline = true,
                         onBack = { selectedTab = HomeTab.Home },
-                        onNavigateToPdfMerge = onNavigateToPdfMerge,
-                        onNavigateToPdfSplit = onNavigateToPdfSplit,
-                        onNavigateToPdfLock = onNavigateToPdfLock,
-                        onNavigateToDocToPdf = onNavigateToDocToPdf,
-                        onNavigateToPptToPdf = onNavigateToPptToPdf,
-                        onNavigateToScanToPdf = onNavigateToScanToPdf,
-                        onNavigateToPdfToImages = onNavigateToPdfToImages,
-                        onNavigateToSignaturePad = onNavigateToSignaturePad,
-                        onNavigateToWatermark = onNavigateToWatermark,
-                        onNavigateToPdfToWord = onNavigateToPdfToWord,
-                        onNavigateToPdfToPpt = onNavigateToPdfToPpt,
-                        onNavigateToPdfToExcel = onNavigateToPdfToExcel,
-                        onNavigateToPdfFormFiller = onNavigateToPdfFormFiller,
-                        onNavigateToImagesToPdf = onNavigateToImagesToPdf,
-                        onNavigateToPdfCompress = onNavigateToPdfCompress,
-                        onNavigateToPdfFlatten = onNavigateToPdfFlatten,
-                        onNavigateToXlsToPdf = onNavigateToXlsToPdf,
-                        onNavigateToImageTools = onNavigateToImageTools,
-                        onNavigateToQrGenerator = onNavigateToQrGenerator,
-                        onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
-                        onNavigateToOcr = onNavigateToOcr,
-                        onNavigateToBatchTools = onNavigateToBatchTools,
-                        onNavigateToZipMaker = onNavigateToZipMaker,
-                        onSelectFileForType = onSelectFileForType,
-                        onNavigateToPdfDecrypt = onNavigateToPdfDecrypt,
-                        onNavigateToPdfRotate = onNavigateToPdfRotate,
-                        onNavigateToPdfExtract = onNavigateToPdfExtract,
-                        onNavigateToPdfDelete = onNavigateToPdfDelete,
-                        onNavigateToWebToPdf = onNavigateToWebToPdf,
-                        onNavigateToHtmlToPdf = onNavigateToHtmlToPdf,
-                        onNavigateToMarkdownToPdf = onNavigateToMarkdownToPdf,
-                        onNavigateToDocxToTxt = onNavigateToDocxToTxt,
-                        onNavigateToCsvToXlsx = onNavigateToCsvToXlsx,
-                        onNavigateToXlsxToCsv = onNavigateToXlsxToCsv,
-                        onNavigateToPptxToTxt = onNavigateToPptxToTxt,
-                        onNavigateToTarTools = onNavigateToTarTools
+                        onEvent = onEvent,
+                        onSelectFileForType = onSelectFileForType
                     )
                 }
                 HomeTab.Files -> {
                     FilesScreen(
                         onSelectFileForType = onSelectFileForType,
-                        onNavigateToBarcodeScanner = onNavigateToBarcodeScanner,
-                        onNavigateToScanToPdf = onNavigateToScanToPdf,
-                        onOpenFile = onOpenFile
+                        onNavigateToBarcodeScanner = { onEvent(NavigationEvent.NavigateToBarcodeScanner) },
+                        onNavigateToScanToPdf = { onEvent(NavigationEvent.NavigateToScanToPdf) },
+                        onOpenFile = { onEvent(NavigationEvent.OpenFile(it)) }
                     )
                 }
                 HomeTab.History -> {
                     HistoryScreen(
-                        onOpenFile = onOpenFile
+                        onOpenFile = { onEvent(NavigationEvent.OpenFile(it)) }
                     )
                 }
                 HomeTab.Settings -> {
@@ -599,4 +517,3 @@ private fun HomeGridToolCard(
         )
     }
 }
-
