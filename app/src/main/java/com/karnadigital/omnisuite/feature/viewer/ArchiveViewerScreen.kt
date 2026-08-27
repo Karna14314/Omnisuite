@@ -148,16 +148,6 @@ fun ArchiveViewerScreen(
                                 extractProgress = "Extracting ${name.substringAfterLast('/')}"
                             }
 
-                            // Extract the bytes off-stream
-                            val buffer = ByteArray(4096)
-                            val outStream = java.io.ByteArrayOutputStream()
-                            var len = zipInputStream.read(buffer)
-                            while (len > 0) {
-                                outStream.write(buffer, 0, len)
-                                len = zipInputStream.read(buffer)
-                            }
-                            val fileBytes = outStream.toByteArray()
-
                             // Extract strictly to Ephemeral Cache
                             val extractionDir = File(context.cacheDir, "omnisuite_extracted_${archiveName}")
                             if (!extractionDir.exists()) extractionDir.mkdirs()
@@ -171,8 +161,15 @@ fun ArchiveViewerScreen(
                                 entry = zipInputStream.nextEntry
                                 continue
                             }
+
+                            // Stream the entry directly to disk instead of buffering it fully in memory
+                            val buffer = ByteArray(8192)
                             FileOutputStream(tempFile).use { fos ->
-                                fos.write(fileBytes)
+                                var len = zipInputStream.read(buffer)
+                                while (len > 0) {
+                                    fos.write(buffer, 0, len)
+                                    len = zipInputStream.read(buffer)
+                                }
                             }
                         }
                         zipInputStream.closeEntry()

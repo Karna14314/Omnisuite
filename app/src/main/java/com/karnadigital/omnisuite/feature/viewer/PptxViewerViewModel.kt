@@ -2,7 +2,6 @@ package com.karnadigital.omnisuite.feature.viewer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.karnadigital.omnisuite.core.engine.DocumentSearchEngine
 import com.karnadigital.omnisuite.core.engine.SearchResult
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
@@ -998,18 +997,16 @@ class PptxViewerViewModel @Inject constructor(
             _currentMatchIndex.value = -1
             return
         }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val path = activeFilePath ?: return@withContext
-                val results = DocumentSearchEngine.searchPptx(path, query)
-                _searchResults.value = results
-                if (results.isNotEmpty()) {
-                    _currentMatchIndex.value = 0
-                } else {
-                    _currentMatchIndex.value = -1
-                }
-            }
+        // Search the already-loaded in-memory presentation instead of re-parsing the file.
+        val presentation = (_loadState.value as? PptxLoadState.Success)?.presentation
+        if (presentation == null) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
         }
+        val results = PptxSearchEngine.search(presentation, query)
+        _searchResults.value = results
+        _currentMatchIndex.value = if (results.isNotEmpty()) 0 else -1
     }
 
     fun nextMatch() {

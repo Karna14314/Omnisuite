@@ -855,7 +855,7 @@ fun PdfViewerScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
                         ) {
-                            items(currentState.pageCount) { pageIndex ->
+                            items(count = currentState.pageCount, key = { it }) { pageIndex ->
                                 val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == pageIndex
                                 
                                 Box(

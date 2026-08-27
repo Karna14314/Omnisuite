@@ -2,6 +2,8 @@ package com.karnadigital.omnisuite.feature.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.os.CancellationSignal
@@ -779,15 +781,45 @@ fun ImageViewerScreen(
                             isSaving = true
                             try {
                                 val result = withContext(Dispatchers.IO) {
-                                    val originalBitmap = if (isContentUri) {
+                                    // Decode bounds first so we can downsample large images instead of
+                                    // loading the full-resolution bitmap into memory (OOM risk on 4000x3000+ photos).
+                                    val boundsOptions = android.graphics.BitmapFactory.Options().apply {
+                                        inJustDecodeBounds = true
+                                    }
+                                    if (isContentUri) {
                                         context.contentResolver.openInputStream(activeUri).use { stream ->
-                                            android.graphics.BitmapFactory.decodeStream(stream)
+                                            android.graphics.BitmapFactory.decodeStream(stream, null, boundsOptions)
                                         }
                                     } else {
-                                        android.graphics.BitmapFactory.decodeFile(activeUriString)
+                                        android.graphics.BitmapFactory.decodeFile(activeUriString, boundsOptions)
+                                    }
+                                    val sampleSize = com.karnadigital.omnisuite.core.util.ImageSampling.calculateInSampleSize(
+                                        boundsOptions.outWidth,
+                                        boundsOptions.outHeight,
+                                        3000,
+                                        3000
+                                    )
+                                    val originalBitmap = if (isContentUri) {
+                                        context.contentResolver.openInputStream(activeUri).use { stream ->
+                                            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                                            android.graphics.BitmapFactory.decodeStream(stream, null, opts)
+                                        }
+                                    } else {
+                                        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                                        android.graphics.BitmapFactory.decodeFile(activeUriString, opts)
                                     } ?: throw Exception("Failed to decode bitmap")
 
-                                    var bitmap = originalBitmap
+                                    // Apply EXIF orientation so portrait photos are not edited sideways.
+                                    val exifMatrix = readExifOrientationMatrix(context, activeUri, activeUriString, isContentUri)
+                                    var bitmap = if (exifMatrix.isIdentity) {
+                                        originalBitmap
+                                    } else {
+                                        val oriented = android.graphics.Bitmap.createBitmap(
+                                            originalBitmap, 0, 0, originalBitmap.width, originalBitmap.height, exifMatrix, true
+                                        )
+                                        if (oriented != originalBitmap) originalBitmap.recycle()
+                                        oriented
+                                    }
 
                                     // Rotate
                                     if (editRotation != 0f) {
@@ -961,6 +993,45 @@ private fun formatFileSize(bytes: Long): String {
     val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
     val pre = "KMGTPE"[exp - 1]
     return String.format("%.1f %sB", bytes / Math.pow(1024.0, exp.toDouble()), pre)
+}
+
+/**
+ * Reads the EXIF orientation of the image (supporting both content:// SAF URIs and file paths)
+ * and returns a [Matrix] that normalizes it. Returns an identity matrix when no rotation is needed.
+ */
+private fun readExifOrientationMatrix(
+    context: Context,
+    uri: Uri,
+    filePath: String,
+    isContentUri: Boolean
+): Matrix {
+    return try {
+        val orientation = if (isContentUri) {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } else {
+            ExifInterface(filePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        }
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            else -> { /* ORIENTATION_NORMAL / TRANSPOSE / TRANSVERSE: leave identity */ }
+        }
+        matrix
+    } catch (e: Exception) {
+        Matrix()
+    }
 }
 
 private @Composable

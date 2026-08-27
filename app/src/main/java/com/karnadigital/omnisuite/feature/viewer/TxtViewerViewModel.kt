@@ -47,6 +47,14 @@ class TxtViewerViewModel @Inject constructor(
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
     /**
+     * Maximum text file size (in bytes) loaded fully into the editor. Larger files are
+     * truncated to this limit to avoid OutOfMemoryErrors; the user is informed via the
+     * error message. 5 MB of plain text is ~5 million characters, far beyond what a
+     * user edits on a phone.
+     */
+    private val maxTextFileSize = 5L * 1024 * 1024
+
+    /**
      * Safely reads the text file content inside Dispatchers.IO scope using Kotlin buffer streams.
      */
     fun loadTextFile(filePath: String) {
@@ -60,6 +68,15 @@ class TxtViewerViewModel @Inject constructor(
                         return@withContext
                     }
                     currentFile = file
+
+                    // Guard against loading arbitrarily large files that would OOM the editor.
+                    if (file.length() > maxTextFileSize) {
+                        _loadState.value = TxtLoadState.Error(
+                            "File is too large to edit (${file.length() / (1024 * 1024)} MB). " +
+                            "Maximum supported size is ${maxTextFileSize / (1024 * 1024)} MB."
+                        )
+                        return@withContext
+                    }
 
                     // Safe Kotlin stream buffering
                     val content = file.bufferedReader().use { it.readText() }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.karnadigital.omnisuite.core.repository.OmniDatabase
 import com.karnadigital.omnisuite.core.repository.RecentFileDao
+import com.karnadigital.omnisuite.core.repository.ThemeRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -36,5 +37,11 @@ object DatabaseModule {
     @Singleton
     fun provideRecentFileDao(database: OmniDatabase): RecentFileDao {
         return database.recentFileDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideThemeRepository(@ApplicationContext context: Context): ThemeRepository {
+        return ThemeRepository.from(context)
     }
 }

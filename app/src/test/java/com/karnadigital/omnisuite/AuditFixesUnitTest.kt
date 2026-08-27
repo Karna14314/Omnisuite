@@ -1,9 +1,14 @@
 package com.karnadigital.omnisuite
 
+import com.karnadigital.omnisuite.core.util.ImageSampling
 import com.karnadigital.omnisuite.core.util.SpreadsheetUtils
 import com.karnadigital.omnisuite.core.util.TextSearchUtils
 import com.karnadigital.omnisuite.core.util.UriSchemeUtils
 import com.karnadigital.omnisuite.core.util.ZipSecurity
+import com.karnadigital.omnisuite.feature.viewer.PptxPresentation
+import com.karnadigital.omnisuite.feature.viewer.PptxSearchEngine
+import com.karnadigital.omnisuite.feature.viewer.PptxSlide
+import com.karnadigital.omnisuite.feature.viewer.PptxTextBlock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -128,5 +133,64 @@ class AuditFixesUnitTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    // ---- M5: image downsampling math ----
+    @Test
+    fun testCalculateInSampleSize() {
+        // Small image: no downsampling
+        assertEquals(1, ImageSampling.calculateInSampleSize(100, 100, 3000, 3000))
+        // 4000x3000 targeting 3000x3000: half-width 2000 is already below 3000, so no downsampling
+        // (standard Android behavior: decoded size stays >= requested size)
+        assertEquals(1, ImageSampling.calculateInSampleSize(4000, 3000, 3000, 3000))
+        // 8000x6000 targeting 3000x3000 → halves once to 4000x3000 (sample size 2)
+        assertEquals(2, ImageSampling.calculateInSampleSize(8000, 6000, 3000, 3000))
+        // 12000x12000 targeting 3000x3000 → halves twice to 3000x3000 (sample size 4)
+        assertEquals(4, ImageSampling.calculateInSampleSize(12000, 12000, 3000, 3000))
+        // Invalid dimensions are safe (no crash, no downsampling)
+        assertEquals(1, ImageSampling.calculateInSampleSize(0, 0, 3000, 3000))
+        assertEquals(1, ImageSampling.calculateInSampleSize(-1, 100, 3000, 3000))
+    }
+
+    // ---- M7: in-memory PPTX search ----
+    @Test
+    fun testPptxSearchEngineInMemory() {
+        val presentation = PptxPresentation(
+            slides = listOf(
+                PptxSlide(
+                    slideNumber = 0,
+                    title = PptxTextBlock(id = "title", text = "Quarterly Report"),
+                    textBlocks = listOf(
+                        PptxTextBlock(id = "t1", text = "Revenue grew ten percent this quarter."),
+                        PptxTextBlock(id = "t2", text = "Quarter expenses were controlled.")
+                    ),
+                    speakerNotes = "Emphasize the quarterly growth story."
+                ),
+                PptxSlide(
+                    slideNumber = 1,
+                    title = PptxTextBlock(id = "title", text = "Roadmap"),
+                    textBlocks = listOf(PptxTextBlock(id = "t1", text = "Next quarter priorities.")),
+                    speakerNotes = null
+                )
+            )
+        )
+
+        // Match found across slides; results reference the correct slide index
+        val quarterResults = PptxSearchEngine.search(presentation, "quarter")
+        assertTrue("expected matches for 'quarter'", quarterResults.isNotEmpty())
+        // "Quarterly"(title), "quarter"(t1), "Quarter"(t2), "quarterly"(notes) on slide 0 = 4,
+        // "quarter"(t1) on slide 1 = 1  →  5 total
+        assertEquals(5, quarterResults.size)
+        assertTrue(quarterResults.any { it.pageIndex == 0 })
+        assertTrue(quarterResults.any { it.pageIndex == 1 })
+
+        // Speaker notes are searched too
+        val notesResults = PptxSearchEngine.search(presentation, "growth")
+        assertTrue("expected match in speaker notes", notesResults.isNotEmpty())
+
+        // No match → empty
+        assertTrue(PptxSearchEngine.search(presentation, "nonexistent").isEmpty())
+        // Blank query → empty (no re-parse needed; pure in-memory)
+        assertTrue(PptxSearchEngine.search(presentation, "").isEmpty())
     }
 }

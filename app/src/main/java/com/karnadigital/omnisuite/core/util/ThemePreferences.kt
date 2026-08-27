@@ -1,12 +1,23 @@
 package com.karnadigital.omnisuite.core.util
 
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.compose.runtime.mutableStateOf
+import com.karnadigital.omnisuite.core.repository.ThemeRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Persisted Theme selection configuration (LIGHT, DARK, SYSTEM).
- * Saved entirely offline using device SharedPreferences.
+ * Saved entirely offline.
+ *
+ * Backed by a DataStore-powered [ThemeRepository] so that preferences survive cleanly and
+ * are not tied to the legacy SharedPreferences storage. The public API is intentionally kept
+ * identical (synchronous [mutableStateOf] holders) so that existing consumers across the UI
+ * continue to work without changes; internally every read/write now flows through DataStore.
  */
 enum class ThemeMode {
     LIGHT, DARK, SYSTEM
@@ -25,11 +36,9 @@ enum class AccentColor(val hex: String, val label: String) {
 }
 
 object ThemePreferences {
-    private const val PREFS_NAME = "omnisuite_settings"
-    private const val KEY_THEME_MODE = "pref_theme_mode"
-    private const val KEY_ACCENT_COLOR = "pref_accent_color"
-    private const val KEY_OUTPUT_FOLDER = "pref_output_folder"
-    private const val KEY_PDF_DPI = "pref_pdf_dpi"
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private var repository: ThemeRepository? = null
 
     /**
      * Reactive Compose state holder for real-time theme updates across viewports.
@@ -55,88 +64,60 @@ object ThemePreferences {
     var currentPdfDpiState = mutableStateOf(150)
         private set
 
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
-
     /**
-     * Initializes the reactive states from persisted SharedPreferences on startup.
+     * Initializes the reactive states from the DataStore-backed repository on startup.
+     * Safe to call multiple times; subsequent calls refresh the in-memory state from DataStore.
      */
     fun initialize(context: Context) {
-        currentThemeState.value = getThemeMode(context)
-        currentAccentState.value = getAccentColor(context)
-        currentOutputFolderState.value = getOutputFolder(context)
-        currentPdfDpiState.value = getPdfDpi(context)
-    }
-
-    /**
-     * Retrieves the saved theme mode, defaulting to LIGHT.
-     */
-    fun getThemeMode(context: Context): ThemeMode {
-        val modeStr = getPrefs(context).getString(KEY_THEME_MODE, ThemeMode.LIGHT.name) ?: ThemeMode.LIGHT.name
-        return try {
-            ThemeMode.valueOf(modeStr)
-        } catch (e: Exception) {
-            ThemeMode.LIGHT
+        val repo = repository ?: ThemeRepository.from(context).also { repository = it }
+        // Seed synchronously from the first emitted DataStore values so the very first
+        // composition reads the persisted settings instead of defaults.
+        runBlocking {
+            currentThemeState.value = repo.themeMode.first()
+            currentAccentState.value = repo.accentColor.first()
+            currentOutputFolderState.value = repo.outputFolder.first()
+            currentPdfDpiState.value = repo.pdfDpi.first()
         }
+        // Keep the in-memory state reactive to later DataStore changes (e.g. from another process).
+        ioScope.launch { repo.themeMode.collect { currentThemeState.value = it } }
+        ioScope.launch { repo.accentColor.collect { currentAccentState.value = it } }
+        ioScope.launch { repo.outputFolder.collect { currentOutputFolderState.value = it } }
+        ioScope.launch { repo.pdfDpi.collect { currentPdfDpiState.value = it } }
     }
 
     /**
      * Persists the selected theme mode reactively and triggers Compose updates instantly.
      */
     fun setThemeMode(context: Context, mode: ThemeMode) {
-        getPrefs(context).edit().putString(KEY_THEME_MODE, mode.name).apply()
         currentThemeState.value = mode
-    }
-
-    /**
-     * Retrieves the saved accent color, defaulting to DEFAULT.
-     */
-    fun getAccentColor(context: Context): AccentColor {
-        val colorStr = getPrefs(context).getString(KEY_ACCENT_COLOR, AccentColor.DEFAULT.name) ?: AccentColor.DEFAULT.name
-        return try {
-            AccentColor.valueOf(colorStr)
-        } catch (e: Exception) {
-            AccentColor.DEFAULT
-        }
+        val repo = repository ?: ThemeRepository.from(context).also { repository = it }
+        ioScope.launch { repo.setThemeMode(mode) }
     }
 
     /**
      * Persists the selected accent color and triggers Compose updates instantly.
      */
     fun setAccentColor(context: Context, color: AccentColor) {
-        getPrefs(context).edit().putString(KEY_ACCENT_COLOR, color.name).apply()
         currentAccentState.value = color
-    }
-
-    /**
-     * Retrieves the saved output folder name, defaulting to "OmniSuite".
-     */
-    fun getOutputFolder(context: Context): String {
-        return getPrefs(context).getString(KEY_OUTPUT_FOLDER, "OmniSuite") ?: "OmniSuite"
+        val repo = repository ?: ThemeRepository.from(context).also { repository = it }
+        ioScope.launch { repo.setAccentColor(color) }
     }
 
     /**
      * Persists the default output folder path configuration.
      */
     fun setOutputFolder(context: Context, folderName: String) {
-        getPrefs(context).edit().putString(KEY_OUTPUT_FOLDER, folderName).apply()
         currentOutputFolderState.value = folderName
-    }
-
-    /**
-     * Retrieves the saved PDF resolution DPI, defaulting to 150.
-     */
-    fun getPdfDpi(context: Context): Int {
-        val dpi = getPrefs(context).getInt(KEY_PDF_DPI, 150)
-        return if (dpi in listOf(72, 150, 300)) dpi else 150
+        val repo = repository ?: ThemeRepository.from(context).also { repository = it }
+        ioScope.launch { repo.setOutputFolder(folderName) }
     }
 
     /**
      * Persists the selected PDF rendering DPI.
      */
     fun setPdfDpi(context: Context, dpi: Int) {
-        getPrefs(context).edit().putInt(KEY_PDF_DPI, dpi).apply()
         currentPdfDpiState.value = dpi
+        val repo = repository ?: ThemeRepository.from(context).also { repository = it }
+        ioScope.launch { repo.setPdfDpi(dpi) }
     }
 }
