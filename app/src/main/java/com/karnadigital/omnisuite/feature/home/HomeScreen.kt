@@ -10,7 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.karnadigital.omnisuite.feature.history.HistoryScreen
 import com.karnadigital.omnisuite.feature.settings.SettingsScreen
 import com.karnadigital.omnisuite.feature.tools.AllToolsScreen
 import com.karnadigital.omnisuite.ui.component.*
@@ -159,7 +158,19 @@ fun HomeScreen(
                 "application/x-zip-compressed",
                 "application/x-zip"
             ))
-            else -> documentLauncher.launch(arrayOf("*/*"))
+            else -> documentLauncher.launch(arrayOf(
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-powerpoint",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "image/*",
+                "text/plain",
+                "text/csv",
+                "application/zip"
+            ))
         }
     }
 
@@ -187,10 +198,8 @@ fun HomeScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         OmniTopBar(
-                            showActions = true,
-                            onNotificationsClick = {
-                                Toast.makeText(context, "OmniSuite is operating 100% offline.", Toast.LENGTH_SHORT).show()
-                            },
+                            showActions = false,
+                            onNotificationsClick = {},
                             onSettingsClick = { selectedTab = HomeTab.Settings }
                         )
 
@@ -201,7 +210,7 @@ fun HomeScreen(
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon", tint = OmniColors.TextMuted) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 8.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = OmniColors.Accent,
@@ -214,194 +223,224 @@ fun HomeScreen(
                             singleLine = true
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
-                        SectionHeader(title = "Quick Open & Tools")
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectFileForType("any") },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = OmniColors.Accent.copy(alpha = 0.1f)),
+                            border = CardDefaults.outlinedCardBorder()
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                HomeGridToolCard(
-                                    title = "📋 PDF Reader",
-                                    bgColor = OmniColors.PdfRedBg,
-                                    borderColor = OmniColors.PdfRed.copy(alpha = 0.4f),
-                                    textColor = OmniColors.PdfRed,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("pdf") }
-                                )
-                                HomeGridToolCard(
-                                    title = "📝 Word Viewer",
-                                    bgColor = OmniColors.DocBlueBg,
-                                    borderColor = OmniColors.DocBlue.copy(alpha = 0.4f),
-                                    textColor = OmniColors.DocBlue,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("word") }
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(OmniColors.Accent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FolderOpen,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Open Document",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OmniColors.TextPrimary
+                                    )
+                                    Text(
+                                        text = "PDF, Word, Excel, Slides, Images, ZIP",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OmniColors.TextMuted
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = null,
+                                    tint = OmniColors.TextMuted
                                 )
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                HomeGridToolCard(
-                                    title = "📊 Excel Viewer",
-                                    bgColor = OmniColors.XlsGreenBg,
-                                    borderColor = OmniColors.XlsGreen.copy(alpha = 0.4f),
-                                    textColor = OmniColors.XlsGreen,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("excel") }
-                                )
-                                HomeGridToolCard(
-                                    title = "🖼️ Slides Viewer",
-                                    bgColor = Color(0x1FF59E0B),
-                                    borderColor = Color(0xFFF59E0B).copy(alpha = 0.4f),
-                                    textColor = Color(0xFFF59E0B),
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("slides") }
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                HomeGridToolCard(
-                                    title = "📸 Image Viewer",
-                                    bgColor = OmniColors.ImgPurpleBg,
-                                    borderColor = OmniColors.ImgPurple.copy(alpha = 0.4f),
-                                    textColor = OmniColors.ImgPurple,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("image") }
-                                )
-                                HomeGridToolCard(
-                                    title = "📦 ZIP Explorer",
-                                    bgColor = OmniColors.ArcCyanBg,
-                                    borderColor = OmniColors.ArcCyan.copy(alpha = 0.4f),
-                                    textColor = OmniColors.ArcCyan,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectFileForType("zip") }
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                HomeGridToolCard(
-                                    title = "📲 QR Scanner",
-                                    bgColor = Color(0x1F0F9D58),
-                                    borderColor = Color(0xFF0F9D58).copy(alpha = 0.4f),
-                                    textColor = Color(0xFF0F9D58),
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onEvent(NavigationEvent.NavigateToBarcodeScanner) }
-                                )
-                                HomeGridToolCard(
-                                    title = "🎨 Image Lab",
-                                    bgColor = Color(0x1FE91E63),
-                                    borderColor = Color(0xFFE91E63).copy(alpha = 0.4f),
-                                    textColor = Color(0xFFE91E63),
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onEvent(NavigationEvent.NavigateToImageTools) }
-                                )
-                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        SectionHeader(title = "Quick Tools")
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            HomeGridToolCard(
+                                title = "📋 PDF",
+                                bgColor = OmniColors.PdfRedBg,
+                                borderColor = OmniColors.PdfRed.copy(alpha = 0.4f),
+                                textColor = OmniColors.PdfRed,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("pdf") }
+                            )
+                            HomeGridToolCard(
+                                title = "📝 Word",
+                                bgColor = OmniColors.DocBlueBg,
+                                borderColor = OmniColors.DocBlue.copy(alpha = 0.4f),
+                                textColor = OmniColors.DocBlue,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("word") }
+                            )
+                            HomeGridToolCard(
+                                title = "📊 Excel",
+                                bgColor = OmniColors.XlsGreenBg,
+                                borderColor = OmniColors.XlsGreen.copy(alpha = 0.4f),
+                                textColor = OmniColors.XlsGreen,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("excel") }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            HomeGridToolCard(
+                                title = "🖼️ Slides",
+                                bgColor = Color(0x1FF59E0B),
+                                borderColor = Color(0xFFF59E0B).copy(alpha = 0.4f),
+                                textColor = Color(0xFFF59E0B),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("slides") }
+                            )
+                            HomeGridToolCard(
+                                title = "📸 Images",
+                                bgColor = OmniColors.ImgPurpleBg,
+                                borderColor = OmniColors.ImgPurple.copy(alpha = 0.4f),
+                                textColor = OmniColors.ImgPurple,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("image") }
+                            )
+                            HomeGridToolCard(
+                                title = "📦 ZIP",
+                                bgColor = OmniColors.ArcCyanBg,
+                                borderColor = OmniColors.ArcCyan.copy(alpha = 0.4f),
+                                textColor = OmniColors.ArcCyan,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectFileForType("zip") }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            HomeGridToolCard(
+                                title = "📲 QR Scan",
+                                bgColor = Color(0x1F0F9D58),
+                                borderColor = Color(0xFF0F9D58).copy(alpha = 0.4f),
+                                textColor = Color(0xFF0F9D58),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onEvent(NavigationEvent.NavigateToBarcodeScanner) }
+                            )
+                            HomeGridToolCard(
+                                title = "🎨 Image Lab",
+                                bgColor = Color(0x1FE91E63),
+                                borderColor = Color(0xFFE91E63).copy(alpha = 0.4f),
+                                textColor = Color(0xFFE91E63),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onEvent(NavigationEvent.NavigateToImageTools) }
+                            )
+                            Box(modifier = Modifier.weight(1f))
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
-                        SectionHeader(title = "Local File Explorer")
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(OmniColors.Surface2)
-                                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
-                                    .clickable { selectedTab = HomeTab.Files }
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(OmniColors.Accent.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(text = "💾", fontSize = 17.sp)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = "Device File Manager",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OmniColors.TextPrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Browse downloads, documents, and local workspaces",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = OmniColors.TextMuted
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = "Open",
-                                    tint = OmniColors.TextMuted
-                                )
-                            }
+                        SectionHeader(title = "Recent Files")
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(OmniColors.Surface2)
-                                    .border(1.dp, OmniColors.Border, RoundedCornerShape(14.dp))
-                                    .clickable { onSelectFileForType("any") }
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        val recentFiles = when (val state = uiState) {
+                            is RecentFilesUiState.Success -> state.files
+                            else -> emptyList()
+                        }
+                        if (recentFiles.isEmpty()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = OmniColors.Surface2)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(OmniColors.Accent.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(text = "📂", fontSize = 17.sp)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
                                 Column(
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
+                                    Text(text = "🕐", fontSize = 32.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "Open Supported Document",
+                                        text = "No recent files",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OmniColors.TextPrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Open PDF, Word, Excel, Slide, ZIP, or Text file",
-                                        style = MaterialTheme.typography.labelSmall,
                                         color = OmniColors.TextMuted
                                     )
                                 }
-                                Icon(
-                                    imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = "Open",
-                                    tint = OmniColors.TextMuted
-                                )
+                            }
+                        } else {
+                            recentFiles.take(5).forEach { file ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { onEvent(NavigationEvent.OpenFile(file.fileUri)) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = OmniColors.Surface2)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = getFileEmoji(file.mimeType),
+                                            fontSize = 20.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = file.fileName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = OmniColors.TextPrimary
+                                            )
+                                            Text(
+                                                text = formatRelativeTime(file.lastOpened),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = OmniColors.TextMuted
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Rounded.ChevronRight,
+                                            contentDescription = null,
+                                            tint = OmniColors.TextMuted,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
-                        Spacer(modifier = Modifier.height(32.dp))
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
                 HomeTab.Tools -> {
@@ -412,19 +451,6 @@ fun HomeScreen(
                         onSelectFileForType = onSelectFileForType
                     )
                 }
-                HomeTab.Files -> {
-                    FilesScreen(
-                        onSelectFileForType = onSelectFileForType,
-                        onNavigateToBarcodeScanner = { onEvent(NavigationEvent.NavigateToBarcodeScanner) },
-                        onNavigateToScanToPdf = { onEvent(NavigationEvent.NavigateToScanToPdf) },
-                        onOpenFile = { onEvent(NavigationEvent.OpenFile(it)) }
-                    )
-                }
-                HomeTab.History -> {
-                    HistoryScreen(
-                        onOpenFile = { onEvent(NavigationEvent.OpenFile(it)) }
-                    )
-                }
                 HomeTab.Settings -> {
                     SettingsScreen(
                         onBack = { selectedTab = HomeTab.Home }
@@ -432,6 +458,34 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+private fun getFileEmoji(mimeType: String): String {
+    return when {
+        mimeType.contains("pdf") -> "📋"
+        mimeType.contains("word") || mimeType.contains("document") -> "📝"
+        mimeType.contains("sheet") || mimeType.contains("excel") -> "📊"
+        mimeType.contains("presentation") || mimeType.contains("powerpoint") -> "🖼️"
+        mimeType.startsWith("image/") -> "📸"
+        mimeType.contains("zip") || mimeType.contains("archive") -> "📦"
+        mimeType.startsWith("text/") -> "📄"
+        else -> "📁"
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val minutes = diff / (1000 * 60)
+    val hours = diff / (1000 * 60 * 60)
+    val days = diff / (1000 * 60 * 60 * 24)
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        hours < 24 -> "$hours hr ago"
+        days < 7 -> "$days days ago"
+        else -> "${days / 7}w ago"
     }
 }
 
@@ -504,7 +558,7 @@ private fun HomeGridToolCard(
             .background(bgColor)
             .border(1.dp, borderColor, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 10.dp),
+            .padding(vertical = 14.dp, horizontal = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

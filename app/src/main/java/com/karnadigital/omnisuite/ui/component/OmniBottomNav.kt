@@ -20,14 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.karnadigital.omnisuite.ui.theme.OmniColors
 
-/**
- * Supported root navigation destinations within the 5-tab cockpit shell.
- */
 enum class HomeTab {
     Home,
     Tools,
-    Files,
-    History,
     Settings
 }
 
@@ -37,10 +32,6 @@ private data class NavItemData(
     val label: String
 )
 
-/**
- * Premium 5-tab custom navigation bar conforming exactly to the redesign visual specs.
- * Implements AccentGlow pill indicators and deep slate-navy backgrounds.
- */
 @Composable
 fun OmniBottomNav(
     selectedTab: HomeTab,
@@ -49,9 +40,7 @@ fun OmniBottomNav(
 ) {
     val items = listOf(
         NavItemData(HomeTab.Home, Icons.Rounded.Home, "Home"),
-        NavItemData(HomeTab.Tools, Icons.Rounded.Build, "Tools"),
-        NavItemData(HomeTab.Files, Icons.Rounded.Folder, "Files"),
-        NavItemData(HomeTab.History, Icons.Rounded.AccessTime, "History")
+        NavItemData(HomeTab.Tools, Icons.Rounded.Build, "Tools")
     )
 
     Row(
@@ -59,14 +48,14 @@ fun OmniBottomNav(
             .fillMaxWidth()
             .background(OmniColors.Surface)
             .border(width = 1.dp, color = OmniColors.Border, shape = RoundedCornerShape(0.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .padding(horizontal = 24.dp, vertical = 6.dp)
             .navigationBarsPadding(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceAround
     ) {
         items.forEach { item ->
             val isActive = selectedTab == item.tab
-            
+
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -80,20 +69,20 @@ fun OmniBottomNav(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (isActive) OmniColors.AccentGlow else androidx.compose.ui.graphics.Color.Transparent)
-                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = if (isActive) OmniColors.Accent else OmniColors.TextMuted,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = item.label,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isActive) OmniColors.Accent else OmniColors.TextMuted
                 )
