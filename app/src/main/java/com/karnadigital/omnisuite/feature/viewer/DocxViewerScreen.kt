@@ -88,6 +88,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun DocxViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: DocxViewerViewModel = hiltViewModel()
 ) {
     LaunchedEffect(fileUri) {
@@ -361,82 +362,37 @@ fun DocxViewerScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DocxActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(fileUriProvider, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(openIntent, "Open DOCX In"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                            onToolAction(ViewerTool.OpenIn)
                         }
 
-                        DocxActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            coroutineScope.launch {
-                                val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        officeConverter.convertDocxToPdf(File(fileUri), tempPdfFile)
-                                    }
-                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
-                                    val jobName = "OmniSuite Word Print"
-                                    printManager.print(
-                                        jobName,
-                                        DocxPrintDocumentAdapter(context, tempPdfFile),
-                                        null
-                                    )
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                            onToolAction(ViewerTool.Print)
                         }
 
-                        DocxActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    putExtra(Intent.EXTRA_STREAM, fileUriProvider)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Word Document"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                            onToolAction(ViewerTool.Share)
                         }
 
-                        var showQuickToolsMenu by remember { mutableStateOf(false) }
-                        Box {
-                            DocxActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
-                                showQuickToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showQuickToolsMenu,
-                                onDismissRequest = { showQuickToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("📕 Convert to PDF format") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        val currentSuccess = state as DocxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                        val docxTools = docxToolActions(fileUri) + listOf(
+                            ViewerTool.ExportPdf to "📕 Export to PDF"
+                        )
+                        ViewerQuickToolsMenu(
+                            fileUri = fileUri,
+                            toolActions = docxTools,
+                            onToolClick = { tool ->
+                                when (tool) {
+                                    is ViewerTool.ExportPdf -> {
+                                        val currentSuccess = state as? DocxLoadState.Success
+                                        val defaultName = currentSuccess?.fileName?.substringBeforeLast(".")?.plus(".pdf") ?: "document.pdf"
                                         exportPdfLauncher.launch(defaultName)
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("✍️ Toggle Editing Mode") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        isEditMode = !isEditMode
-                                    }
-                                )
+                                    else -> handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                        onToolAction(ViewerTool.Navigate(route))
+                                    })
+                                }
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -1222,24 +1178,6 @@ fun EmptyDocumentState() {
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
         )
-    }
-}
-
-private @Composable
-fun DocxActionColumnButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(8.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

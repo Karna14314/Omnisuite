@@ -77,7 +77,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 fun ImageViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
-    onEditInImageLab: (String, Int) -> Unit,
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: ImageViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -225,31 +225,31 @@ fun ImageViewerScreen(
                     ) {
                         // Quick Edit
                         AssistChip(
-                            onClick = { onEditInImageLab(targetUri, 0) },
+                            onClick = { onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.QUICK_EDIT.index)) },
                             label = { Text("Quick Edit") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Watermark
                         AssistChip(
-                            onClick = { onEditInImageLab(targetUri, 4) },
+                            onClick = { onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.WATERMARK.index)) },
                             label = { Text("Watermark") },
                             leadingIcon = { Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Long Stitch
                         AssistChip(
-                            onClick = { onEditInImageLab(targetUri, 1) },
+                            onClick = { onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.LONG_STITCH.index)) },
                             label = { Text("Long Stitch") },
                             leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // Extract Text
                         AssistChip(
-                            onClick = { onEditInImageLab(targetUri, 2) },
+                            onClick = { onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.EXTRACT_TEXT.index)) },
                             label = { Text("Extract Text") },
                             leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                         // ID Card Maker
                         AssistChip(
-                            onClick = { onEditInImageLab(targetUri, 3) },
+                            onClick = { onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.ID_CARD.index)) },
                             label = { Text("ID Card Maker") },
                             leadingIcon = { Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
@@ -596,7 +596,7 @@ fun ImageViewerScreen(
                         .fillMaxWidth()
                         .clickable {
                             showEditSheet = false
-                            onEditInImageLab(targetUri, 0)
+                            onToolAction(ViewerTool.NavigateImageTool(targetUri, ImageLabTab.QUICK_EDIT.index))
                         },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)

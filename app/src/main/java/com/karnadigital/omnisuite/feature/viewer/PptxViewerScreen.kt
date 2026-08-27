@@ -88,6 +88,7 @@ private fun safeParseColor(colorHex: String?, fallback: Color): Color {
 fun PptxViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: PptxViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -283,128 +284,28 @@ fun PptxViewerScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val dynamicMimeType = if (fileUri.endsWith(".ppt", ignoreCase = true)) {
-                            "application/vnd.ms-powerpoint"
-                        } else {
-                            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                            onToolAction(ViewerTool.OpenIn)
                         }
 
-                        PptxActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(fileUriProvider, dynamicMimeType)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(openIntent, "Open PowerPoint In"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                            onToolAction(ViewerTool.Print)
                         }
 
-                        PptxActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            coroutineScope.launch {
-                                val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "image")
-                                    }
-                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
-                                    val jobName = "OmniSuite Presentation Print"
-                                    printManager.print(
-                                        jobName,
-                                        PptxPrintDocumentAdapter(context, tempPdfFile),
-                                        null
-                                    )
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                            onToolAction(ViewerTool.Share)
                         }
 
-                        PptxActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = dynamicMimeType
-                                    putExtra(Intent.EXTRA_STREAM, fileUriProvider)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Presentation"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        val pptxTools = pptxToolActions(fileUri)
+                        ViewerQuickToolsMenu(
+                            fileUri = fileUri,
+                            toolActions = pptxTools,
+                            onToolClick = { tool ->
+                                handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                    onToolAction(ViewerTool.Navigate(route))
+                                })
                             }
-                        }
-
-                        var showQuickToolsMenu by remember { mutableStateOf(false) }
-                        Box {
-                            PptxActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
-                                showQuickToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showQuickToolsMenu,
-                                onDismissRequest = { showQuickToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("📕 Convert to PDF (Image Mode)") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        coroutineScope.launch {
-                                            val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
-                                            try {
-                                                withContext(Dispatchers.IO) {
-                                                    officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "image")
-                                                }
-                                                // Save to public Documents/OmniSuite/
-                                                val savedUri = fileOutputManager.saveToDefault(
-                                                    bytes = tempPdfFile.readBytes(),
-                                                    filename = File(fileUri).name.substringBeforeLast(".") + "_converted.pdf",
-                                                    mimeType = "application/pdf",
-                                                    subfolder = ""
-                                                )
-                                                if (savedUri != null) {
-                                                    Toast.makeText(context, "Presentation saved under Documents/OmniSuite!", Toast.LENGTH_LONG).show()
-                                                }
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                            } finally {
-                                                if (tempPdfFile.exists()) tempPdfFile.delete()
-                                            }
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("📄 Convert to PDF (Text Reflow)") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        coroutineScope.launch {
-                                            val tempPdfFile = File(context.cacheDir, "temp_conv_${System.currentTimeMillis()}.pdf")
-                                            try {
-                                                withContext(Dispatchers.IO) {
-                                                    officeConverter.convertPptxToPdf(File(fileUri), tempPdfFile, "text")
-                                                }
-                                                // Save to public Documents/OmniSuite/
-                                                val savedUri = fileOutputManager.saveToDefault(
-                                                    bytes = tempPdfFile.readBytes(),
-                                                    filename = File(fileUri).name.substringBeforeLast(".") + "_reflowed.pdf",
-                                                    mimeType = "application/pdf",
-                                                    subfolder = ""
-                                                )
-                                                if (savedUri != null) {
-                                                    Toast.makeText(context, "Presentation saved under Documents/OmniSuite!", Toast.LENGTH_LONG).show()
-                                                }
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                            } finally {
-                                                if (tempPdfFile.exists()) tempPdfFile.delete()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -1142,24 +1043,6 @@ fun EmptyPresentationState() {
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
         )
-    }
-}
-
-private @Composable
-fun PptxActionColumnButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(8.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

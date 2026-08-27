@@ -88,6 +88,7 @@ data class CellCoords(val rowIndex: Int, val colIndex: Int)
 fun XlsxViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: XlsxViewerViewModel = hiltViewModel()
 ) {
     LaunchedEffect(fileUri) {
@@ -359,82 +360,37 @@ fun XlsxViewerScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        XlsxActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(fileUriProvider, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(openIntent, "Open Spreadsheet In"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                            onToolAction(ViewerTool.OpenIn)
                         }
 
-                        XlsxActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                            coroutineScope.launch {
-                                val tempPdfFile = File(context.cacheDir, "temp_print_${System.currentTimeMillis()}.pdf")
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        officeConverter.convertXlsxToPdf(File(fileUri), tempPdfFile)
-                                    }
-                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
-                                    val jobName = "OmniSuite Spreadsheet Print"
-                                    printManager.print(
-                                        jobName,
-                                        XlsxPrintDocumentAdapter(context, tempPdfFile),
-                                        null
-                                    )
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                            onToolAction(ViewerTool.Print)
                         }
 
-                        XlsxActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                            try {
-                                val file = File(fileUri)
-                                val fileUriProvider = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    putExtra(Intent.EXTRA_STREAM, fileUriProvider)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Spreadsheet"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
+                        ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                            onToolAction(ViewerTool.Share)
                         }
 
-                        var showQuickToolsMenu by remember { mutableStateOf(false) }
-                        Box {
-                            XlsxActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
-                                showQuickToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showQuickToolsMenu,
-                                onDismissRequest = { showQuickToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("📕 Convert to PDF format") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        val currentSuccess = state as XlsxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                        val xlsxTools = xlsxToolActions(fileUri) + listOf(
+                            ViewerTool.ExportPdf to "📕 Export to PDF"
+                        )
+                        ViewerQuickToolsMenu(
+                            fileUri = fileUri,
+                            toolActions = xlsxTools,
+                            onToolClick = { tool ->
+                                when (tool) {
+                                    is ViewerTool.ExportPdf -> {
+                                        val currentSuccess = state as? XlsxLoadState.Success
+                                        val defaultName = currentSuccess?.fileName?.substringBeforeLast(".")?.plus(".pdf") ?: "spreadsheet.pdf"
                                         exportPdfLauncher.launch(defaultName)
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("💾 Save Changes to Disk") },
-                                    onClick = {
-                                        showQuickToolsMenu = false
-                                        viewModel.commitChanges()
-                                    }
-                                )
+                                    else -> handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                        onToolAction(ViewerTool.Navigate(route))
+                                    })
+                                }
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -1924,24 +1880,6 @@ private fun getColHeaderString(index: Int): String {
         temp = (temp / 26) - 1
     }
     return sb.toString()
-}
-
-private @Composable
-fun XlsxActionColumnButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(8.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-    }
 }
 
 private class XlsxPrintDocumentAdapter(private val context: Context, private val file: File) : PrintDocumentAdapter() {

@@ -159,10 +159,10 @@ fun OmniNavGraph(
                 onOpenFile = { targetUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 },
-                onOpenPdfTool = { route ->
+                onNavigate = { route ->
                     navController.navigate(route)
                 },
-                onOpenImageTool = { uri, tab ->
+                onNavigateImageTool = { uri, tab ->
                     navController.navigate(Screen.ImageTools.createRoute(uri, tab))
                 },
                 onBack = {

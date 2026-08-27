@@ -10,13 +10,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,6 +50,7 @@ import androidx.compose.ui.text.TextRange
 fun TxtViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: TxtViewerViewModel = hiltViewModel()
 ) {
     LaunchedEffect(fileUri) {
@@ -253,13 +256,18 @@ fun TxtViewerScreen(
             }
         }
     ) { paddingValues ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(currentTheme.first)
         ) {
-            when (currentState) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(currentTheme.first)
+            ) {
+                when (currentState) {
                 is TxtLoadState.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -555,6 +563,36 @@ fun TxtViewerScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+            }
+
+            if (state is TxtLoadState.Success) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Print,
+                            title = "Print"
+                        ) {
+                            onToolAction(ViewerTool.Print)
+                        }
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Share,
+                            title = "Share"
+                        ) {
+                            onToolAction(ViewerTool.Share)
+                        }
+                    }
                 }
             }
         }

@@ -85,7 +85,7 @@ data class TextNote(
 fun PdfViewerScreen(
     fileUri: String,
     onBack: () -> Unit,
-    onOpenPdfTool: (String) -> Unit = {},
+    onToolAction: (ViewerTool) -> Unit = {},
     viewModel: PdfViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -637,7 +637,6 @@ fun PdfViewerScreen(
                         }
                     }
 
-                    // Consistent actions bar
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp,
@@ -650,86 +649,32 @@ fun PdfViewerScreen(
                             horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
-                                try {
-                                    val file = File(fileUri)
-                                    val fileUriProvider = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                    val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(fileUriProvider, "application/pdf")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(openIntent, "Open PDF In"))
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Failed to resolve open intent: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                }
+                            ViewerActionColumnButton(icon = Icons.Default.OpenInNew, title = "Open in...") {
+                                onToolAction(ViewerTool.OpenIn)
                             }
 
-                            ActionColumnButton(icon = Icons.Default.Print, title = "Print") {
-                                try {
-                                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-                                    val jobName = "OmniSuite Document Print"
-                                    printManager.print(
-                                        jobName,
-                                        PdfDocumentAdapter(context, File(fileUri)),
-                                        null
-                                    )
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
+                            ViewerActionColumnButton(icon = Icons.Default.Print, title = "Print") {
+                                onToolAction(ViewerTool.Print)
                             }
 
-                            ActionColumnButton(icon = Icons.Default.Share, title = "Share") {
-                                try {
-                                    val file = File(fileUri)
-                                    val fileUriProvider = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/pdf"
-                                        putExtra(Intent.EXTRA_STREAM, fileUriProvider)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Document"))
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
+                            ViewerActionColumnButton(icon = Icons.Default.Share, title = "Share") {
+                                onToolAction(ViewerTool.Share)
                             }
 
-                            ActionColumnButton(icon = Icons.Default.TextSnippet, title = "Select Text") {
+                            ViewerActionColumnButton(icon = Icons.Default.TextSnippet, title = "Select Text") {
                                 extractPageText(currentPageIndex)
                             }
 
-                            // Quick Tools Dropdown trigger
-                            var showQuickToolsMenu by remember { mutableStateOf(false) }
-                            Box {
-                                ActionColumnButton(icon = Icons.Default.Build, title = "Quick Tools") {
-                                    showQuickToolsMenu = true
+                            val pdfTools = pdfToolActions(fileUri)
+                            ViewerQuickToolsMenu(
+                                fileUri = fileUri,
+                                toolActions = pdfTools,
+                                onToolClick = { tool ->
+                                    handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                        onToolAction(ViewerTool.Navigate(route))
+                                    })
                                 }
-                                DropdownMenu(
-                                    expanded = showQuickToolsMenu,
-                                    onDismissRequest = { showQuickToolsMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("✍️ Add Digital Signature") },
-                                        onClick = {
-                                            showQuickToolsMenu = false
-                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.SignaturePad.createRoute(fileUri))
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("🎨 Add Watermark overlay") },
-                                        onClick = {
-                                            showQuickToolsMenu = false
-                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.Watermark.createRoute(fileUri))
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("🔒 Encrypt / Lock PDF") },
-                                        onClick = {
-                                            showQuickToolsMenu = false
-                                            onOpenPdfTool(com.karnadigital.omnisuite.ui.navigation.Screen.PdfLock.createRoute(fileUri))
-                                        }
-                                    )
-                                }
-                            }
+                            )
                         }
                     }
                 }
@@ -1403,24 +1348,6 @@ fun DrawingCanvasOverlay(
                 )
             }
         }
-    }
-}
-
-@Composable
-fun ActionColumnButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(8.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
