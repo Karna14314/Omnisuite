@@ -2,6 +2,7 @@ package com.karnadigital.omnisuite.feature.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -118,6 +119,20 @@ fun PptxViewerScreen(
 
     LaunchedEffect(fileUri) {
         viewModel.loadPptxFile(fileUri)
+        try {
+            val uri = Uri.parse(fileUri)
+            val name = uri.lastPathSegment ?: "presentation.pptx"
+            val coreRepo = coreEntryPoint(context).recentFileRepository()
+            coreRepo.insertRecentFile(
+                com.karnadigital.omnisuite.core.model.RecentFile(
+                    fileUri = fileUri,
+                    fileName = name,
+                    mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+            )
+        } catch (e: Exception) {}
     }
 
     LaunchedEffect(Unit) {
@@ -1189,7 +1204,8 @@ fun SlideCardItem(
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 280.dp)
+            .wrapContentHeight()
+            .defaultMinSize(minHeight = 260.dp)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),

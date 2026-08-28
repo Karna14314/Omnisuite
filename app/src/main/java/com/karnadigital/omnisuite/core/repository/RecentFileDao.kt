@@ -33,16 +33,16 @@ interface RecentFileDao {
     suspend fun deleteRecentFileByUri(fileUri: String)
 
     /**
-     * Reactive flow returning the top 10 most recently accessed files, ordered by their
+     * Reactive flow returning recently accessed files, ordered by their
      * access timestamp in descending order.
      */
-    @Query("SELECT * FROM recent_files ORDER BY lastOpened DESC LIMIT 10")
+    @Query("SELECT * FROM recent_files ORDER BY lastOpened DESC LIMIT 100")
     fun getRecentFilesFlow(): Flow<List<RecentFile>>
 
     /**
-     * Synchronous/one-shot retrieval of the top 10 most recently accessed files.
+     * Synchronous/one-shot retrieval of recently accessed files.
      */
-    @Query("SELECT * FROM recent_files ORDER BY lastOpened DESC LIMIT 10")
+    @Query("SELECT * FROM recent_files ORDER BY lastOpened DESC LIMIT 100")
     suspend fun getRecentFilesList(): List<RecentFile>
 
     /**

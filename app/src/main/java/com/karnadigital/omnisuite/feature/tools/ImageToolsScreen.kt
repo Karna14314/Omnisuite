@@ -78,7 +78,9 @@ fun ImageToolsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var activeCategory by remember { mutableStateOf(PhotoEditorCategory.TRANSFORM) }
+    var activeCategory by remember(initialTab) {
+        mutableStateOf(PhotoEditorCategory.entries.getOrElse(initialTab) { PhotoEditorCategory.TRANSFORM })
+    }
     var activeAdjustParam by remember { mutableStateOf(AdjustmentParam.BRIGHTNESS) }
     var isHoldingCompare by remember { mutableStateOf(false) }
     var showLabSheet by remember { mutableStateOf(false) }
@@ -289,9 +291,13 @@ fun ImageToolsScreen(
                                         scale = uiState.resizeScale,
                                         format = uiState.outputFormat,
                                         originalSize = uiState.originalSize,
+                                        compressMode = uiState.compressMode,
+                                        targetSizeKbText = uiState.targetSizeKbText,
                                         onQualityChange = { viewModel.updateQuality(it) },
                                         onScaleChange = { viewModel.updateScale(it) },
-                                        onFormatChange = { viewModel.updateFormat(it) }
+                                        onFormatChange = { viewModel.updateFormat(it) },
+                                        onCompressModeChange = { viewModel.updateCompressMode(it) },
+                                        onTargetSizeKbTextChange = { viewModel.updateTargetSizeKbText(it) }
                                     )
                                 }
                                 PhotoEditorCategory.TOOLS -> {
@@ -719,66 +725,131 @@ fun CompressResizeShelf(
     scale: Float,
     format: OutputFormat,
     originalSize: Long,
+    compressMode: String = "QUALITY",
+    targetSizeKbText: String = "200",
     onQualityChange: (Int) -> Unit,
     onScaleChange: (Float) -> Unit,
-    onFormatChange: (OutputFormat) -> Unit
+    onFormatChange: (OutputFormat) -> Unit,
+    onCompressModeChange: (String) -> Unit = {},
+    onTargetSizeKbTextChange: (String) -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Mode Selector Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Format & Quality", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutputFormat.values().forEach { fmt ->
-                    val isSel = format == fmt
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.clickable { onFormatChange(fmt) }
-                    ) {
-                        Text(
-                            text = fmt.name,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
+            FilterChip(
+                selected = compressMode == "QUALITY",
+                onClick = { onCompressModeChange("QUALITY") },
+                label = { Text("Quality Slider", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = compressMode == "TARGET_SIZE",
+                onClick = { onCompressModeChange("TARGET_SIZE") },
+                label = { Text("Target Size (KB)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.weight(1f)
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (format != OutputFormat.PNG) {
+        if (compressMode == "TARGET_SIZE") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = targetSizeKbText,
+                    onValueChange = { input ->
+                        if (input.all { it.isDigit() } && input.length <= 6) {
+                            onTargetSizeKbTextChange(input)
+                        }
+                    },
+                    label = { Text("Target Max Size (KB)", fontSize = 12.sp) },
+                    trailingIcon = { Text("KB", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("20", "50", "100", "200", "500").forEach { preset ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (targetSizeKbText == preset) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.clickable { onTargetSizeKbTextChange(preset) }
+                        ) {
+                            Text(
+                                text = "${preset}K",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (targetSizeKbText == preset) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Quality: $quality%", style = MaterialTheme.typography.labelSmall)
-                Slider(
-                    value = quality.toFloat(),
-                    onValueChange = { onQualityChange(it.toInt()) },
-                    valueRange = 10f..100f,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
+                Text("Format & Quality", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutputFormat.values().forEach { fmt ->
+                        val isSel = format == fmt
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.clickable { onFormatChange(fmt) }
+                        ) {
+                            Text(
+                                text = fmt.name,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
-        }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(0.25f to "25%", 0.5f to "50%", 0.75f to "75%", 1.0f to "100%").forEach { (sc, label) ->
-                val isSel = kotlin.math.abs(scale - sc) < 0.05f
-                FilterChip(
-                    selected = isSel,
-                    onClick = { onScaleChange(sc) },
-                    label = { Text(label, fontSize = 11.sp) },
-                    modifier = Modifier.weight(1f)
-                )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            if (format != OutputFormat.PNG) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Quality: $quality%", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = quality.toFloat(),
+                        onValueChange = { onQualityChange(it.toInt()) },
+                        valueRange = 10f..100f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(0.25f to "25%", 0.5f to "50%", 0.75f to "75%", 1.0f to "100%").forEach { (sc, label) ->
+                    val isSel = kotlin.math.abs(scale - sc) < 0.05f
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { onScaleChange(sc) },
+                        label = { Text(label, fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }

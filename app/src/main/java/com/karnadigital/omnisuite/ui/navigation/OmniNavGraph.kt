@@ -68,7 +68,8 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToSettings -> navController.navigate(Screen.Settings.route)
                         is NavigationEvent.NavigateToQrGenerator -> navController.navigate(Screen.QrGenerator.route)
                         is NavigationEvent.NavigateToBarcodeScanner -> navController.navigate(Screen.BarcodeScanner.route)
-                        is NavigationEvent.NavigateToImageTools -> navController.navigate(Screen.ImageTools.route)
+                        is NavigationEvent.NavigateToImageTools -> navController.navigate(Screen.ImageTools.createRoute(tab = 0))
+                        is NavigationEvent.NavigateToImageToolsWithTab -> navController.navigate(Screen.ImageTools.createRoute(tab = event.tab))
                         is NavigationEvent.NavigateToPdfMerge -> navController.navigate(Screen.PdfMerge.route)
                         is NavigationEvent.NavigateToPdfSplit -> navController.navigate(Screen.PdfSplit.route)
                         is NavigationEvent.NavigateToPdfLock -> navController.navigate(Screen.PdfLock.route)
@@ -102,6 +103,7 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPptxToTxt -> navController.navigate(Screen.PptxToTxt.createRoute())
                         is NavigationEvent.NavigateToTarTools -> navController.navigate(Screen.TarTools.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
+                        is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
                     }
                 }
@@ -672,6 +674,34 @@ fun OmniNavGraph(
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 }
+            )
+        }
+
+        // 29. Standalone Sequential Image Viewer Screen
+        composable(
+            route = Screen.SequentialImageViewer.route,
+            arguments = listOf(
+                navArgument("uris") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("title") {
+                    type = NavType.StringType
+                    defaultValue = "Extracted Images"
+                }
+            )
+        ) { backStackEntry ->
+            val urisParam = backStackEntry.arguments?.getString("uris").orEmpty()
+            val titleParam = backStackEntry.arguments?.getString("title").orEmpty().ifBlank { "Extracted Images" }
+            val decodedUris = if (urisParam.isNotBlank()) {
+                urisParam.split("|||").filter { it.isNotBlank() }
+            } else {
+                emptyList()
+            }
+            com.karnadigital.omnisuite.feature.viewer.SequentialImageViewerScreen(
+                imageUris = decodedUris,
+                title = titleParam,
+                onBack = { navController.popBackStack() }
             )
         }
     }

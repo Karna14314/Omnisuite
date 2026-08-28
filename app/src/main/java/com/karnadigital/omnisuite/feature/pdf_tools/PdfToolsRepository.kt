@@ -319,7 +319,7 @@ class PdfToolsRepository @Inject constructor(
                 savedUris.add(savedUri)
                 totalSize += bytes.size.toLong()
             }
-            val batchUriString = savedUris.joinToString("|") { it.toString() }
+            val batchUriString = savedUris.joinToString("|||") { it.toString() }
             registerRecentFile(Uri.parse(batchUriString), "${originalName} (All Pages)", "image/png", totalSize)
             pdfRenderer.close()
             parcelFileDescriptor.close()

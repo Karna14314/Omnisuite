@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +49,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Home) }
     var searchQuery by remember { mutableStateOf("") }
+    var showHistorySheet by rememberSaveable { mutableStateOf(false) }
     var lastRequestedType by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -273,9 +275,7 @@ fun HomeScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
                         SectionHeader(title = "Quick Tools")
-                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -339,37 +339,61 @@ fun HomeScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
+                        // Recent Files Header with Universal History button
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp, bottom = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "RECENT FILES",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = OmniColors.TextMuted,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(onClick = { showHistorySheet = true }) {
+                                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp), tint = OmniColors.Accent)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("All History", color = OmniColors.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                        
+                        // History Category Filter Chips
+                        val currentFilter = (uiState as? RecentFilesUiState.Success)?.currentFilter ?: HistoryFilter.ALL
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            HomeGridToolCard(
-                                title = "📲 QR Scan",
-                                bgColor = Color(0x1F0F9D58),
-                                borderColor = Color(0xFF0F9D58).copy(alpha = 0.4f),
-                                textColor = Color(0xFF0F9D58),
-                                modifier = Modifier.weight(1f),
-                                onClick = { onEvent(NavigationEvent.NavigateToBarcodeScanner) }
-                            )
-                            HomeGridToolCard(
-                                title = "🎨 Image Lab",
-                                bgColor = Color(0x1FE91E63),
-                                borderColor = Color(0xFFE91E63).copy(alpha = 0.4f),
-                                textColor = Color(0xFFE91E63),
-                                modifier = Modifier.weight(1f),
-                                onClick = { onEvent(NavigationEvent.NavigateToImageTools) }
-                            )
-                            Box(modifier = Modifier.weight(1f))
+                            HistoryFilter.entries.forEach { filter ->
+                                val isSelected = currentFilter == filter
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setFilter(filter) },
+                                    label = { Text(filter.displayName, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = OmniColors.Accent,
+                                        selectedLabelColor = Color.White,
+                                        containerColor = OmniColors.Surface2,
+                                        labelColor = OmniColors.TextMuted
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = isSelected,
+                                        borderColor = if (isSelected) OmniColors.Accent else OmniColors.Border
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
-                        SectionHeader(title = "Recent Files")
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         val recentFiles = when (val state = uiState) {
-                            is RecentFilesUiState.Success -> state.files
+                            is RecentFilesUiState.Success -> state.filteredFiles
                             else -> emptyList()
                         }
                         if (recentFiles.isEmpty()) {
@@ -387,19 +411,25 @@ fun HomeScreen(
                                     Text(text = "🕐", fontSize = 32.sp)
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "No recent files",
+                                        text = if (currentFilter == HistoryFilter.ALL) "No recent files" else "No ${currentFilter.displayName.lowercase()} found",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = OmniColors.TextMuted
                                     )
                                 }
                             }
                         } else {
-                            recentFiles.take(5).forEach { file ->
+                            recentFiles.take(8).forEach { file ->
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 4.dp)
-                                        .clickable { onEvent(NavigationEvent.OpenFile(file.fileUri)) },
+                                        .clickable {
+                                            if (file.fileUri.contains("|||")) {
+                                                onEvent(NavigationEvent.OpenSequentialImages(file.fileUri.split("|||"), file.fileName))
+                                            } else {
+                                                onEvent(NavigationEvent.OpenFile(file.fileUri))
+                                            }
+                                        },
                                     shape = RoundedCornerShape(12.dp),
                                     colors = CardDefaults.cardColors(containerColor = OmniColors.Surface2)
                                 ) {
@@ -424,7 +454,7 @@ fun HomeScreen(
                                                 color = OmniColors.TextPrimary
                                             )
                                             Text(
-                                                text = formatRelativeTime(file.lastOpened),
+                                                text = "${formatRelativeTime(file.lastOpened)}${if (file.fileSize > 0) " • ${formatFileSize(file.fileSize)}" else ""}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = OmniColors.TextMuted
                                             )
@@ -458,6 +488,26 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showHistorySheet) {
+        UniversalHistoryBottomSheet(
+            uiState = uiState,
+            currentFilter = (uiState as? RecentFilesUiState.Success)?.currentFilter ?: HistoryFilter.ALL,
+            onFilterSelected = { viewModel.setFilter(it) },
+            onSearchQueryChanged = { viewModel.setSearchQuery(it) },
+            onDeleteFile = { viewModel.deleteRecentFile(it) },
+            onClearAll = { viewModel.clearRecents() },
+            onOpenFile = { file ->
+                showHistorySheet = false
+                if (file.fileUri.contains("|||")) {
+                    onEvent(NavigationEvent.OpenSequentialImages(file.fileUri.split("|||"), file.fileName))
+                } else {
+                    onEvent(NavigationEvent.OpenFile(file.fileUri))
+                }
+            },
+            onDismiss = { showHistorySheet = false }
+        )
     }
 }
 
@@ -543,31 +593,250 @@ private fun getFileSize(context: Context, uri: Uri): Long {
     return result
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UniversalHistoryBottomSheet(
+    uiState: RecentFilesUiState,
+    currentFilter: HistoryFilter,
+    onFilterSelected: (HistoryFilter) -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
+    onDeleteFile: (com.karnadigital.omnisuite.core.model.RecentFile) -> Unit,
+    onClearAll: () -> Unit,
+    onOpenFile: (com.karnadigital.omnisuite.core.model.RecentFile) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        containerColor = OmniColors.Surface,
+        contentColor = OmniColors.TextPrimary,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = OmniColors.Border) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 4.dp)
+        ) {
+            // Header with Title and Clear All
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = OmniColors.Accent,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "History & Recent Activity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = OmniColors.TextPrimary
+                    )
+                }
+
+                TextButton(
+                    onClick = onClearAll,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
+                ) {
+                    Text("Clear All", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Search Bar
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    onSearchQueryChanged(it)
+                },
+                placeholder = { Text("Search history...", color = OmniColors.TextMuted, fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = OmniColors.TextMuted, modifier = Modifier.size(20.dp)) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = {
+                            query = ""
+                            onSearchQueryChanged("")
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = OmniColors.TextMuted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OmniColors.Accent,
+                    unfocusedBorderColor = OmniColors.Border,
+                    focusedContainerColor = OmniColors.Surface2,
+                    unfocusedContainerColor = OmniColors.Surface2,
+                    focusedTextColor = OmniColors.TextPrimary,
+                    unfocusedTextColor = OmniColors.TextPrimary
+                ),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Filter Tabs Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HistoryFilter.entries.forEach { filter ->
+                    val isSelected = currentFilter == filter
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onFilterSelected(filter) },
+                        label = { Text(filter.displayName, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = OmniColors.Accent,
+                            selectedLabelColor = Color.White,
+                            containerColor = OmniColors.Surface2,
+                            labelColor = OmniColors.TextMuted
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            borderColor = if (isSelected) OmniColors.Accent else OmniColors.Border
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val files = when (uiState) {
+                is RecentFilesUiState.Success -> uiState.filteredFiles
+                else -> emptyList()
+            }
+
+            if (files.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "🔍", fontSize = 36.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (query.isNotBlank()) "No matching records found" else "No history in ${currentFilter.displayName}",
+                            color = OmniColors.TextMuted,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    items(files, key = { it.id }) { file ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenFile(file) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = OmniColors.Surface2),
+                            border = BorderStroke(1.dp, OmniColors.Border)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = getFileEmoji(file.mimeType),
+                                    fontSize = 22.sp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = file.fileName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = OmniColors.TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${formatRelativeTime(file.lastOpened)}${if (file.fileSize > 0) " • ${formatFileSize(file.fileSize)}" else ""}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = OmniColors.TextMuted
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteFile(file) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Delete",
+                                        tint = OmniColors.TextMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatFileSize(size: Long): String {
+    if (size <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.toDouble())).toInt()
+    return String.format("%.2f %s", size / Math.pow(1024.toDouble(), digitGroups.toDouble()), units[digitGroups])
+}
+
 @Composable
 private fun HomeGridToolCard(
     title: String,
     bgColor: Color,
     borderColor: Color,
     textColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 14.dp, horizontal = 8.dp),
-        contentAlignment = Alignment.Center
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier.height(44.dp)
     ) {
-        Text(
-            text = title,
-            color = textColor,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = textColor,
+                maxLines = 1
+            )
+        }
     }
 }

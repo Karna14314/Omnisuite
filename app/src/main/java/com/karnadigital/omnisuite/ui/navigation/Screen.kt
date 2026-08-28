@@ -275,6 +275,18 @@ sealed class Screen(val route: String) {
      * Standalone TAR Archive creation/extraction Screen
      */
     object TarTools : Screen("tar_tools")
+
+    /**
+     * Sequential Image Viewer Screen for multiple images
+     */
+    object SequentialImageViewer : Screen("sequential_image_viewer?uris={uris}&title={title}") {
+        fun createRoute(uris: List<String>, title: String = "Extracted Images"): String {
+            val joined = uris.joinToString("|||")
+            val encodedUris = android.net.Uri.encode(joined)
+            val encodedTitle = android.net.Uri.encode(title)
+            return "sequential_image_viewer?uris=$encodedUris&title=$encodedTitle"
+        }
+    }
 }
 
 

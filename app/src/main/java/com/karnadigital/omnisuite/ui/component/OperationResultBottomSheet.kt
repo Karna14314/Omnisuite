@@ -5,27 +5,37 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.karnadigital.omnisuite.ui.theme.OmniColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,14 +45,45 @@ fun OperationResultBottomSheet(
     title: String = "Operation Completed",
     fileName: String? = null,
     fileUri: String? = null,
+    fileUris: List<String> = emptyList(),
     fileSize: Long = 0L,
     mimeType: String? = null,
     textResult: String? = null,
-    onOpenFile: ((String) -> Unit)? = null
+    onOpenFile: ((String) -> Unit)? = null,
+    onOpenSequentialImages: ((List<String>) -> Unit)? = null
 ) {
     if (!show) return
 
     val context = LocalContext.current
+    var resolvedSize by remember(fileUri, fileSize) { mutableStateOf(fileSize) }
+
+    LaunchedEffect(fileUri, fileSize) {
+        if (resolvedSize <= 0L && !fileUri.isNullOrBlank()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val uri = Uri.parse(fileUri)
+                    if (uri.scheme == "content") {
+                        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val idx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                                if (idx != -1) {
+                                    val sz = cursor.getLong(idx)
+                                    if (sz > 0) resolvedSize = sz
+                                }
+                            }
+                        }
+                    }
+                    if (resolvedSize <= 0L) {
+                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { fd ->
+                            if (fd.length > 0) resolvedSize = fd.length
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore fallback
+                }
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -175,13 +216,108 @@ fun OperationResultBottomSheet(
                         Text("Browse URL", fontWeight = FontWeight.Bold)
                     }
                 }
+            } else if (fileUris.isNotEmpty()) {
+                // MULTI-IMAGE RESULTS VIEW
+                Text(
+                    text = "Generated Images (${fileUris.size}):",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = OmniColors.TextMuted,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    fileUris.forEachIndexed { index, uriStr ->
+                        Box(
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, OmniColors.Border, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    if (onOpenFile != null) {
+                                        onOpenFile(uriStr)
+                                        onDismiss()
+                                    }
+                                }
+                        ) {
+                            AsyncImage(
+                                model = uriStr,
+                                contentDescription = "Image ${index + 1}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(topStart = 6.dp, bottomEnd = 6.dp),
+                                modifier = Modifier.align(Alignment.TopStart)
+                            ) {
+                                Text(
+                                    text = "#${index + 1}",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                if (onOpenSequentialImages != null) {
+                    Button(
+                        onClick = {
+                            onOpenSequentialImages(fileUris)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = OmniColors.Accent)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("View All ${fileUris.size} Images Sequentially", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                Button(
+                    onClick = {
+                        try {
+                            val uriList = ArrayList(fileUris.map { Uri.parse(it) })
+                            val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                type = "image/*"
+                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uriList)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share All Images"))
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Share error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OmniColors.Surface2, contentColor = OmniColors.TextPrimary),
+                    border = BorderStroke(1.dp, OmniColors.Border)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share All Images", fontWeight = FontWeight.Bold)
+                }
             } else if (!fileUri.isNullOrBlank()) {
                 // FILE DETAILS CARD
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = OmniColors.Surface2),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, OmniColors.Border)
+                    border = BorderStroke(1.dp, OmniColors.Border)
                 ) {
                     Row(
                         modifier = Modifier
@@ -223,7 +359,7 @@ fun OperationResultBottomSheet(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Size: ${formatFileSize(fileSize)} • Format: ${mimeType?.substringAfter('/')?.uppercase() ?: "UNKNOWN"}",
+                                text = "Size: ${formatFileSize(resolvedSize)} • Format: ${mimeType?.substringAfter('/')?.uppercase() ?: "UNKNOWN"}",
                                 fontSize = 12.sp,
                                 color = OmniColors.TextMuted
                             )
@@ -231,7 +367,7 @@ fun OperationResultBottomSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Standard Action Buttons
                 Row(
@@ -269,11 +405,11 @@ fun OperationResultBottomSheet(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = OmniColors.Surface2, contentColor = OmniColors.TextPrimary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, OmniColors.Border)
+                        border = BorderStroke(1.dp, OmniColors.Border)
                     ) {
                         Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Open External", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Open", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -289,10 +425,10 @@ fun OperationResultBottomSheet(
                                 Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.weight(1.5f),
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = OmniColors.Surface2, contentColor = OmniColors.TextPrimary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, OmniColors.Border)
+                        border = BorderStroke(1.dp, OmniColors.Border)
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))

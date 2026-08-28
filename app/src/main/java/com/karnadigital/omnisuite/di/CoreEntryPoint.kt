@@ -15,6 +15,7 @@ interface CoreEntryPoint {
     fun fileOutputManager(): FileOutputManager
     fun uriCacheUtils(): UriCacheUtils
     fun officeConverter(): OfficeConverter
+    fun recentFileRepository(): com.karnadigital.omnisuite.core.repository.RecentFileRepository
 }
 
 fun coreEntryPoint(context: Context): CoreEntryPoint =

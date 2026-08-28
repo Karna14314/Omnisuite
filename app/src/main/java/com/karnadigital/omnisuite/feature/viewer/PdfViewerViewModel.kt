@@ -312,109 +312,115 @@ class PdfViewerViewModel @Inject constructor(
     /**
      * Saves drawing strokes, highlights, and text notes overlay directly into the PDF document streams using Apache PDFBox.
      */
-    fun savePdfAnnotations(
-        pageIndex: Int,
-        paths: List<DrawingPathData>,
-        notes: List<TextNoteData>
+    /**
+     * Saves all drawing strokes, highlights, and text notes across multiple pages in a single atomic pass
+     * without causing renderer descriptor collisions or app crashes.
+     */
+    fun saveAllPdfAnnotations(
+        pagePaths: Map<Int, List<DrawingPathData>>,
+        pageNotes: Map<Int, List<TextNoteData>>,
+        onComplete: (Boolean) -> Unit = {}
     ) {
-        val path = activeFilePath ?: return
+        val path = activeFilePath ?: run {
+            onComplete(false)
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             var doc: com.tom_roush.pdfbox.pdmodel.PDDocument? = null
+            val file = java.io.File(path)
+            val tempFile = java.io.File(file.parentFile ?: file.absoluteFile.parentFile, "annot_${System.currentTimeMillis()}.pdf")
+            var isSuccess = false
             try {
-                val file = java.io.File(path)
                 doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file)
-                val page = doc.getPage(pageIndex)
-                
-                val pageWidth = page.mediaBox.width
-                val pageHeight = page.mediaBox.height
+                val allPageIndices = (pagePaths.keys + pageNotes.keys).distinct()
 
-                // 1. Draw Paths / Highlights
-                if (paths.isNotEmpty()) {
-                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
-                        doc,
-                        page,
-                        com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
-                        true,
-                        true
-                    )
+                for (pageIndex in allPageIndices) {
+                    if (pageIndex < 0 || pageIndex >= doc.numberOfPages) continue
+                    val page = doc.getPage(pageIndex)
+                    val pageWidth = page.mediaBox.width
+                    val pageHeight = page.mediaBox.height
+                    val paths = pagePaths[pageIndex] ?: emptyList()
+                    val notes = pageNotes[pageIndex] ?: emptyList()
 
-                    paths.forEach { drawPath ->
-                        if (drawPath.points.size >= 2) {
-                            val color = android.graphics.Color.parseColor(drawPath.colorHex)
-                            val r = android.graphics.Color.red(color)
-                            val g = android.graphics.Color.green(color)
-                            val b = android.graphics.Color.blue(color)
-
-                            if (drawPath.isHighlight) {
-                                contentStream.setStrokingColor(255, 255, 0)
-                                contentStream.setLineWidth(drawPath.strokeWidth)
-                            } else {
-                                contentStream.setStrokingColor(r, g, b)
-                                contentStream.setLineWidth(drawPath.strokeWidth)
-                            }
-
-                            val firstPoint = drawPath.points.first()
-                            val prevPdfX = firstPoint.x * pageWidth
-                            val prevPdfY = (1f - firstPoint.y) * pageHeight
-
-                            contentStream.moveTo(prevPdfX, prevPdfY)
-
-                            for (i in 1 until drawPath.points.size) {
-                                val pt = drawPath.points[i]
-                                val pdfX = pt.x * pageWidth
-                                val pdfY = (1f - pt.y) * pageHeight
-                                contentStream.lineTo(pdfX, pdfY)
-                            }
-                            contentStream.stroke()
-                        }
-                    }
-                    contentStream.close()
-                }
-
-                // 2. Save Native PDF Text Notes (PDAnnotationText comments)
-                val existingAnnots = page.annotations ?: mutableListOf()
-                // Filter out previous PDAnnotationText to avoid duplication during update
-                val toKeep = existingAnnots.filter { it !is PDAnnotationText }
-                val newAnnots = mutableListOf<PDAnnotation>()
-                newAnnots.addAll(toKeep)
-
-                notes.forEach { note ->
-                    if (note.text.isNotBlank()) {
-                        val textAnnotation = PDAnnotationText()
-                        textAnnotation.contents = note.text
-                        textAnnotation.setName(PDAnnotationText.NAME_COMMENT)
-                        textAnnotation.color = PDColor(
-                            floatArrayOf(1f, 1f, 0f),
-                            PDDeviceRGB.INSTANCE
+                    // 1. Draw Paths / Highlights
+                    if (paths.isNotEmpty()) {
+                        val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
+                            doc,
+                            page,
+                            com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
+                            true,
+                            true
                         )
-                        
-                        val rect = PDRectangle()
-                        val sizeVal = 20f
-                        val pdfX = note.x * pageWidth
-                        val pdfY = (1f - note.y) * pageHeight
-                        rect.setLowerLeftX(pdfX)
-                        rect.setLowerLeftY(pdfY - sizeVal)
-                        rect.setUpperRightX(pdfX + sizeVal)
-                        rect.setUpperRightY(pdfY)
-                        textAnnotation.rectangle = rect
-                        
-                        newAnnots.add(textAnnotation)
+
+                        paths.forEach { drawPath ->
+                            if (drawPath.points.size >= 2) {
+                                val color = try { android.graphics.Color.parseColor(drawPath.colorHex) } catch (e: Exception) { android.graphics.Color.BLACK }
+                                val r = android.graphics.Color.red(color)
+                                val g = android.graphics.Color.green(color)
+                                val b = android.graphics.Color.blue(color)
+
+                                if (drawPath.isHighlight) {
+                                    contentStream.setStrokingColor(255, 255, 0)
+                                    contentStream.setLineWidth(drawPath.strokeWidth)
+                                } else {
+                                    contentStream.setStrokingColor(r, g, b)
+                                    contentStream.setLineWidth(drawPath.strokeWidth)
+                                }
+
+                                val firstPoint = drawPath.points.first()
+                                val prevPdfX = firstPoint.x * pageWidth
+                                val prevPdfY = (1f - firstPoint.y) * pageHeight
+
+                                contentStream.moveTo(prevPdfX, prevPdfY)
+
+                                for (i in 1 until drawPath.points.size) {
+                                    val pt = drawPath.points[i]
+                                    val pdfX = pt.x * pageWidth
+                                    val pdfY = (1f - pt.y) * pageHeight
+                                    contentStream.lineTo(pdfX, pdfY)
+                                }
+                                contentStream.stroke()
+                            }
+                        }
+                        contentStream.close()
+                    }
+
+                    // 2. Save Text Notes
+                    if (notes.isNotEmpty()) {
+                        val existingAnnots = page.annotations ?: mutableListOf()
+                        val toKeep = existingAnnots.filter { it !is PDAnnotationText }
+                        val newAnnots = mutableListOf<PDAnnotation>()
+                        newAnnots.addAll(toKeep)
+
+                        notes.forEach { note ->
+                            if (note.text.isNotBlank()) {
+                                val textAnnotation = PDAnnotationText()
+                                textAnnotation.contents = note.text
+                                textAnnotation.setName(PDAnnotationText.NAME_COMMENT)
+                                textAnnotation.color = PDColor(
+                                    floatArrayOf(1f, 1f, 0f),
+                                    PDDeviceRGB.INSTANCE
+                                )
+
+                                val rect = PDRectangle()
+                                val sizeVal = 20f
+                                val pdfX = note.x * pageWidth
+                                val pdfY = (1f - note.y) * pageHeight
+                                rect.setLowerLeftX(pdfX)
+                                rect.setLowerLeftY(pdfY - sizeVal)
+                                rect.setUpperRightX(pdfX + sizeVal)
+                                rect.setUpperRightY(pdfY)
+                                textAnnotation.rectangle = rect
+
+                                newAnnots.add(textAnnotation)
+                            }
+                        }
+                        page.annotations = newAnnots
                     }
                 }
-                page.annotations = newAnnots
 
-                doc.save(file)
-
-                // Evict this page from cache to force renderer reload the newly written strokes/annotations
-                synchronized(bitmapCache) {
-                    bitmapCache.remove(pageIndex)
-                }
-
-                // Re-trigger load to refresh renderer state
-                withContext(Dispatchers.Main) {
-                    loadPdf(path)
-                }
-
+                doc.save(tempFile)
+                isSuccess = true
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -422,6 +428,25 @@ class PdfViewerViewModel @Inject constructor(
                     doc?.close()
                 } catch (e: Exception) {
                     e.printStackTrace()
+                }
+            }
+
+            if (isSuccess && tempFile.exists() && tempFile.length() > 0) {
+                withContext(Dispatchers.Main) {
+                    closeRenderer()
+                    try {
+                        tempFile.copyTo(file, overwrite = true)
+                        tempFile.delete()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    bitmapCache.evictAll()
+                    loadPdf(path)
+                    onComplete(true)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
                 }
             }
         }

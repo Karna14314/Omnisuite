@@ -419,10 +419,23 @@ class PptxViewerViewModel @Inject constructor(
                                 if (paragraphs.isNotEmpty()) {
                                     for (p in paragraphs) {
                                         val pRuns = try { p.textRuns } catch (t: Throwable) { emptyList() }
-                                        val pText = pRuns.joinToString("") { run ->
+                                        var pText = pRuns.joinToString("") { run ->
                                             try { run.rawText ?: "" } catch (t: Throwable) { "" }
-                                        }.ifBlank {
-                                            try { p.toString().trim() } catch (t: Throwable) { "" }
+                                        }
+                                        if (pText.isBlank()) {
+                                            pText = try {
+                                                val method = try { p.javaClass.getMethod("getText") } catch (e: Exception) { null }
+                                                val t = method?.invoke(p) as? String
+                                                if (t != null && !t.startsWith("org.apache.poi") && !t.startsWith("org.apache.xmlbeans")) t else ""
+                                            } catch (t: Throwable) { "" }
+                                        }
+
+                                        // Discard internal POI object strings or raw XML fragments
+                                        if (pText.startsWith("org.apache.poi") ||
+                                            pText.startsWith("org.apache.xmlbeans") ||
+                                            (pText.startsWith("<") && pText.endsWith(">"))
+                                        ) {
+                                            continue
                                         }
 
                                         if (pText.isNotBlank()) {
@@ -470,7 +483,7 @@ class PptxViewerViewModel @Inject constructor(
                                             bodyCount++
                                         }
                                     }
-                                } else {
+                                } else if (!shapeText.startsWith("org.apache.poi") && !shapeText.startsWith("org.apache.xmlbeans") && !(shapeText.startsWith("<") && shapeText.endsWith(">"))) {
                                     textBlocks.add(
                                         PptxTextBlock(
                                             id = "body_$bodyCount",

@@ -50,6 +50,10 @@ data class ImageToolsUiState(
     val filterType: String = "Normal",
     val previewBitmap: Bitmap? = null,
     
+    // Compression Dual Mode
+    val compressMode: String = "QUALITY", // "QUALITY" vs "TARGET_SIZE"
+    val targetSizeKbText: String = "200",
+    
     // Premium Image Lab Extensions States
     val selectedStitchUris: List<Uri> = emptyList(),
     val extractedMediaUris: List<Uri> = emptyList(),
@@ -268,6 +272,20 @@ class ImageToolsViewModel @Inject constructor(
         )
     }
 
+    fun updateCompressMode(mode: String) {
+        _uiState.value = _uiState.value.copy(
+            compressMode = mode,
+            isSuccess = false
+        )
+    }
+
+    fun updateTargetSizeKbText(text: String) {
+        _uiState.value = _uiState.value.copy(
+            targetSizeKbText = text,
+            isSuccess = false
+        )
+    }
+
     /**
      * Increments rotation degrees in 90-degree steps.
      */
@@ -400,12 +418,36 @@ class ImageToolsViewModel @Inject constructor(
                     }
                     processed = finalProcessed
 
-                    // 4. Compress and transcode
-                    val encodedBytes = ImageUtils.compressAndEncode(
-                        processed,
-                        currentState.outputFormat,
-                        currentState.compressionQuality
-                    )
+                    // 4. Compress and transcode (with Target Size support)
+                    var encodedBytes: ByteArray
+                    if (currentState.compressMode == "TARGET_SIZE" && (currentState.targetSizeKbText.toIntOrNull() ?: 0) > 0) {
+                        val targetBytes = ((currentState.targetSizeKbText.toIntOrNull() ?: 200) * 1024L).coerceAtLeast(10240L)
+                        var testQuality = 85
+                        var currentScale = 1.0f
+                        var workingBitmap = processed
+                        var bestEncoded = ImageUtils.compressAndEncode(workingBitmap, currentState.outputFormat, testQuality)
+                        
+                        while (bestEncoded.size > targetBytes && testQuality > 20) {
+                            testQuality -= 12
+                            bestEncoded = ImageUtils.compressAndEncode(workingBitmap, currentState.outputFormat, testQuality)
+                        }
+                        
+                        while (bestEncoded.size > targetBytes && currentScale > 0.35f) {
+                            currentScale -= 0.15f
+                            val resized = ImageUtils.resize(processed, currentScale)
+                            bestEncoded = ImageUtils.compressAndEncode(resized, currentState.outputFormat, testQuality.coerceAtMost(50))
+                            if (resized != processed && resized != bitmap) {
+                                resized.recycle()
+                            }
+                        }
+                        encodedBytes = bestEncoded
+                    } else {
+                        encodedBytes = ImageUtils.compressAndEncode(
+                            processed,
+                            currentState.outputFormat,
+                            currentState.compressionQuality
+                        )
+                    }
 
                     // Free memory
                     if (processed != bitmap) {

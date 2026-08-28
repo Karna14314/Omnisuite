@@ -11,10 +11,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,13 +38,18 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
@@ -83,11 +91,25 @@ fun SignaturePadScreen(
         }
     )
 
+    // Saved signatures library directory and state
+    val signaturesDir = remember { File(context.filesDir, "signatures").apply { mkdirs() } }
+    var savedSignatures by remember { mutableStateOf<List<File>>(emptyList()) }
+    fun refreshSavedSignatures() {
+        savedSignatures = signaturesDir.listFiles()
+            ?.filter { it.extension.lowercase() == "png" }
+            ?.sortedByDescending { it.lastModified() }
+            ?: emptyList()
+    }
+    LaunchedEffect(Unit) {
+        refreshSavedSignatures()
+    }
 
     // Navigation and screen sub-states
     var signatureSaved by remember { mutableStateOf(false) }
     var localSignatureBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var localSignatureFile by remember { mutableStateOf<File?>(null) }
+    var signatureModeTab by remember { mutableStateOf(0) } // 0 = Draw New, 1 = Saved Library
+    var saveForFutureUse by remember { mutableStateOf(true) }
 
     // Canvas drawing path tracking
     val strokes = remember { mutableStateListOf<List<DrawPoint>>() }
@@ -99,7 +121,6 @@ fun SignaturePadScreen(
     var tapOffset by remember { mutableStateOf<Offset?>(null) }
     var imageContainerWidth by remember { mutableStateOf(0f) }
     var imageContainerHeight by remember { mutableStateOf(0f) }
-
 
     // Watch status messages
     var showBottomSheet by remember { mutableStateOf(false) }
@@ -122,7 +143,7 @@ fun SignaturePadScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (!signatureSaved) "Draw Digital Signature" else "Stamp PDF Document",
+                        text = if (!signatureSaved) "Digital Signature" else "Stamp PDF Document",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
@@ -130,7 +151,7 @@ fun SignaturePadScreen(
                 navigationIcon = {
                     IconButton(onClick = {
                         if (signatureSaved) {
-                            // Reset back to drawing pad
+                            // Reset back to signature mode
                             signatureSaved = false
                             localSignatureBitmap = null
                             strokes.clear()
@@ -165,187 +186,362 @@ fun SignaturePadScreen(
                 label = "ScreenStateTransition"
             ) { isSaved ->
                 if (!isSaved) {
-                    // DRAWING PAD WORKSPACE
+                    // SIGNATURE SELECTION / CREATION WORKSPACE
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "Draw your signature on the white canvas below using your finger.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center
-                        )
+                        // Mode Selection Tabs: Draw New vs Saved Signatures
+                        PrimaryTabRow(
+                            selectedTabIndex = signatureModeTab,
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                        ) {
+                            Tab(
+                                selected = signatureModeTab == 0,
+                                onClick = { signatureModeTab = 0 },
+                                text = { Text("✍️ Draw New", fontWeight = FontWeight.Bold) }
+                            )
+                            Tab(
+                                selected = signatureModeTab == 1,
+                                onClick = {
+                                    refreshSavedSignatures()
+                                    signatureModeTab = 1
+                                },
+                                text = { Text("📁 Saved (${savedSignatures.size})", fontWeight = FontWeight.Bold) }
+                            )
+                        }
 
-                        // Elegant Drawing Canvas surface
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White)
-                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                .shadow(2.dp, RoundedCornerShape(12.dp))
-                                .onGloballyPositioned {
-                                    canvasWidth = it.size.width
-                                    canvasHeight = it.size.height
-                                }
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            currentStroke.clear()
-                                            currentStroke.add(DrawPoint(offset.x, offset.y))
-                                        },
-                                        onDrag = { change, _ ->
-                                            change.consume()
-                                            val pos = change.position
-                                            if (pos.x in 0f..canvasWidth.toFloat() && pos.y in 0f..canvasHeight.toFloat()) {
-                                                currentStroke.add(DrawPoint(pos.x, pos.y))
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            if (currentStroke.isNotEmpty()) {
-                                                strokes.add(currentStroke.toList())
+                        if (signatureModeTab == 0) {
+                            // TAB 0: DRAW NEW SIGNATURE
+                            Text(
+                                text = "Draw your signature on the white canvas below using your finger.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                textAlign = TextAlign.Center
+                            )
+
+                            // Elegant Drawing Canvas surface
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .shadow(2.dp, RoundedCornerShape(12.dp))
+                                    .onGloballyPositioned {
+                                        canvasWidth = it.size.width
+                                        canvasHeight = it.size.height
+                                    }
+                                    .pointerInput(Unit) {
+                                        detectDragGestures(
+                                            onDragStart = { offset ->
                                                 currentStroke.clear()
+                                                currentStroke.add(DrawPoint(offset.x, offset.y))
+                                            },
+                                            onDrag = { change, _ ->
+                                                change.consume()
+                                                val pos = change.position
+                                                if (pos.x in 0f..canvasWidth.toFloat() && pos.y in 0f..canvasHeight.toFloat()) {
+                                                    currentStroke.add(DrawPoint(pos.x, pos.y))
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                if (currentStroke.isNotEmpty()) {
+                                                    strokes.add(currentStroke.toList())
+                                                    currentStroke.clear()
+                                                }
+                                            }
+                                        )
+                                    }
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    // Draw completed paths
+                                    strokes.forEach { stroke ->
+                                        if (stroke.size > 1) {
+                                            for (i in 0 until stroke.size - 1) {
+                                                drawLine(
+                                                    color = Color.Black,
+                                                    start = Offset(stroke[i].x, stroke[i].y),
+                                                    end = Offset(stroke[i + 1].x, stroke[i + 1].y),
+                                                    strokeWidth = 7f,
+                                                    cap = StrokeCap.Round
+                                                )
                                             }
                                         }
-                                    )
-                                }
-                        ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                // Draw completed paths
-                                strokes.forEach { stroke ->
-                                    if (stroke.size > 1) {
-                                        for (i in 0 until stroke.size - 1) {
+                                    }
+                                    // Draw current path in real time
+                                    if (currentStroke.size > 1) {
+                                        for (i in 0 until currentStroke.size - 1) {
                                             drawLine(
                                                 color = Color.Black,
-                                                start = Offset(stroke[i].x, stroke[i].y),
-                                                end = Offset(stroke[i + 1].x, stroke[i + 1].y),
+                                                start = Offset(currentStroke[i].x, currentStroke[i].y),
+                                                end = Offset(currentStroke[i + 1].x, currentStroke[i + 1].y),
                                                 strokeWidth = 7f,
                                                 cap = StrokeCap.Round
                                             )
                                         }
                                     }
                                 }
-                                // Draw current path in real time
-                                if (currentStroke.size > 1) {
-                                    for (i in 0 until currentStroke.size - 1) {
-                                        drawLine(
-                                            color = Color.Black,
-                                            start = Offset(currentStroke[i].x, currentStroke[i].y),
-                                            end = Offset(currentStroke[i + 1].x, currentStroke[i + 1].y),
-                                            strokeWidth = 7f,
-                                            cap = StrokeCap.Round
+
+                                // Empty placeholder indicator
+                                if (strokes.isEmpty() && currentStroke.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Touch here to sign",
+                                            color = Color.Gray.copy(alpha = 0.5f),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 18.sp
                                         )
                                     }
                                 }
                             }
 
-                            // Empty placeholder indicator
-                            if (strokes.isEmpty() && currentStroke.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                            // Save for Future Use Checkbox Row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { saveForFutureUse = !saveForFutureUse }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = saveForFutureUse,
+                                    onCheckedChange = { saveForFutureUse = it }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Save signature to library for future use",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            // Toolbar controls row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        strokes.clear()
+                                        currentStroke.clear()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(
-                                        text = "Touch here to sign",
-                                        color = Color.Gray.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
+                                    Icon(Icons.Default.Delete, contentDescription = "Clear")
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Clear")
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (strokes.isNotEmpty()) {
+                                            strokes.removeAt(strokes.size - 1)
+                                        }
+                                    },
+                                    enabled = strokes.isNotEmpty(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Undo, contentDescription = "Undo")
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Undo")
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (strokes.isEmpty()) {
+                                            Toast.makeText(context, "Please sign on the canvas first.", Toast.LENGTH_SHORT).show()
+                                            return@Button
+                                        }
+                                        // Save canvas paths to local bitmap offline
+                                        val bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+                                        val androidCanvas = android.graphics.Canvas(bitmap)
+                                        androidCanvas.drawColor(android.graphics.Color.TRANSPARENT)
+
+                                        val paint = android.graphics.Paint().apply {
+                                            color = android.graphics.Color.BLACK
+                                            strokeWidth = 12f
+                                            style = android.graphics.Paint.Style.STROKE
+                                            strokeCap = android.graphics.Paint.Cap.ROUND
+                                            strokeJoin = android.graphics.Paint.Join.ROUND
+                                            isAntiAlias = true
+                                        }
+
+                                        strokes.forEach { stroke ->
+                                            if (stroke.size > 1) {
+                                                val p = android.graphics.Path()
+                                                p.moveTo(stroke[0].x, stroke[0].y)
+                                                for (i in 1 until stroke.size) {
+                                                    p.lineTo(stroke[i].x, stroke[i].y)
+                                                }
+                                                androidCanvas.drawPath(p, paint)
+                                            }
+                                        }
+
+                                        val file = File(context.cacheDir, "sig_${System.currentTimeMillis()}.png")
+                                        FileOutputStream(file).use { out ->
+                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                        }
+
+                                        // If user requested to save for future use, save into signatures library
+                                        if (saveForFutureUse) {
+                                            try {
+                                                val savedFile = File(signaturesDir, "sig_${System.currentTimeMillis()}.png")
+                                                file.copyTo(savedFile, overwrite = true)
+                                                refreshSavedSignatures()
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        }
+
+                                        localSignatureFile = file
+                                        viewModel.setSignatureFile(file)
+
+                                        // Decode transparent signature for on-screen preview
+                                        localSignatureBitmap = BitmapFactory.decodeFile(file.absolutePath)
+                                        signatureSaved = true
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1.2f)
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = "Accept")
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Accept")
                                 }
                             }
-                        }
-
-                        // Toolbar controls row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    strokes.clear()
-                                    currentStroke.clear()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Clear")
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Clear")
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (strokes.isNotEmpty()) {
-                                        strokes.removeAt(strokes.size - 1)
+                        } else {
+                            // TAB 1: SAVED SIGNATURES LIBRARY
+                            if (savedSignatures.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Draw,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(56.dp)
+                                        )
+                                        Text(
+                                            text = "No Saved Signatures Yet",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Switch to 'Draw New' to draw and save your signature for quick reuse anytime.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
                                     }
-                                },
-                                enabled = strokes.isNotEmpty(),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Undo, contentDescription = "Undo")
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Undo")
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (strokes.isEmpty()) {
-                                        Toast.makeText(context, "Please sign on the canvas first.", Toast.LENGTH_SHORT).show()
-                                        return@Button
-                                    }
-                                    // Save canvas paths to local bitmap offline
-                                    val bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
-                                    val androidCanvas = android.graphics.Canvas(bitmap)
-                                    androidCanvas.drawColor(android.graphics.Color.TRANSPARENT)
-
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.BLACK
-                                        strokeWidth = 12f
-                                        style = android.graphics.Paint.Style.STROKE
-                                        strokeCap = android.graphics.Paint.Cap.ROUND
-                                        strokeJoin = android.graphics.Paint.Join.ROUND
-                                        isAntiAlias = true
-                                    }
-
-                                    strokes.forEach { stroke ->
-                                        if (stroke.size > 1) {
-                                            val p = android.graphics.Path()
-                                            p.moveTo(stroke[0].x, stroke[0].y)
-                                            for (i in 1 until stroke.size) {
-                                                p.lineTo(stroke[i].x, stroke[i].y)
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(2),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(savedSignatures, key = { it.absolutePath }) { sigFile ->
+                                        val dateStr = remember(sigFile.lastModified()) {
+                                            SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(sigFile.lastModified()))
+                                        }
+                                        Card(
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(90.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.White)
+                                                        .padding(8.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    AsyncImage(
+                                                        model = sigFile,
+                                                        contentDescription = "Signature Preview",
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Fit
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = dateStr,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    FilledTonalButton(
+                                                        onClick = {
+                                                            localSignatureFile = sigFile
+                                                            viewModel.setSignatureFile(sigFile)
+                                                            localSignatureBitmap = BitmapFactory.decodeFile(sigFile.absolutePath)
+                                                            signatureSaved = true
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text("Use", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            try {
+                                                                sigFile.delete()
+                                                                refreshSavedSignatures()
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = "Delete Signature",
+                                                            tint = MaterialTheme.colorScheme.error,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
-                                            androidCanvas.drawPath(p, paint)
                                         }
                                     }
-
-                                    val file = File(context.cacheDir, "sig_${System.currentTimeMillis()}.png")
-                                    FileOutputStream(file).use { out ->
-                                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                                    }
-
-                                    localSignatureFile = file
-                                    viewModel.setSignatureFile(file)
-
-                                    // Decode transparent signature for on-screen preview
-                                    localSignatureBitmap = BitmapFactory.decodeFile(file.absolutePath)
-                                    signatureSaved = true
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Check, contentDescription = "Accept")
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Accept")
+                                }
                             }
                         }
                     }

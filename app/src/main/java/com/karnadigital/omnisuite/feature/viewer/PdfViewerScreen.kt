@@ -94,6 +94,20 @@ fun PdfViewerScreen(
 
     LaunchedEffect(fileUri) {
         viewModel.loadPdf(fileUri)
+        try {
+            val uri = Uri.parse(fileUri)
+            val name = uri.lastPathSegment ?: "document.pdf"
+            val coreRepo = coreEntryPoint(context).recentFileRepository()
+            coreRepo.insertRecentFile(
+                com.karnadigital.omnisuite.core.model.RecentFile(
+                    fileUri = fileUri,
+                    fileName = name,
+                    mimeType = "application/pdf",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+            )
+        } catch (e: Exception) {}
     }
 
     val state by viewModel.loadState.collectAsState()
@@ -102,6 +116,13 @@ fun PdfViewerScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+
+    LaunchedEffect(currentMatchIndex, searchResults) {
+        val match = searchResults.getOrNull(currentMatchIndex)
+        if (match != null) {
+            lazyListState.animateScrollToItem(match.pageIndex)
+        }
+    }
 
     var searchExpanded by remember { mutableStateOf(false) }
 
@@ -667,9 +688,8 @@ fun PdfViewerScreen(
 
                                 Button(
                                     onClick = {
-                                        val allKeys = pagePaths.keys + pageTextNotes.keys
-                                        allKeys.forEach { idx ->
-                                            val pathsData = (pagePaths[idx] ?: emptyList()).map { path ->
+                                        val pathsDataMap = pagePaths.mapValues { (_, paths) ->
+                                            paths.map { path ->
                                                 DrawingPathData(
                                                     points = path.points.map { DrawingPointData(it.x, it.y) },
                                                     colorHex = String.format("#%08X", path.color.toArgb()),
@@ -677,15 +697,19 @@ fun PdfViewerScreen(
                                                     isHighlight = path.isHighlight
                                                 )
                                             }
-                                            val notesData = (pageTextNotes[idx] ?: emptyList()).map { note ->
-                                                TextNoteData(note.text, note.x, note.y)
-                                            }
-                                            viewModel.savePdfAnnotations(idx, pathsData, notesData)
                                         }
-
-                                        pagePaths.clear()
-                                        pageTextNotes.clear()
-                                        Toast.makeText(context, "Annotations permanently saved to PDF!", Toast.LENGTH_SHORT).show()
+                                        val notesDataMap = pageTextNotes.mapValues { (_, notes) ->
+                                            notes.map { TextNoteData(it.text, it.x, it.y) }
+                                        }
+                                        viewModel.saveAllPdfAnnotations(pathsDataMap, notesDataMap) { success ->
+                                            if (success) {
+                                                pagePaths.clear()
+                                                pageTextNotes.clear()
+                                                Toast.makeText(context, "Annotations saved successfully!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Failed to save annotations", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                                     shape = RoundedCornerShape(8.dp)
@@ -721,6 +745,13 @@ fun PdfViewerScreen(
                             ) {
                                 isPdfEditingActive = !isPdfEditingActive
                                 annotationMode = if (isPdfEditingActive) AnnotationMode.MARKER else AnnotationMode.NONE
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.SelectAll,
+                                title = "Select Text"
+                            ) {
+                                extractPageText(currentPageIndex)
                             }
 
                             ViewerActionColumnButton(
@@ -903,6 +934,9 @@ fun PdfViewerScreen(
                                             viewEditNoteText = text
                                             viewEditNotePageIndex = pageIndex
                                             showViewEditNoteDialog = true
+                                        },
+                                        onSelectPageText = { idx ->
+                                            extractPageText(idx + 1)
                                         }
                                     )
                                 }
@@ -1175,10 +1209,12 @@ fun InteractivePdfPageItem(
     pagePaths: MutableMap<Int, List<DrawingPath>>,
     pageTextNotes: MutableMap<Int, List<TextNote>>,
     onAddTextNoteTap: (DrawingPoint) -> Unit,
-    onViewEditNoteTap: (Int, String) -> Unit
+    onViewEditNoteTap: (Int, String) -> Unit,
+    onSelectPageText: (Int) -> Unit = {}
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf(false) }
+    var pageText by remember(pageIndex) { mutableStateOf("") }
 
     LaunchedEffect(pageIndex) {
         try {
@@ -1188,6 +1224,7 @@ fun InteractivePdfPageItem(
             } else {
                 renderError = true
             }
+            pageText = viewModel.extractTextFromPage(pageIndex)
         } catch (e: Exception) {
             e.printStackTrace()
             renderError = true
@@ -1203,26 +1240,11 @@ fun InteractivePdfPageItem(
     }
 
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = {
-                        coroutineScope.launch {
-                            val pageText = viewModel.extractTextFromPage(pageIndex)
-                            if (pageText.isNotBlank()) {
-                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(pageText))
-                                Toast.makeText(context, "Page text copied", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                )
-            },
+            .aspectRatio(aspectRatio),
         shape = RoundedCornerShape(4.dp),
         border = when {
             isCurrentMatch -> BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
@@ -1272,6 +1294,23 @@ fun InteractivePdfPageItem(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
                     )
+
+                    // On-Screen Direct Text Selection Layer
+                    if (annotationMode == AnnotationMode.NONE && pageText.isNotBlank()) {
+                        androidx.compose.foundation.text.selection.SelectionContainer(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Text(
+                                text = pageText,
+                                color = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
 
                     // Overlay Drawing Canvas
                     DrawingCanvasOverlay(

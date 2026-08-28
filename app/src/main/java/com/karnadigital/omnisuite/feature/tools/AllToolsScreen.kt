@@ -207,12 +207,13 @@ fun ImageToolsList(onEvent: (NavigationEvent) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        item { ToolListRow("🖼️", "Image Lab", "Compress & format convert", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageTools) }) }
+        item { ToolListRow("🗜️", "Compress Image", "Target KB for job & govt applications", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
+        item { ToolListRow("📐", "Resize Dimensions", "Exact WxH in px, cm, inch, mm", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }) }
+        item { ToolListRow("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(4)) }) }
+        item { ToolListRow("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
+        item { ToolListRow("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation, tones", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
         item { ToolListRow("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }) }
         item { ToolListRow("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
-        item { ToolListRow("✂️", "Crop Image", "Adjust custom proportions", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageTools) }) }
-        item { ToolListRow("🔄", "Format Transcoder", "PNG, JPEG, WEBP conversions", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageTools) }) }
-        item { ToolListRow("📐", "Lossless Resize", "Fine-grain dimension control", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageTools) }) }
     }
 }
 

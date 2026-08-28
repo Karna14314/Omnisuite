@@ -2,6 +2,7 @@ package com.karnadigital.omnisuite.feature.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -21,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.combinedClickable
@@ -98,8 +100,23 @@ fun XlsxViewerScreen(
     onToolAction: (ViewerTool) -> Unit = {},
     viewModel: XlsxViewerViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     LaunchedEffect(fileUri) {
         viewModel.loadExcelFile(fileUri)
+        try {
+            val uri = Uri.parse(fileUri)
+            val name = uri.lastPathSegment ?: "spreadsheet.xlsx"
+            val coreRepo = coreEntryPoint(context).recentFileRepository()
+            coreRepo.insertRecentFile(
+                com.karnadigital.omnisuite.core.model.RecentFile(
+                    fileUri = fileUri,
+                    fileName = name,
+                    mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    fileSize = 0L,
+                    lastOpened = System.currentTimeMillis()
+                )
+            )
+        } catch (e: Exception) {}
     }
 
     val state by viewModel.loadState.collectAsState()
@@ -161,7 +178,6 @@ fun XlsxViewerScreen(
     }
     
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
     val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
     var isExporting by remember { mutableStateOf(false) }
@@ -735,7 +751,11 @@ fun XlsxViewerScreen(
                                                 .weight(1f),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
-                                            items(activeSheet.rows.size - actualFrozenRows) { index ->
+                                            items(
+                                                count = activeSheet.rows.size - actualFrozenRows,
+                                                key = { index -> "${activeSheetIndex}_${index + actualFrozenRows}" },
+                                                contentType = { "sheet_row" }
+                                            ) { index ->
                                                 val rowIndex = index + actualFrozenRows
                                                 val rowCells = activeSheet.rows[rowIndex]
                                                 val rowHeight = activeSheet.rowHeightsDp.getOrElse(rowIndex) { 24f }
@@ -1630,7 +1650,7 @@ fun DataCell(
                     )
                 }
             }
-        } else if (cellData.text.startsWith("=IMAGE(") || cellData.text.startsWith("=DISPIMG(")) {
+        } else if (cellData.text.startsWith("=IMAGE(") || cellData.text.startsWith("=DISPIMG(") || cellData.text.startsWith("=_xlfn.DISPIMG(")) {
             val url = cellData.text.substringAfter("(\"").substringBefore("\")")
             if (url.startsWith("http://") || url.startsWith("https://")) {
                 AsyncImage(
@@ -1639,9 +1659,16 @@ fun DataCell(
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
                     contentScale = ContentScale.Fit
                 )
+            } else if (cellImage != null) {
+                AsyncImage(
+                    model = File(cellImage.filePath),
+                    contentDescription = "Embedded Cell Image",
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
+                    contentScale = ContentScale.Fit
+                )
             } else {
                 Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
                     shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.fillMaxSize().padding(2.dp)
                 ) {
@@ -1653,11 +1680,11 @@ fun DataCell(
                         Icon(
                             imageVector = Icons.Default.PictureAsPdf,
                             contentDescription = "Image",
-                            tint = MaterialTheme.colorScheme.tertiary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text("Image", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                        Text("Image", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1746,19 +1773,14 @@ fun ZoomableDataGrid(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val currentScale by rememberUpdatedState(scale)
     Box(
         modifier = modifier
             .pointerInput(Unit) {
-                // Only intercept 2-finger pinch — let 1-finger scroll pass through
-                awaitEachGesture {
-                    var event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                    while (event.changes.any { it.pressed }) {
-                        if (event.changes.size >= 2) {
-                            val zoom = event.calculateZoom()
-                            onScaleChange((scale * zoom).coerceIn(0.5f, 4f))
-                            event.changes.forEach { it.consume() }
-                        }
-                        event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                detectTransformGestures { _, _, zoom: Float, _ ->
+                    if (kotlin.math.abs(zoom - 1f) > 0.002f) {
+                        val newScale = (currentScale * zoom).coerceIn(0.5f, 3.5f)
+                        onScaleChange(newScale)
                     }
                 }
             }

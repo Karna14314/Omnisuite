@@ -539,6 +539,44 @@ class XlsxViewerViewModel @Inject constructor(
                     }
                 }
             }
+
+            // Fallback: If drawing patriarch was empty or failed to resolve pictures,
+            // extract all pictures stored in the workbook container
+            if (images.isEmpty()) {
+                val allPics = try { activeWorkbook?.allPictures } catch (t: Throwable) { null }
+                if (!allPics.isNullOrEmpty()) {
+                    allPics.forEachIndexed { pIdx, picData ->
+                        try {
+                            val dataBytes = picData.data
+                            if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                val hash = dataBytes.contentHashCode().toString()
+                                val cacheKey = "workbook_pic_${hash}"
+                                val cachedFile = tempImageCache[cacheKey]
+                                val file = if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+                                    cachedFile
+                                } else {
+                                    val suggestExt = picData.suggestFileExtension() ?: "png"
+                                    val tempFile = File.createTempFile("xlsx_media_${pIdx}_", ".$suggestExt")
+                                    tempFile.outputStream().use { it.write(dataBytes) }
+                                    tempImageCache[cacheKey] = tempFile
+                                    tempFile
+                                }
+                                images.add(
+                                    SheetImage(
+                                        filePath = file.absolutePath,
+                                        fromRow = pIdx * 4,
+                                        fromCol = 0,
+                                        colSpan = 4,
+                                        rowSpan = 5
+                                    )
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            t.printStackTrace()
+                        }
+                    }
+                }
+            }
         } catch (t: Throwable) { t.printStackTrace() }
         return images
     }

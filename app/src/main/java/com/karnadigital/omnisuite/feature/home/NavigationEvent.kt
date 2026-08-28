@@ -5,6 +5,7 @@ sealed class NavigationEvent {
     data object NavigateToQrGenerator : NavigationEvent()
     data object NavigateToBarcodeScanner : NavigationEvent()
     data object NavigateToImageTools : NavigationEvent()
+    data class NavigateToImageToolsWithTab(val tab: Int = 0) : NavigationEvent()
     data object NavigateToPdfMerge : NavigationEvent()
     data object NavigateToPdfSplit : NavigationEvent()
     data object NavigateToPdfLock : NavigationEvent()
@@ -38,5 +39,6 @@ sealed class NavigationEvent {
     data object NavigateToPptxToTxt : NavigationEvent()
     data object NavigateToTarTools : NavigationEvent()
     data class OpenFile(val fileUri: String) : NavigationEvent()
+    data class OpenSequentialImages(val imageUris: List<String>, val title: String = "Extracted Images") : NavigationEvent()
     data class SelectFileForType(val type: String) : NavigationEvent()
 }

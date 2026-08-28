@@ -544,6 +544,8 @@ fun DocxViewerScreen(
                                 result
                             }
 
+                            val deskBg = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFFECEFF1) else Color(0xFF18181B)
+
                             ZoomableBox(
                                 modifier = Modifier.fillMaxSize()
                             ) {
@@ -551,48 +553,95 @@ fun DocxViewerScreen(
                                     state = lazyListState,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
+                                        .background(deskBg),
+                                    contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     itemsIndexed(pages) { pageIndex, pageParagraphs ->
-                                        Card(
+                                        Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .defaultMinSize(minHeight = 520.dp)
-                                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                                            shape = RoundedCornerShape(2.dp),
-                                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Column(
+                                            Card(
                                                 modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(start = 28.dp, end = 28.dp, top = 28.dp, bottom = 20.dp)
+                                                    .fillMaxWidth(0.96f)
+                                                    .wrapContentHeight()
+                                                    .defaultMinSize(minHeight = 520.dp),
+                                                shape = RoundedCornerShape(3.dp),
+                                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                                border = BorderStroke(0.5.dp, Color(0xFFCBD5E1)),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
                                             ) {
-                                                pageParagraphs.forEach { element ->
-                                                    when (element) {
-                                                        is DocxBodyElement.Para -> DocxParagraphItem(
-                                                            paragraph = element.paragraph,
-                                                            isHighlighted = false,
-                                                            searchQuery = searchQuery,
-                                                            isPrintLayout = true
+                                                SelectionContainer {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)
+                                                    ) {
+                                                        // Print Header
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(bottom = 8.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = currentState.fileName.take(30),
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = Color(0xFF94A3B8),
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            Text(
+                                                                text = "${pageIndex + 1} / ${pages.size}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = Color(0xFF94A3B8),
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                        HorizontalDivider(
+                                                            thickness = 0.5.dp,
+                                                            color = Color(0xFFE2E8F0),
+                                                            modifier = Modifier.padding(bottom = 14.dp)
                                                         )
-                                                        is DocxBodyElement.Table -> DocxTableItem(
-                                                            table = element,
-                                                            searchQuery = searchQuery,
-                                                            isPrintLayout = true
+
+                                                        // Page Body Elements
+                                                        pageParagraphs.forEach { element ->
+                                                            when (element) {
+                                                                is DocxBodyElement.Para -> DocxParagraphItem(
+                                                                    paragraph = element.paragraph,
+                                                                    isHighlighted = false,
+                                                                    searchQuery = searchQuery,
+                                                                    isPrintLayout = true
+                                                                )
+                                                                is DocxBodyElement.Table -> DocxTableItem(
+                                                                    table = element,
+                                                                    searchQuery = searchQuery,
+                                                                    isPrintLayout = true
+                                                                )
+                                                            }
+                                                        }
+
+                                                        Spacer(modifier = Modifier.height(20.dp))
+
+                                                        // Print Footer
+                                                        HorizontalDivider(
+                                                            thickness = 0.5.dp,
+                                                            color = Color(0xFFE2E8F0),
+                                                            modifier = Modifier.padding(bottom = 10.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Page ${pageIndex + 1} of ${pages.size}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color(0xFF94A3B8),
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier.fillMaxWidth()
                                                         )
                                                     }
                                                 }
-                                                Spacer(modifier = Modifier.height(20.dp))
-                                                // Page number footer
-                                                Text(
-                                                    text = "— Page ${pageIndex + 1} of ${pages.size} —",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = Color(0xFF757575),
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
                                             }
                                         }
                                     }
@@ -602,7 +651,8 @@ fun DocxViewerScreen(
                             ZoomableBox(
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                LazyColumn(
+                                SelectionContainer {
+                                    LazyColumn(
                                     state = lazyListState,
                                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
@@ -627,6 +677,7 @@ fun DocxViewerScreen(
                                         }
                                     }
                                 }
+                            }
                             }
                         }
                     }
