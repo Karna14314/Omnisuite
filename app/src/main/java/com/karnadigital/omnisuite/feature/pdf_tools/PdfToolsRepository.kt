@@ -370,11 +370,20 @@ class PdfToolsRepository @Inject constructor(
         }
     }
 
-    suspend fun compressPdf(inputUri: Uri, quality: Float): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun compressPdf(inputUri: Uri, quality: Float, targetSizeBytes: Long? = null): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
                 ?: throw Exception("Could not open source PDF file.")
             val tempOutputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.pdf")
+            
+            val originalSize = tempInputFile.length()
+            val effectiveQuality: Float = if (targetSizeBytes != null && originalSize > 0) {
+                val ratio = (targetSizeBytes.toFloat() / originalSize.toFloat()).coerceIn(0.15f, 0.95f)
+                (ratio * 0.85f).coerceIn(0.15f, 0.90f)
+            } else {
+                quality.coerceIn(0.1f, 1.0f)
+            }
+
             PDDocument.load(tempInputFile).use { document ->
                 for (page in document.pages) {
                     val resources = page.resources ?: continue
@@ -384,7 +393,7 @@ class PdfToolsRepository @Inject constructor(
                             if (xObject is PDImageXObject) {
                                 val bitmap = xObject.image ?: continue
                                 val stream = java.io.ByteArrayOutputStream()
-                                val qualityPercent = (quality * 100).toInt().coerceIn(10, 100)
+                                val qualityPercent = (effectiveQuality * 100).toInt().coerceIn(10, 100)
                                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPercent, stream)
                                 val compressedBytes = stream.toByteArray()
                                 val compressedImage = JPEGFactory.createFromStream(document, java.io.ByteArrayInputStream(compressedBytes))

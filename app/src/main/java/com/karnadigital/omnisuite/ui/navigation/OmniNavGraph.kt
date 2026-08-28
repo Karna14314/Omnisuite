@@ -153,7 +153,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             ViewerDispatcherScreen(
                 fileUri = fileUri,
                 onOpenFile = { targetUri ->
@@ -187,7 +187,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             val tabString = backStackEntry.arguments?.getString("tab")
             val tab = tabString?.toIntOrNull() ?: 0
 
@@ -238,7 +238,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfLockScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = {
@@ -369,7 +369,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             SignaturePadScreen(
                 initialPdfUri = fileUri,
                 onBack = {
@@ -392,7 +392,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             WatermarkScreen(
                 initialPdfUri = fileUri,
                 onBack = {
@@ -478,7 +478,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfDecryptScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -499,7 +499,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfRotateScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -520,7 +520,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfExtractScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -541,7 +541,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfDeleteScreen(
                 initialPdfUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -592,7 +592,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             DocxToTxtScreen(
                 initialUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -613,7 +613,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             CsvToXlsxScreen(
                 initialUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -634,7 +634,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             XlsxToCsvScreen(
                 initialUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },
@@ -655,7 +655,7 @@ fun OmniNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val fileUri = backStackEntry.arguments?.getString("fileUri")?.let { android.net.Uri.decode(it) }
+            val fileUri = backStackEntry.arguments?.getString("fileUri")
             PptxToTxtScreen(
                 initialUri = fileUri,
                 onNavigateBack = { navController.popBackStack() },

@@ -110,6 +110,8 @@ fun PdfViewerScreen(
     var annotationMode by remember { mutableStateOf(AnnotationMode.NONE) }
     var selectedMarkerColor by remember { mutableStateOf(Color.Red) }
     var selectedStrokeWidth by remember { mutableStateOf(8f) }
+    var showPageJumpDialog by remember { mutableStateOf(false) }
+    var showPdfToolsSheet by remember { mutableStateOf(false) }
     
     // Page level active overlays
     val pagePaths = remember { mutableStateMapOf<Int, List<DrawingPath>>() }
@@ -702,20 +704,51 @@ fun PdfViewerScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val pdfTools = pdfToolActions(fileUri)
-                            ViewerQuickToolsMenu(
-                                fileUri = fileUri,
-                                toolActions = pdfTools,
-                                onToolClick = { tool ->
-                                    handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
-                                        onToolAction(ViewerTool.Navigate(route))
-                                    })
-                                }
-                            )
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.GridView,
+                                title = "Pages"
+                            ) {
+                                showPageJumpDialog = true
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = if (isPdfEditingActive) Icons.Default.Check else Icons.Default.Draw,
+                                title = if (isPdfEditingActive) "Done" else "Annotate"
+                            ) {
+                                isPdfEditingActive = !isPdfEditingActive
+                                annotationMode = if (isPdfEditingActive) AnnotationMode.MARKER else AnnotationMode.NONE
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Search,
+                                title = "Search"
+                            ) {
+                                searchExpanded = true
+                            }
+
+                            Box {
+                                val pdfTools = pdfToolActions(fileUri)
+                                ViewerQuickToolsMenu(
+                                    fileUri = fileUri,
+                                    toolActions = pdfTools,
+                                    onToolClick = { tool ->
+                                        handleViewerToolAction(tool, fileUri, context, onNavigate = { route ->
+                                            onToolAction(ViewerTool.Navigate(route))
+                                        })
+                                    }
+                                )
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Share,
+                                title = "Share"
+                            ) {
+                                onToolAction(ViewerTool.Share)
+                            }
                         }
                     }
                 }
@@ -984,6 +1017,45 @@ fun PdfViewerScreen(
                             }) {
                                 Text("Cancel")
                             }
+                        }
+                    }
+                )
+            }
+
+            // Page Jump & Navigation Dialog
+            if (showPageJumpDialog && state is PdfLoadState.Success) {
+                val success = state as PdfLoadState.Success
+                var targetPageText by remember { mutableStateOf("$currentPageIndex") }
+                AlertDialog(
+                    onDismissRequest = { showPageJumpDialog = false },
+                    title = { Text("Jump to Page (1 - ${success.pageCount})") },
+                    text = {
+                        Column {
+                            OutlinedTextField(
+                                value = targetPageText,
+                                onValueChange = { targetPageText = it.filter { ch -> ch.isDigit() } },
+                                label = { Text("Page Number") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            val pageNum = targetPageText.toIntOrNull()
+                            if (pageNum != null && pageNum in 1..success.pageCount) {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(pageNum - 1)
+                                }
+                            }
+                            showPageJumpDialog = false
+                        }) {
+                            Text("Go")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPageJumpDialog = false }) {
+                            Text("Cancel")
                         }
                     }
                 )

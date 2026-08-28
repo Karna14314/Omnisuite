@@ -193,45 +193,235 @@ fun PdfCompressScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Compression parameters
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Mode selector
                     Card(
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                        modifier = Modifier.fillMaxWidth()
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Target Compression Quality", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("${(viewModel.compressQuality * 100).toInt()}%", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Slider(
-                                value = viewModel.compressQuality,
-                                onValueChange = { viewModel.compressQuality = it },
-                                valueRange = 0.1f..1.0f,
-                                modifier = Modifier.fillMaxWidth()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Compression Mode",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
                             )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("Smaller Size (Low Quality)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("Balanced Quality", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("Original Quality", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FilterChip(
+                                    selected = viewModel.compressMode == "HYBRID",
+                                    onClick = { viewModel.compressMode = "HYBRID" },
+                                    label = { Text("Normal (Hybrid)") },
+                                    leadingIcon = if (viewModel.compressMode == "HYBRID") {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                    } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                
+                                FilterChip(
+                                    selected = viewModel.compressMode == "TARGET_SIZE",
+                                    onClick = { viewModel.compressMode = "TARGET_SIZE" },
+                                    label = { Text("Target Size") },
+                                    leadingIcon = if (viewModel.compressMode == "TARGET_SIZE") {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                    } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Text(
+                                text = if (viewModel.compressMode == "HYBRID") {
+                                    "Automatically balances quality and file size"
+                                } else {
+                                    "Compress as much as needed to fit under this target size"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Mode 1: Normal / Hybrid Mode Controls
+                    if (viewModel.compressMode == "HYBRID") {
+                        val levelName = when {
+                            viewModel.compressQuality < 0.25f -> "Low"
+                            viewModel.compressQuality < 0.50f -> "Medium"
+                            viewModel.compressQuality < 0.75f -> "High"
+                            else -> "Maximum"
+                        }
+                        val levelDesc = when {
+                            viewModel.compressQuality < 0.25f -> "Best quality, minor size reduction"
+                            viewModel.compressQuality < 0.50f -> "Good balance of quality and size"
+                            viewModel.compressQuality < 0.75f -> "Smaller file, reduced quality"
+                            else -> "Smallest file, lowest quality"
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Compression Level",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFEF4444)
+                                    ) {
+                                        Text(
+                                            text = levelName,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                Text(
+                                    text = levelDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                Slider(
+                                    value = viewModel.compressQuality * 100f,
+                                    onValueChange = { viewModel.compressQuality = it / 100f },
+                                    valueRange = 10f..100f,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFFEF4444),
+                                        activeTrackColor = Color(0xFFEF4444)
+                                    )
+                                )
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Better quality",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Smaller file",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    // Mode 2: Target Size Mode Controls
+                    if (viewModel.compressMode == "TARGET_SIZE") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Text(
+                                    text = "Target File Size",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                Text(
+                                    text = "Enter the maximum size in KB you need for this PDF",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                val targetKb = viewModel.targetSizeKbText.toDoubleOrNull()
+                                val isInvalid = viewModel.targetSizeKbText.isNotEmpty() && (targetKb == null || targetKb <= 0.0)
+
+                                OutlinedTextField(
+                                    value = viewModel.targetSizeKbText,
+                                    onValueChange = { newValue ->
+                                        if (newValue.length <= 7 && newValue.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                            viewModel.targetSizeKbText = newValue
+                                        }
+                                    },
+                                    label = { Text("Target size (KB)") },
+                                    placeholder = { Text("e.g. 500") },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                    ),
+                                    singleLine = true,
+                                    isError = isInvalid,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                
+                                if (isInvalid) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Enter a valid number greater than 0",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    val isTargetValid = viewModel.compressMode != "TARGET_SIZE" || 
+                        (viewModel.targetSizeKbText.toDoubleOrNull()?.let { it > 0.0 } == true)
 
                     Button(
                         onClick = { viewModel.compressPdf() },
+                        enabled = isTargetValid,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .height(54.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
                     ) {

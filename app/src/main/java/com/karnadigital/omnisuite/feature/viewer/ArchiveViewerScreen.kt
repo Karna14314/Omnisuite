@@ -161,6 +161,8 @@ fun ArchiveViewerScreen(
                                 continue
                             }
 
+                            tempFile.parentFile?.mkdirs()
+
                             // Stream the entry directly to disk instead of buffering it fully in memory
                             val buffer = ByteArray(8192)
                             FileOutputStream(tempFile).use { fos ->
@@ -215,6 +217,21 @@ fun ArchiveViewerScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    val nonDirList = entries.filter { !it.isDirectory }
+                    val allChecked = nonDirList.isNotEmpty() && nonDirList.all { it.isSelected }
+                    IconButton(onClick = {
+                        val target = !allChecked
+                        entries = entries.map {
+                            if (!it.isDirectory) it.copy(isSelected = target) else it
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (allChecked) Icons.Default.CheckCircle else Icons.Default.SelectAll,
+                            contentDescription = "Select All"
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -342,6 +359,8 @@ fun ArchiveViewerScreen(
                                                                 }
                                                                 break
                                                             }
+
+                                                            tempFile.parentFile?.mkdirs()
 
                                                             val buffer = ByteArray(4096)
                                                             FileOutputStream(tempFile).use { fos ->

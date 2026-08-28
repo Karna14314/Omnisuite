@@ -56,6 +56,8 @@ class PdfToolsViewModel @Inject constructor(
 
     var compressInputUri by mutableStateOf<Uri?>(null)
     var compressQuality by mutableStateOf(0.5f)
+    var compressMode by mutableStateOf("HYBRID")
+    var targetSizeKbText by mutableStateOf("")
     var flattenInputUri by mutableStateOf<Uri?>(null)
     var xlsInputUri by mutableStateOf<Uri?>(null)
 
@@ -363,9 +365,14 @@ class PdfToolsViewModel @Inject constructor(
         isProcessing = true
         resetStatus()
         viewModelScope.launch {
-            val result = pdfToolsRepository.compressPdf(inputUri, compressQuality)
+            val targetBytes = if (compressMode == "TARGET_SIZE") {
+                targetSizeKbText.toDoubleOrNull()?.let { (it * 1024L).toLong().takeIf { b -> b > 0 } }
+            } else null
+
+            val result = pdfToolsRepository.compressPdf(inputUri, compressQuality, targetBytes)
             result.onSuccess { uri ->
                 successUri = uri
+                successName = (inputUri.lastPathSegment ?: "document").removeSuffix(".pdf") + "_compressed.pdf"
                 successMessage = "PDF compressed successfully!"
                 compressInputUri = null
             }.onFailure { e ->

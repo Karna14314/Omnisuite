@@ -69,9 +69,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SpeakerNotes
+import androidx.compose.material.icons.filled.ViewAgenda
+
+enum class PptxViewMode {
+    PAGER, GRID, SLIDESHOW
+}
 
 private fun safeParseColor(colorHex: String?, fallback: Color): Color {
     if (colorHex == null) return fallback
@@ -86,8 +99,8 @@ private fun safeParseColor(colorHex: String?, fallback: Color): Color {
 }
 
 /**
- * Slide-deck Presentation Viewer (PPTX) mobile screen engine.
- * Renders slides in a distraction-free swipeable HorizontalPager.
+ * Slide-deck Presentation Viewer (PPTX) mobile screen engine with WPS Office & Mi Docs features.
+ * Supports swipeable pager, multi-slide overview grid, and full-screen slideshow presentation.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -115,6 +128,8 @@ fun PptxViewerScreen(
 
     val state by viewModel.loadState.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
+    var viewMode by remember { mutableStateOf(PptxViewMode.PAGER) }
+    var showNotesPanel by remember { mutableStateOf(false) }
 
     var activeIndexToEdit by remember { mutableStateOf<Int?>(null) }
     var blockToEdit by remember { mutableStateOf<PptxTextBlock?>(null) }
@@ -156,154 +171,257 @@ fun PptxViewerScreen(
 
     Scaffold(
         topBar = {
-            if (searchExpanded) {
+            if (viewMode != PptxViewMode.SLIDESHOW) {
+                if (searchExpanded) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding(),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 3.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = {
+                                searchExpanded = false
+                                viewModel.setSearchQuery("")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close search"
+                                )
+                            }
+
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.setSearchQuery(it) },
+                                placeholder = { Text("Search text in slides...") },
+                                modifier = Modifier.weight(1f),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                singleLine = true
+                            )
+
+                            if (searchResults.isNotEmpty()) {
+                                Text(
+                                    text = "${currentMatchIndex + 1} of ${searchResults.size}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                                IconButton(onClick = { viewModel.prevMatch() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Prev match"
+                                    )
+                                }
+                                IconButton(onClick = { viewModel.nextMatch() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Next match"
+                                    )
+                                }
+                            } else if (searchQuery.isNotEmpty()) {
+                                Text(
+                                    text = "No matches",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = when (val s = state) {
+                                    is PptxLoadState.Success -> s.fileName
+                                    else -> "Presentation Viewer"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Navigate back"
+                                )
+                            }
+                        },
+                        actions = {
+                            if (state is PptxLoadState.Success) {
+                                var showMenu by remember { mutableStateOf(false) }
+
+                                IconButton(onClick = {
+                                    viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.PAGER else PptxViewMode.GRID
+                                }) {
+                                    Icon(
+                                        imageVector = if (viewMode == PptxViewMode.GRID) Icons.Default.ViewAgenda else Icons.Default.GridView,
+                                        contentDescription = "Toggle Grid View",
+                                        tint = if (viewMode == PptxViewMode.GRID) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                IconButton(onClick = { searchExpanded = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search text"
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    if (isEditMode) {
+                                        viewModel.commitChanges()
+                                    }
+                                    isEditMode = !isEditMode
+                                }) {
+                                    Icon(
+                                        imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                        contentDescription = "Toggle Edit Mode",
+                                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                                }
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Play SlideShow") },
+                                        onClick = {
+                                            showMenu = false
+                                            viewMode = PptxViewMode.SLIDESHOW
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Print") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Print)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Share)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Open in...") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.OpenIn)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Convert to PDF") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptToPdf.route))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Extract Text to TXT") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptxToTxt.createRoute(fileUri)))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
+            }
+        },
+        bottomBar = {
+            if (state is PptxLoadState.Success && viewMode != PptxViewMode.SLIDESHOW) {
+                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding(),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(64.dp)
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = {
-                            searchExpanded = false
-                            viewModel.setSearchQuery("")
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close search"
-                            )
+                        ViewerActionColumnButton(
+                            icon = if (viewMode == PptxViewMode.GRID) Icons.Default.ViewAgenda else Icons.Default.GridView,
+                            title = if (viewMode == PptxViewMode.GRID) "Slides" else "Grid"
+                        ) {
+                            viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.PAGER else PptxViewMode.GRID
                         }
 
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Search text in slides...") },
-                            modifier = Modifier.weight(1f),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            singleLine = true
-                        )
-
-                        if (searchResults.isNotEmpty()) {
-                            Text(
-                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                            IconButton(onClick = { viewModel.prevMatch() }) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Prev match"
-                                )
-                            }
-                            IconButton(onClick = { viewModel.nextMatch() }) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Next match"
-                                )
-                            }
-                        } else if (searchQuery.isNotEmpty()) {
-                            Text(
-                                text = "No matches",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.PlayArrow,
+                            title = "SlideShow"
+                        ) {
+                            viewMode = PptxViewMode.SLIDESHOW
                         }
-                    }
-                }
-            } else {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = when (val s = state) {
-                                is PptxLoadState.Success -> s.fileName
-                                else -> "Presentation Viewer"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back"
-                            )
-                        }
-                    },
-                    actions = {
-                        if (state is PptxLoadState.Success) {
-                            var showMenu by remember { mutableStateOf(false) }
 
-                            IconButton(onClick = { searchExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search text"
-                                )
+                        ViewerActionColumnButton(
+                            icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                            title = if (isEditMode) "Save" else "Edit"
+                        ) {
+                            if (isEditMode) {
+                                viewModel.commitChanges()
                             }
-                            IconButton(onClick = {
-                                if (isEditMode) {
-                                    viewModel.commitChanges()
-                                }
-                                isEditMode = !isEditMode
-                            }) {
-                                Icon(
-                                    imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                    contentDescription = "Toggle Edit Mode",
-                                    tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                            isEditMode = !isEditMode
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.SpeakerNotes,
+                            title = "Notes"
+                        ) {
+                            showNotesPanel = !showNotesPanel
+                        }
+
+                        Box {
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Build,
+                                title = "Tools"
+                            ) {
+                                showToolsMenu = true
                             }
                             DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
+                                expanded = showToolsMenu,
+                                onDismissRequest = { showToolsMenu = false }
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Print") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Print)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Share)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Open in...") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.OpenIn)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
-                                )
                                 DropdownMenuItem(
                                     text = { Text("Convert to PDF") },
                                     onClick = {
-                                        showMenu = false
+                                        showToolsMenu = false
                                         onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptToPdf.route))
                                     },
                                     leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
@@ -311,28 +429,30 @@ fun PptxViewerScreen(
                                 DropdownMenuItem(
                                     text = { Text("Extract Text to TXT") },
                                     onClick = {
-                                        showMenu = false
+                                        showToolsMenu = false
                                         onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptxToTxt.createRoute(fileUri)))
                                     },
                                     leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
                                 )
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                )
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Share,
+                            title = "Share"
+                        ) {
+                            onToolAction(ViewerTool.Share)
+                        }
+                    }
+                }
             }
-        },
-        bottomBar = {}
+        }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
+                .padding(if (viewMode == PptxViewMode.SLIDESHOW) PaddingValues(0.dp) else paddingValues)
+                .background(if (viewMode == PptxViewMode.SLIDESHOW) Color.Black else MaterialTheme.colorScheme.background)
         ) {
             when (val currentState = state) {
                 is PptxLoadState.Loading -> {
@@ -359,218 +479,394 @@ fun PptxViewerScreen(
                     if (presentation.slides.isEmpty()) {
                         EmptyPresentationState()
                     } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(vertical = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            // Swipable Slides horizontal pager with premium scale/fade transitions
-                            HorizontalPager(
-                                state = pagerState,
+                        if (viewMode == PptxViewMode.SLIDESHOW) {
+                            // WPS Office Fullscreen Presentation Mode
+                            Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
-                                contentPadding = PaddingValues(horizontal = 24.dp),
-                                pageSpacing = 16.dp
-                            ) { pageIndex ->
-                                val slide = presentation.slides[pageIndex]
-
-                                val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
-                                val scale = 1f - (Math.abs(pageOffset) * 0.12f).coerceIn(0f, 0.12f)
-                                val alpha = 1f - (Math.abs(pageOffset) * 0.4f).coerceIn(0f, 0.4f)
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            scaleX = scale
-                                            scaleY = scale
-                                            this.alpha = alpha
-                                        }
-                                ) {
-                                    ZoomableBox(
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        SlideCardItem(
-                                            slide = slide,
-                                            isEditMode = isEditMode,
-                                            onTextBlockClick = { textBlock, isTitle, blockIdx ->
-                                                blockToEdit = textBlock
-                                                activeIndexToEdit = pageIndex
-                                                isTitleEdit = isTitle
-                                                blockIndexToEdit = blockIdx
-                                                showFormatter = true
+                                    .fillMaxSize()
+                                    .background(Color.Black)
+                                    .pointerInput(presentation.slides.size) {
+                                        detectTapGestures(
+                                            onTap = { offset ->
+                                                if (offset.x < size.width / 3f) {
+                                                    if (pagerState.currentPage > 0) {
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                                                    }
+                                                } else {
+                                                    if (pagerState.currentPage < presentation.slides.size - 1) {
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                                                    }
+                                                }
                                             }
                                         )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) { pageIndex ->
+                                    val slide = presentation.slides[pageIndex]
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        ZoomableBox(modifier = Modifier.fillMaxWidth()) {
+                                            SlideCardItem(
+                                                slide = slide,
+                                                isEditMode = false,
+                                                onTextBlockClick = { _, _, _ -> }
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            if (isEditMode) {
-                                Spacer(modifier = Modifier.height(8.dp))
+                                // Top navigation overlay
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 24.dp),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                        .align(Alignment.TopCenter)
+                                        .statusBarsPadding()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    OutlinedButton(
-                                        onClick = { viewModel.addSlide(pagerState.currentPage) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    IconButton(
+                                        onClick = { viewMode = PptxViewMode.PAGER },
+                                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.5f))
                                     ) {
-                                        Text("+ Add Slide", fontSize = 12.sp)
+                                        Icon(Icons.Default.Close, contentDescription = "Exit SlideShow", tint = Color.White)
                                     }
-                                    OutlinedButton(
-                                        onClick = { viewModel.duplicateSlide(pagerState.currentPage) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color.Black.copy(alpha = 0.6f)
                                     ) {
-                                        Text("📋 Duplicate", fontSize = 12.sp)
-                                    }
-                                    OutlinedButton(
-                                        onClick = { viewModel.deleteSlide(pagerState.currentPage) },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Text("🗑️ Delete", fontSize = 12.sp)
+                                        Text(
+                                            text = "${pagerState.currentPage + 1} / ${presentation.slides.size}",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                        )
                                     }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Slide counter
-                            Text(
-                                text = "Slide ${pagerState.currentPage + 1} of ${presentation.slides.size}",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Scrollable horizontal slide thumbnail strip drawer
-                            LazyRow(
+                        } else if (viewMode == PptxViewMode.GRID) {
+                            // Mi Docs Multi-slide Overview Grid Mode
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 24.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp),
+                                contentPadding = PaddingValues(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(presentation.slides.size, key = { it }) { index ->
-                                    val slideItem = presentation.slides[index]
-                                    val isActive = pagerState.currentPage == index
-                                    val borderStroke = if (isActive) {
-                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                                    } else {
-                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                    }
-                                    val opacity = if (isActive) 1f else 0.6f
-
+                                itemsIndexed(presentation.slides) { index, slideItem ->
+                                    val isCurrent = pagerState.currentPage == index
                                     Card(
-                                        shape = RoundedCornerShape(6.dp),
-                                        border = borderStroke,
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = safeParseColor(slideItem.bgColorHex, MaterialTheme.colorScheme.surface)
-                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = if (isCurrent) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                        colors = CardDefaults.cardColors(containerColor = safeParseColor(slideItem.bgColorHex, MaterialTheme.colorScheme.surface)),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 6.dp else 2.dp),
                                         modifier = Modifier
-                                            .width(80.dp)
-                                            .height(45.dp)
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 110.dp)
                                             .clickable {
                                                 coroutineScope.launch {
-                                                    pagerState.animateScrollToPage(index)
+                                                    pagerState.scrollToPage(index)
                                                 }
+                                                viewMode = PptxViewMode.PAGER
                                             }
-                                            .graphicsLayer { this.alpha = opacity }
                                     ) {
                                         Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.fillMaxSize().padding(4.dp)
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp)
                                         ) {
                                             Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.SpaceBetween,
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text(
-                                                    text = slideItem.title.text,
-                                                    fontSize = 5.sp,
-                                                    lineHeight = 6.sp,
+                                                    text = slideItem.title.text.ifBlank { "Slide ${index + 1}" },
+                                                    style = MaterialTheme.typography.titleSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
+                                                    fontSize = 11.sp,
+                                                    lineHeight = 14.sp,
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface),
-                                                    textAlign = TextAlign.Center
+                                                    color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface)
                                                 )
+                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    if (slideItem.images.isNotEmpty()) {
+                                                        Text("🖼️ ${slideItem.images.size}", fontSize = 9.sp)
+                                                    } else {
+                                                        Spacer(modifier = Modifier.width(1.dp))
+                                                    }
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = MaterialTheme.colorScheme.primaryContainer
+                                                    ) {
+                                                        Text(
+                                                            text = "${index + 1}",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Standard Slide Pager Mode
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // Swipable Slides horizontal pager
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    pageSpacing = 16.dp
+                                ) { pageIndex ->
+                                    val slide = presentation.slides[pageIndex]
+
+                                    val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
+                                    val scale = 1f - (Math.abs(pageOffset) * 0.12f).coerceIn(0f, 0.12f)
+                                    val alpha = 1f - (Math.abs(pageOffset) * 0.4f).coerceIn(0f, 0.4f)
+
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                scaleX = scale
+                                                scaleY = scale
+                                                this.alpha = alpha
+                                            }
+                                    ) {
+                                        ZoomableBox(
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            SlideCardItem(
+                                                slide = slide,
+                                                isEditMode = isEditMode,
+                                                onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                                    blockToEdit = textBlock
+                                                    activeIndexToEdit = pageIndex
+                                                    isTitleEdit = isTitle
+                                                    blockIndexToEdit = blockIdx
+                                                    showFormatter = true
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isEditMode) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.addSlide(pagerState.currentPage) },
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("+ Add Slide", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.duplicateSlide(pagerState.currentPage) },
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("📋 Duplicate", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.deleteSlide(pagerState.currentPage) },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("🗑️ Delete", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Slide counter badge
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                    ) {
+                                        Text(
+                                            text = "Slide ${pagerState.currentPage + 1} of ${presentation.slides.size}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Slide thumbnail strip drawer
+                                LazyRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(presentation.slides.size, key = { it }) { index ->
+                                        val slideItem = presentation.slides[index]
+                                        val isActive = pagerState.currentPage == index
+                                        val borderStroke = if (isActive) {
+                                            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                        }
+                                        val opacity = if (isActive) 1f else 0.6f
+
+                                        Card(
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = borderStroke,
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = safeParseColor(slideItem.bgColorHex, MaterialTheme.colorScheme.surface)
+                                            ),
+                                            modifier = Modifier
+                                                .width(80.dp)
+                                                .height(45.dp)
+                                                .clickable {
+                                                    coroutineScope.launch {
+                                                        pagerState.animateScrollToPage(index)
+                                                    }
+                                                }
+                                                .graphicsLayer { this.alpha = opacity }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.fillMaxSize().padding(4.dp)
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier.fillMaxSize()
+                                                ) {
+                                                    Text(
+                                                        text = slideItem.title.text,
+                                                        fontSize = 5.sp,
+                                                        lineHeight = 6.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface),
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                    Text(
+                                                        text = "${index + 1}",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Collapsible Speaker Notes Panel
+                                if (showNotesPanel) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    val currentSlide = presentation.slides[pagerState.currentPage]
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 20.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.SpeakerNotes,
+                                                        contentDescription = "Speaker Notes",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Speaker Notes (Slide ${pagerState.currentPage + 1})",
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { showNotesPanel = false },
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Close Notes", modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            val displayNotes = currentSlide.speakerNotes
+                                            if (!displayNotes.isNullOrBlank()) {
                                                 Text(
-                                                    text = "${index + 1}",
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                    text = displayNotes,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = "No slide notes recorded.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                                 )
                                             }
                                         }
                                     }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Render slide comment note at the bottom
-                            val currentSlide = presentation.slides[pagerState.currentPage]
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 24.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Speaker Notes",
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Speaker Notes",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    val displayNotes = currentSlide.speakerNotes
-                                    if (!displayNotes.isNullOrBlank()) {
-                                        Text(
-                                            text = displayNotes,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    } else {
-                                        Text(
-                                            text = "No slide notes recorded.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        )
-                                    }
-                                }
-                            }
+                        }
 
                             // Text Formatter dialog overlay
                             if (showFormatter && blockToEdit != null && activeIndexToEdit != null) {
@@ -609,7 +905,6 @@ fun PptxViewerScreen(
                             }
                         }
                     }
-                }
                 is PptxLoadState.Error -> {
                     Column(
                         modifier = Modifier

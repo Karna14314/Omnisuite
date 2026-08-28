@@ -380,6 +380,7 @@ fun DocxViewerScreen(
         },
         bottomBar = {
             if (state is DocxLoadState.Success) {
+                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
@@ -388,15 +389,71 @@ fun DocxViewerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.Center,
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ViewerActionColumnButton(
-                            icon = Icons.Default.Save,
-                            title = "Save"
+                            icon = if (isPrintLayout) Icons.Default.TextSnippet else Icons.Default.PictureAsPdf,
+                            title = if (isPrintLayout) "Reflow" else "Print Layout"
                         ) {
-                            viewModel.commitChanges()
+                            isPrintLayout = !isPrintLayout
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                            title = if (isEditMode) "Save" else "Edit"
+                        ) {
+                            if (isEditMode) {
+                                viewModel.commitChanges()
+                            }
+                            isEditMode = !isEditMode
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Search,
+                            title = "Search"
+                        ) {
+                            searchExpanded = true
+                        }
+
+                        Box {
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Build,
+                                title = "Tools"
+                            ) {
+                                showToolsMenu = true
+                            }
+                            DropdownMenu(
+                                expanded = showToolsMenu,
+                                onDismissRequest = { showToolsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export to PDF") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        val currentSuccess = state as DocxLoadState.Success
+                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                        exportPdfLauncher.launch(defaultName)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to TXT") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.DocxToTxt.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
+                                )
+                            }
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Share,
+                            title = "Share"
+                        ) {
+                            onToolAction(ViewerTool.Share)
                         }
                     }
                 }
@@ -436,8 +493,6 @@ fun DocxViewerScreen(
                     } else {
                         if (isPrintLayout) {
                             val pages = remember(document.elements) {
-                                // Real A4 page budget: standard A4 page contains ~500-600 words / 3500 chars (~50-60 lines)
-                                // Total vertical capacity: 1200 units
                                 val PAGE_BUDGET_UNITS = 1200
 
                                 val result = mutableListOf<List<DocxBodyElement>>()
@@ -496,40 +551,45 @@ fun DocxViewerScreen(
                                     state = lazyListState,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                                     contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
                                 ) {
                                     itemsIndexed(pages) { pageIndex, pageParagraphs ->
                                         Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .defaultMinSize(minHeight = 500.dp)
+                                                .defaultMinSize(minHeight = 520.dp)
                                                 .padding(horizontal = 16.dp, vertical = 10.dp),
-                                            shape = RoundedCornerShape(4.dp),
+                                            shape = RoundedCornerShape(2.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color.White),
                                             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                                         ) {
                                             Column(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp)
+                                                    .padding(start = 28.dp, end = 28.dp, top = 28.dp, bottom = 20.dp)
                                             ) {
                                                 pageParagraphs.forEach { element ->
                                                     when (element) {
                                                         is DocxBodyElement.Para -> DocxParagraphItem(
                                                             paragraph = element.paragraph,
                                                             isHighlighted = false,
-                                                            searchQuery = searchQuery
+                                                            searchQuery = searchQuery,
+                                                            isPrintLayout = true
                                                         )
-                                                        is DocxBodyElement.Table -> DocxTableItem(element, searchQuery)
+                                                        is DocxBodyElement.Table -> DocxTableItem(
+                                                            table = element,
+                                                            searchQuery = searchQuery,
+                                                            isPrintLayout = true
+                                                        )
                                                     }
                                                 }
-                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Spacer(modifier = Modifier.height(20.dp))
                                                 // Page number footer
                                                 Text(
-                                                    text = "Page ${pageIndex + 1} of ${pages.size}",
+                                                    text = "— Page ${pageIndex + 1} of ${pages.size} —",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.Gray,
+                                                    color = Color(0xFF757575),
                                                     textAlign = TextAlign.Center,
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
@@ -907,13 +967,13 @@ fun DocxParagraphEditorItem(
 }
 
 @Composable
-fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String) {
+fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String, isPrintLayout: Boolean = false) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        border = BorderStroke(0.5.dp, if (isPrintLayout) Color.LightGray else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (isPrintLayout) Color(0xFFFAFAFA) else MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             table.rows.forEach { row ->
@@ -952,7 +1012,8 @@ fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String) {
                                 DocxParagraphItem(
                                     paragraph = para,
                                     isHighlighted = false,
-                                    searchQuery = searchQuery
+                                    searchQuery = searchQuery,
+                                    isPrintLayout = isPrintLayout
                                 )
                             }
                         }
@@ -967,12 +1028,13 @@ fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String) {
 fun DocxParagraphItem(
     paragraph: DocxParagraph,
     isHighlighted: Boolean = false,
-    searchQuery: String = ""
+    searchQuery: String = "",
+    isPrintLayout: Boolean = false
 ) {
     val context = LocalContext.current
     val isDarkTheme = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
 
-    val annotatedString = remember(paragraph, searchQuery) {
+    val annotatedString = remember(paragraph, searchQuery, isPrintLayout) {
         buildAnnotatedString {
             paragraph.runs.forEach { run ->
                 if (run.text.isBlank() && run.imageUrl == null) return@forEach
@@ -985,12 +1047,11 @@ fun DocxParagraphItem(
                     isLink -> Color(0xFF1A73E8)
                     run.color != null && run.color != "000000" && run.color != "auto" -> {
                         try { Color(android.graphics.Color.parseColor("#${run.color}")) }
-                        catch (e: Exception) { Color.Unspecified }
+                        catch (e: Exception) { if (isPrintLayout) Color(0xFF1F1F1F) else Color.Unspecified }
                     }
+                    isPrintLayout -> Color(0xFF1F1F1F)
                     else -> Color.Unspecified  // Let Material theme handle default text color
                 }
-
-                val runFontSize = run.fontSizePt?.sp ?: 14.sp  // fallback to 14sp if not specified
 
                 val spanStyle = SpanStyle(
                     fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
@@ -1032,43 +1093,46 @@ fun DocxParagraphItem(
         else -> TextAlign.Left
     }
 
+    val inkPrimaryColor = if (isPrintLayout) Color(0xFF0F3E6D) else MaterialTheme.colorScheme.primary
+    val inkTextColor = if (isPrintLayout) Color(0xFF1F1F1F) else MaterialTheme.colorScheme.onSurface
+
     // Clean, modern typography scale
     val baseStyle = when (paragraph.headingLevel) {
         1 -> MaterialTheme.typography.headlineSmall.copy(
             fontSize = 22.sp,
             lineHeight = 28.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = inkPrimaryColor
         )
         2 -> MaterialTheme.typography.titleLarge.copy(
             fontSize = 18.sp,
             lineHeight = 24.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = inkPrimaryColor
         )
         3 -> MaterialTheme.typography.titleMedium.copy(
             fontSize = 16.sp,
             lineHeight = 22.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = inkTextColor
         )
         4 -> MaterialTheme.typography.titleSmall.copy(
             fontSize = 15.sp,
             lineHeight = 20.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = inkTextColor
         )
         5 -> MaterialTheme.typography.bodyMedium.copy(
             fontSize = 14.sp,
             lineHeight = 20.sp,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface
+            color = inkTextColor
         )
         else -> MaterialTheme.typography.bodyMedium.copy(
             fontSize = 14.sp,
             lineHeight = 21.sp,
             fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurface
+            color = inkTextColor
         )
     }
 

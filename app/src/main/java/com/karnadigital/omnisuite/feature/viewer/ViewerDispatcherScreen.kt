@@ -127,11 +127,12 @@ fun ViewerDispatcherScreen(
     }
 
     val onToolAction: (ViewerTool) -> Unit = { tool ->
+        val currentPath = (state as? DispatcherState.Success)?.cachedPath ?: ""
         when (tool) {
             is ViewerTool.Navigate -> onNavigate(tool.route)
             is ViewerTool.NavigateImageTool -> onNavigateImageTool(tool.fileUri, tool.tab)
             is ViewerTool.ExportPdf -> { /* handled by caller via SAF launcher */ }
-            else -> handleViewerToolAction(tool, "", context, onNavigate, onNavigateImageTool)
+            else -> handleViewerToolAction(tool, currentPath, context, onNavigate, onNavigateImageTool)
         }
     }
 

@@ -42,11 +42,28 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Premium, rich-aesthetic local offline image compression and editing dashboard.
+ */
+enum class PhotoEditorCategory(val title: String) {
+    TRANSFORM("Transform"),
+    ADJUST("Adjust"),
+    FILTERS("Filters"),
+    COMPRESS("Compress"),
+    TOOLS("Tools")
+}
+
+enum class AdjustmentParam(val title: String) {
+    BRIGHTNESS("Brightness"),
+    CONTRAST("Contrast"),
+    SATURATION("Saturation")
+}
+
+/**
+ * Modern Gallery Photo Editor & Image Lab Extensions.
+ * Clean, tactile interface modelled after Google Photos & Samsung Gallery.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,42 +77,46 @@ fun ImageToolsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val selectedUri = uiState.selectedUri
 
-    var activeTab by remember { mutableStateOf(initialTab) }
+    var activeCategory by remember { mutableStateOf(PhotoEditorCategory.TRANSFORM) }
+    var activeAdjustParam by remember { mutableStateOf(AdjustmentParam.BRIGHTNESS) }
+    var isHoldingCompare by remember { mutableStateOf(false) }
+    var showLabSheet by remember { mutableStateOf(false) }
+    var activeLabTool by remember { mutableStateOf<String?>(null) }
     var showCropDialog by remember { mutableStateOf(false) }
-    val toolTabs = listOf("Editor", "Long Stitcher", "Extractor", "ID Card Maker", "Watermarker")
 
-    // Launchers
+    // Activity Result Launchers
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.loadSelectedImage(uri)
-        }
+        uri?.let { viewModel.loadSelectedImage(it) }
     }
 
-    val multiImagePickerLauncher = rememberLauncherForActivityResult(
+    val stitchPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             viewModel.selectStitchImages(uris)
+            activeLabTool = "stitch"
         }
     }
 
-    val docPickerLauncher = rememberLauncherForActivityResult(
+    val docExtractLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.extractMedia(it) }
+        uri?.let {
+            viewModel.extractMedia(it)
+            activeLabTool = "extract"
+        }
     }
 
-    val frontLauncher = rememberLauncherForActivityResult(
+    val idFrontLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         viewModel.selectIdFrontImage(uri)
     }
 
-    val backLauncher = rememberLauncherForActivityResult(
+    val idBackLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         viewModel.selectIdBackImage(uri)
@@ -104,11 +125,20 @@ fun ImageToolsScreen(
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/jpeg"),
         onResult = { uri ->
-            uri?.let { viewModel.saveToCustomLocation(uri) }
+            uri?.let { viewModel.saveToCustomLocation(it) }
         }
     )
 
-    // React to processing messages
+    LaunchedEffect(initialUri) {
+        if (!initialUri.isNullOrBlank() && uiState.selectedUri == null) {
+            try {
+                viewModel.loadSelectedImage(Uri.parse(initialUri))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     LaunchedEffect(uiState.processingMessage) {
         uiState.processingMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
@@ -116,664 +146,318 @@ fun ImageToolsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Image Lab Extensions",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge
-                    )
+                    if (uiState.selectedUri != null) {
+                        Column {
+                            Text(
+                                text = "Photo Editor",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${uiState.originalWidth} × ${uiState.originalHeight} px",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Image Lab",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back to Workspace"
+                            contentDescription = "Back"
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.clearSelection() }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Reset Form"
-                        )
+                    if (uiState.selectedUri != null) {
+                        // Compare with Original (Toggle)
+                        IconButton(
+                            onClick = { isHoldingCompare = !isHoldingCompare }
+                        ) {
+                            Icon(
+                                imageVector = if (isHoldingCompare) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Compare original",
+                                tint = if (isHoldingCompare) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        // Revert / Reset Adjustments
+                        IconButton(
+                            onClick = {
+                                viewModel.updateAdjustments(0f, 1f, 1f, "Normal")
+                                viewModel.resetRotation()
+                                viewModel.updateScale(1f)
+                                viewModel.updateQuality(80)
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reset adjustments"
+                            )
+                        }
+
+                        // Save / Export
+                        Button(
+                            onClick = { viewModel.processAndSaveImage() },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    } else {
+                        IconButton(onClick = { showLabSheet = true }) {
+                            Icon(Icons.Default.Build, contentDescription = "Lab Utilities")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            if (uiState.selectedUri != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        // Contextual Controls Shelf
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            when (activeCategory) {
+                                PhotoEditorCategory.TRANSFORM -> {
+                                    TransformShelf(
+                                        rotation = uiState.rotationDegrees,
+                                        onRotate = { viewModel.rotateImage() },
+                                        onResetRotation = { viewModel.resetRotation() },
+                                        onCropSquare = { viewModel.cropToSquare() },
+                                        onOpenVisualCrop = { showCropDialog = true }
+                                    )
+                                }
+                                PhotoEditorCategory.ADJUST -> {
+                                    AdjustShelf(
+                                        activeParam = activeAdjustParam,
+                                        onSelectParam = { activeAdjustParam = it },
+                                        brightness = uiState.brightness,
+                                        contrast = uiState.contrast,
+                                        saturation = uiState.saturation,
+                                        onAdjust = { b, c, s ->
+                                            viewModel.updateAdjustments(b, c, s, uiState.filterType)
+                                        }
+                                    )
+                                }
+                                PhotoEditorCategory.FILTERS -> {
+                                    FiltersShelf(
+                                        activeFilter = uiState.filterType,
+                                        onSelectFilter = { filter ->
+                                            viewModel.updateAdjustments(
+                                                uiState.brightness,
+                                                uiState.contrast,
+                                                uiState.saturation,
+                                                filter
+                                            )
+                                        }
+                                    )
+                                }
+                                PhotoEditorCategory.COMPRESS -> {
+                                    CompressResizeShelf(
+                                        quality = uiState.compressionQuality,
+                                        scale = uiState.resizeScale,
+                                        format = uiState.outputFormat,
+                                        originalSize = uiState.originalSize,
+                                        onQualityChange = { viewModel.updateQuality(it) },
+                                        onScaleChange = { viewModel.updateScale(it) },
+                                        onFormatChange = { viewModel.updateFormat(it) }
+                                    )
+                                }
+                                PhotoEditorCategory.TOOLS -> {
+                                    ToolsShelf(
+                                        onOpenStitcher = { stitchPickerLauncher.launch("image/*") },
+                                        onOpenIdCard = { activeLabTool = "id_card" },
+                                        onOpenWatermark = { activeLabTool = "watermark" },
+                                        onOpenExtractor = { docExtractLauncher.launch("*/*") }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Bottom Navigation Categories
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            EditorCategoryButton(
+                                title = "Crop & Rotate",
+                                icon = Icons.Default.Crop,
+                                isSelected = activeCategory == PhotoEditorCategory.TRANSFORM,
+                                onClick = { activeCategory = PhotoEditorCategory.TRANSFORM }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Adjust",
+                                icon = Icons.Default.Tune,
+                                isSelected = activeCategory == PhotoEditorCategory.ADJUST,
+                                onClick = { activeCategory = PhotoEditorCategory.ADJUST }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Filters",
+                                icon = Icons.Default.AutoFixHigh,
+                                isSelected = activeCategory == PhotoEditorCategory.FILTERS,
+                                onClick = { activeCategory = PhotoEditorCategory.FILTERS }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Compress",
+                                icon = Icons.Default.Compress,
+                                isSelected = activeCategory == PhotoEditorCategory.COMPRESS,
+                                onClick = { activeCategory = PhotoEditorCategory.COMPRESS }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Lab Tools",
+                                icon = Icons.Default.MoreHoriz,
+                                isSelected = activeCategory == PhotoEditorCategory.TOOLS,
+                                onClick = { activeCategory = PhotoEditorCategory.TOOLS }
+                            )
+                        }
+                    }
+                }
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // sticky top tabs selector
-            ScrollableTabRow(
-                selectedTabIndex = activeTab,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary,
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[activeTab]),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            ) {
-                toolTabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = activeTab == index,
-                        onClick = {
-                            activeTab = index
-                            viewModel.clearSelection()
-                        },
-                        text = {
-                            Text(
-                                text = title,
-                                fontWeight = if (activeTab == index) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 14.sp
-                            )
-                        }
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f)
-            ) {
-                Column(
+            if (uiState.selectedUri == null) {
+                // Empty / Welcome State
+                ImageLabWelcomeContent(
+                    onPickImage = { imagePickerLauncher.launch("image/*") },
+                    onOpenStitcher = { stitchPickerLauncher.launch("image/*") },
+                    onOpenIdCard = { activeLabTool = "id_card" },
+                    onOpenWatermark = { imagePickerLauncher.launch("image/*") },
+                    onOpenExtractor = { docExtractLauncher.launch("*/*") }
+                )
+            } else {
+                // Interactive Center Photo Canvas
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .background(Color(0xFF141414)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    when (activeTab) {
-                        0 -> { // --- STANDARD EDITOR ---
-                            if (selectedUri == null) {
-                                Spacer(modifier = Modifier.height(20.dp))
-                                DropZoneBox(
-                                    title = "Select Image to Edit",
-                                    desc = "Compress, rotate, resize, and convert formats offline.",
-                                    emoji = "📸",
-                                    onClick = { imagePickerLauncher.launch("image/*") }
-                                )
-                            } else {
-                                AsyncImageCard(bitmap = uiState.previewBitmap, uri = selectedUri, rotation = uiState.rotationDegrees)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                MetadataBanner(uiState = uiState)
-                                Spacer(modifier = Modifier.height(20.dp))
-                                
-                                // Format selector
-                                EditingControlCard(title = "Target Format") {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutputFormat.values().forEach { format ->
-                                            val isSelected = uiState.outputFormat == format
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(44.dp)
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                                    .border(1.dp, if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                                                    .clickable { viewModel.updateFormat(format) },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = format.name,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                    val displayBitmap = if (isHoldingCompare) null else uiState.previewBitmap
+                    val displayUri = uiState.selectedUri
 
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                // Resize slider
-                                EditingControlCard(
-                                    title = "Resize Resolution",
-                                    valueText = "${(uiState.resizeScale * 100).toInt()}%"
-                                ) {
-                                    Slider(
-                                        value = uiState.resizeScale,
-                                        onValueChange = { viewModel.updateScale(it) },
-                                        valueRange = 0.1f..2.0f,
-                                        steps = 18
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("10% (Mini)", style = MaterialTheme.typography.labelSmall)
-                                        Text("100% (Original)", style = MaterialTheme.typography.labelSmall)
-                                        Text("200% (Double)", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                // Quality slider
-                                if (uiState.outputFormat != OutputFormat.PNG) {
-                                    EditingControlCard(
-                                        title = "Compression Quality",
-                                        valueText = "${uiState.compressionQuality}%"
-                                    ) {
-                                        Slider(
-                                            value = uiState.compressionQuality.toFloat(),
-                                            onValueChange = { viewModel.updateQuality(it.toInt()) },
-                                            valueRange = 10f..100f,
-                                            steps = 9
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                }
-
-                                // Crop & Rotation Tools
-                                EditingControlCard(title = "Crop & Rotation Tools") {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Button(
-                                            onClick = { showCropDialog = true },
-                                            modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                                        ) {
-                                            Text("Crop Image ✂️")
-                                        }
-                                        Button(
-                                            onClick = { viewModel.rotateImage() },
-                                            modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text("Rotate 90° 🔄")
-                                        }
-                                    }
-                                    if (uiState.rotationDegrees != 0f) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        OutlinedButton(
-                                            onClick = { viewModel.resetRotation() },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text("Reset Rotation")
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                // Filter Effects
-                                EditingControlCard(title = "Filter Effects") {
-                                    val filters = listOf("Normal", "Grayscale", "Sepia", "Inverted", "Vintage", "Cool")
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        filters.forEach { filter ->
-                                            val isSelected = uiState.filterType == filter
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                                    .border(1.dp, if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                                                    .clickable { viewModel.updateAdjustments(uiState.brightness, uiState.contrast, uiState.saturation, filter) }
-                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = filter,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                // General Image Enhancements
-                                EditingControlCard(title = "Image Enhancements") {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Brightness", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                        Text("${uiState.brightness.toInt()}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                    }
-                                    Slider(
-                                        value = uiState.brightness,
-                                        onValueChange = { viewModel.updateAdjustments(it, uiState.contrast, uiState.saturation, uiState.filterType) },
-                                        valueRange = -100f..100f
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Contrast", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                        Text("${((uiState.contrast * 100).toInt() / 100f)}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                    }
-                                    Slider(
-                                        value = uiState.contrast,
-                                        onValueChange = { viewModel.updateAdjustments(uiState.brightness, it, uiState.saturation, uiState.filterType) },
-                                        valueRange = 0.5f..2.0f
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Saturation", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                        Text("${((uiState.saturation * 100).toInt() / 100f)}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                    }
-                                    Slider(
-                                        value = uiState.saturation,
-                                        onValueChange = { viewModel.updateAdjustments(uiState.brightness, uiState.contrast, it, uiState.filterType) },
-                                        valueRange = 0.0f..2.0f
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(24.dp))
-                                if (uiState.isSuccess) {
-                                    SuccessOutputCard(
-                                        fileName = uiState.successName ?: "",
-                                        onExport = { exportLauncher.launch(uiState.successName ?: "processed.jpg") }
-                                    )
-                                } else {
-                                    Button(
-                                        onClick = { viewModel.processAndSaveImage() },
-                                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ) {
-                                        Text("Process & Save Image", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-
-                        1 -> { // --- VERTICAL STITCHER ---
-                            if (uiState.selectedStitchUris.isEmpty()) {
-                                Spacer(modifier = Modifier.height(20.dp))
-                                DropZoneBox(
-                                    title = "Stitch Images Vertically",
-                                    desc = "Select multiple images to compile into one long vertical image layout.",
-                                    emoji = "🥞",
-                                    onClick = { multiImagePickerLauncher.launch("image/*") }
-                                )
-                            } else {
-                                Text(
-                                    text = "Selected Images Layout (Top to Bottom)",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Render stitched thumbnails
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        uiState.selectedStitchUris.forEachIndexed { index, uri ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(40.dp)
-                                                        .clip(CircleShape)
-                                                        .background(MaterialTheme.colorScheme.primary),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text("${index + 1}", color = Color.White, fontWeight = FontWeight.Bold)
-                                                }
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Text(
-                                                    text = uri.lastPathSegment ?: "Image ${index + 1}",
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                AsyncImage(
-                                                    model = uri,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(20.dp))
-                                if (uiState.isSuccess) {
-                                    SuccessOutputCard(
-                                        fileName = uiState.successName ?: "",
-                                        onExport = { exportLauncher.launch(uiState.successName ?: "stitched.jpg") }
-                                    )
-                                } else {
-                                    Button(
-                                        onClick = { viewModel.stitchImages() },
-                                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ) {
-                                        Text("Stitch Images Vertically", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-
-                        2 -> { // --- MEDIA EXTRACTOR ---
-                            if (uiState.extractedMediaUris.isEmpty() && !uiState.isSuccess) {
-                                Spacer(modifier = Modifier.height(20.dp))
-                                DropZoneBox(
-                                    title = "Extract Document Media",
-                                    desc = "Upload Word (.docx) or PowerPoint (.pptx) archives to extract high-resolution internal photos.",
-                                    emoji = "📦",
-                                    onClick = { docPickerLauncher.launch("*/*") }
-                                )
-                            } else {
-                                Text(
-                                    text = "Extracted Photos (${uiState.extractedMediaUris.size})",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Grid rows representation for extracted media
-                                uiState.extractedMediaUris.chunked(2).forEach { pair ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        pair.forEach { uri ->
-                                            Card(
-                                                modifier = Modifier.weight(1f).height(160.dp),
-                                                shape = RoundedCornerShape(12.dp)
-                                            ) {
-                                                Box(modifier = Modifier.fillMaxSize()) {
-                                                    AsyncImage(
-                                                        model = uri,
-                                                        contentDescription = null,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        if (pair.size < 2) {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(20.dp))
-                                SuccessOutputCard(
-                                    fileName = "Extracted Media images saved in Default folder",
-                                    onExport = {
-                                        uiState.extractedMediaUris.firstOrNull()?.let {
-                                            exportLauncher.launch("extracted_media.jpg")
-                                        }
-                                    }
-                                )
-                            }
-                        }
-
-                        3 -> { // --- ID CARD MAKER ---
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(180.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                                        .clickable { frontLauncher.launch("image/*") },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (uiState.idFrontUri == null) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text("📸", fontSize = 28.sp)
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text("Upload Front", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        }
-                                    } else {
-                                        AsyncImage(
-                                            model = uiState.idFrontUri,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(180.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                                        .clickable { backLauncher.launch("image/*") },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (uiState.idBackUri == null) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text("📸", fontSize = 28.sp)
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text("Upload Back", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        }
-                                    } else {
-                                        AsyncImage(
-                                            model = uiState.idBackUri,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                            if (uiState.isSuccess) {
-                                SuccessOutputCard(
-                                    fileName = uiState.successName ?: "",
-                                    onExport = { exportLauncher.launch(uiState.successName ?: "id_template.jpg") }
-                                )
-                            } else {
-                                Button(
-                                    onClick = { viewModel.makeIdCard() },
-                                    enabled = uiState.idFrontUri != null && uiState.idBackUri != null,
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Text("Compile A4 ID Card Template", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        4 -> { // --- WATERMARKER ---
-                            if (selectedUri == null) {
-                                Spacer(modifier = Modifier.height(20.dp))
-                                DropZoneBox(
-                                    title = "Select Base Image",
-                                    desc = "Upload the photo you'd like to apply a text watermark to.",
-                                    emoji = "🎨",
-                                    onClick = { imagePickerLauncher.launch("image/*") }
-                                )
-                            } else {
-                                AsyncImageCard(bitmap = null, uri = selectedUri, rotation = 0f)
-                                Spacer(modifier = Modifier.height(20.dp))
-
-                                EditingControlCard(title = "Watermark Custom Text") {
-                                    OutlinedTextField(
-                                        value = uiState.watermarkText,
-                                        onValueChange = { viewModel.updateWatermarkText(it) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                EditingControlCard(
-                                    title = "Text Size",
-                                    valueText = "${uiState.watermarkSize.toInt()} px"
-                                ) {
-                                    Slider(
-                                        value = uiState.watermarkSize,
-                                        onValueChange = { viewModel.updateWatermarkSize(it) },
-                                        valueRange = 20f..200f
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                EditingControlCard(
-                                    title = "Opacity (Alpha)",
-                                    valueText = "${((uiState.watermarkAlpha / 255f) * 100).toInt()}%"
-                                ) {
-                                    Slider(
-                                        value = uiState.watermarkAlpha.toFloat(),
-                                        onValueChange = { viewModel.updateWatermarkAlpha(it.toInt()) },
-                                        valueRange = 10f..255f
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                EditingControlCard(
-                                    title = "Rotation Angle",
-                                    valueText = "${uiState.watermarkRotation.toInt()}°"
-                                ) {
-                                    Slider(
-                                        value = uiState.watermarkRotation,
-                                        onValueChange = { viewModel.updateWatermarkRotation(it) },
-                                        valueRange = -90f..90f
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(24.dp))
-                                if (uiState.isSuccess) {
-                                    SuccessOutputCard(
-                                        fileName = uiState.successName ?: "",
-                                        onExport = { exportLauncher.launch(uiState.successName ?: "watermarked.jpg") }
-                                    )
-                                } else {
-                                    Button(
-                                        onClick = { viewModel.applyCustomWatermark() },
-                                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ) {
-                                        Text("Apply & Save Watermarked Copy", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(40.dp))
-                }
-            }
-        }
-
-        // --- BLOCKING LOADER OVERLAY ---
-        if (uiState.isProcessing) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable(enabled = false) {},
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = uiState.processingMessage ?: "Executing core processing...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center
-                        )
+                        if (displayBitmap != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = displayBitmap.asImageBitmap(),
+                                contentDescription = "Edited Image",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(rotationZ = uiState.rotationDegrees),
+                                contentScale = ContentScale.Fit
+                            )
+                        } else {
+                            AsyncImage(
+                                model = displayUri,
+                                contentDescription = "Original Image",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(rotationZ = uiState.rotationDegrees),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    }
+
+                    // Comparison overlay badge
+                    if (isHoldingCompare) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 16.dp)
+                        ) {
+                            Text(
+                                text = "Viewing Original Image",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Processing overlay
+            if (uiState.isProcessing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(24.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = uiState.processingMessage ?: "Processing image...",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    LaunchedEffect(initialUri) {
-        if (!initialUri.isNullOrBlank()) {
-            viewModel.loadSelectedImage(Uri.parse(initialUri))
-        }
-    }
-
-    val showBottomSheet = uiState.isSuccess && uiState.successUri != null
-    var successFileSize by remember { mutableStateOf(0L) }
-
-    LaunchedEffect(uiState.isSuccess, uiState.successUri) {
-        if (uiState.isSuccess && uiState.successUri != null) {
-            withContext(Dispatchers.IO) {
-                try {
-                    context.contentResolver.openAssetFileDescriptor(uiState.successUri!!, "r")?.use { fd ->
-                        successFileSize = fd.length
-                    }
-                } catch (e: Exception) {
-                    successFileSize = 0L
-                }
-            }
-        }
-    }
-
-    OperationResultBottomSheet(
-        show = showBottomSheet,
-        onDismiss = {
-            viewModel.clearSelection()
-        },
-        title = "Image Processed Successfully",
-        fileName = uiState.successName,
-        fileUri = uiState.successUri?.toString(),
-        fileSize = uiState.lastOutputBytes?.size?.toLong() ?: successFileSize,
-        mimeType = uiState.successUri?.let { uri ->
-            context.contentResolver.getType(uri)
-        } ?: "image/jpeg",
-        onOpenFile = onOpenFile
-    )
-
+    // Visual Crop Dialog
     if (showCropDialog && uiState.previewBitmap != null) {
         VisualCropDialog(
             bitmap = uiState.previewBitmap!!,
@@ -783,6 +467,727 @@ fun ImageToolsScreen(
                 showCropDialog = false
             }
         )
+    }
+
+    // Modal Sub-Tool Sheets
+    when (activeLabTool) {
+        "id_card" -> {
+            ModalBottomSheet(
+                onDismissRequest = { activeLabTool = null },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                IdCardSheetContent(
+                    frontUri = uiState.idFrontUri,
+                    backUri = uiState.idBackUri,
+                    onPickFront = { idFrontLauncher.launch("image/*") },
+                    onPickBack = { idBackLauncher.launch("image/*") },
+                    onGenerate = { viewModel.makeIdCard() },
+                    isSuccess = uiState.isSuccess,
+                    successName = uiState.successName,
+                    onExport = { exportLauncher.launch(uiState.successName ?: "id_card_template.jpg") }
+                )
+            }
+        }
+        "stitch" -> {
+            ModalBottomSheet(
+                onDismissRequest = { activeLabTool = null },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                StitchSheetContent(
+                    selectedUris = uiState.selectedStitchUris,
+                    onPickMore = { stitchPickerLauncher.launch("image/*") },
+                    onStitch = { viewModel.stitchImages() },
+                    isSuccess = uiState.isSuccess,
+                    successName = uiState.successName,
+                    onExport = { exportLauncher.launch(uiState.successName ?: "stitched_image.jpg") }
+                )
+            }
+        }
+        "watermark" -> {
+            ModalBottomSheet(
+                onDismissRequest = { activeLabTool = null },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                WatermarkSheetContent(
+                    watermarkText = uiState.watermarkText,
+                    watermarkSize = uiState.watermarkSize,
+                    watermarkAlpha = uiState.watermarkAlpha,
+                    watermarkRotation = uiState.watermarkRotation,
+                    onTextChange = { viewModel.updateWatermarkText(it) },
+                    onSizeChange = { viewModel.updateWatermarkSize(it) },
+                    onAlphaChange = { viewModel.updateWatermarkAlpha(it) },
+                    onRotationChange = { viewModel.updateWatermarkRotation(it) },
+                    onApply = { viewModel.applyCustomWatermark() },
+                    isSuccess = uiState.isSuccess,
+                    successName = uiState.successName,
+                    onExport = { exportLauncher.launch(uiState.successName ?: "watermarked.jpg") }
+                )
+            }
+        }
+        "extract" -> {
+            ModalBottomSheet(
+                onDismissRequest = { activeLabTool = null },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                ExtractSheetContent(
+                    extractedUris = uiState.extractedMediaUris,
+                    onExport = {
+                        uiState.extractedMediaUris.firstOrNull()?.let {
+                            exportLauncher.launch("extracted_media.jpg")
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    // Success result sheet
+    OperationResultBottomSheet(
+        show = uiState.isSuccess && activeLabTool == null,
+        onDismiss = { viewModel.clearSelection() },
+        title = "Image Saved Successfully",
+        fileName = uiState.successName,
+        fileUri = uiState.successUri?.toString(),
+        mimeType = when (uiState.outputFormat) {
+            OutputFormat.PNG -> "image/png"
+            OutputFormat.WEBP -> "image/webp"
+            OutputFormat.JPEG -> "image/jpeg"
+        },
+        onOpenFile = onOpenFile
+    )
+}
+
+// -------------------------------------------------------------
+// CONTEXTUAL TOOL SHELVES
+// -------------------------------------------------------------
+
+@Composable
+fun TransformShelf(
+    rotation: Float,
+    onRotate: () -> Unit,
+    onResetRotation: () -> Unit,
+    onCropSquare: () -> Unit,
+    onOpenVisualCrop: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AssistChip(
+            onClick = onOpenVisualCrop,
+            label = { Text("Crop ✂️") },
+            leadingIcon = { Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+
+        AssistChip(
+            onClick = onRotate,
+            label = { Text("Rotate 90° (${rotation.toInt()}°)") },
+            leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+
+        AssistChip(
+            onClick = onCropSquare,
+            label = { Text("Square 1:1") }
+        )
+
+        if (rotation != 0f) {
+            AssistChip(
+                onClick = onResetRotation,
+                label = { Text("Reset Angle") }
+            )
+        }
+    }
+}
+
+@Composable
+fun AdjustShelf(
+    activeParam: AdjustmentParam,
+    onSelectParam: (AdjustmentParam) -> Unit,
+    brightness: Float,
+    contrast: Float,
+    saturation: Float,
+    onAdjust: (Float, Float, Float) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AdjustmentParam.values().forEach { param ->
+                val isSelected = activeParam == param
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelectParam(param) },
+                    label = { Text(param.title, fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (activeParam) {
+            AdjustmentParam.BRIGHTNESS -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Low", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = brightness,
+                        onValueChange = { onAdjust(it, contrast, saturation) },
+                        valueRange = -100f..100f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Text("High (${brightness.toInt()})", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            AdjustmentParam.CONTRAST -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("0.5x", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = contrast,
+                        onValueChange = { onAdjust(brightness, it, saturation) },
+                        valueRange = 0.5f..2.0f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Text("2.0x (${String.format("%.1f", contrast)})", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            AdjustmentParam.SATURATION -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("B&W", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = saturation,
+                        onValueChange = { onAdjust(brightness, contrast, it) },
+                        valueRange = 0.0f..2.0f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Text("Vivid (${String.format("%.1f", saturation)})", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FiltersShelf(
+    activeFilter: String,
+    onSelectFilter: (String) -> Unit
+) {
+    val filters = listOf("Normal", "Vintage", "Cool", "Grayscale", "Sepia", "Inverted")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        filters.forEach { filter ->
+            val isSelected = activeFilter == filter
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelectFilter(filter) }
+            ) {
+                Text(
+                    text = filter,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 12.sp,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CompressResizeShelf(
+    quality: Int,
+    scale: Float,
+    format: OutputFormat,
+    originalSize: Long,
+    onQualityChange: (Int) -> Unit,
+    onScaleChange: (Float) -> Unit,
+    onFormatChange: (OutputFormat) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Format & Quality", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutputFormat.values().forEach { fmt ->
+                    val isSel = format == fmt
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.clickable { onFormatChange(fmt) }
+                    ) {
+                        Text(
+                            text = fmt.name,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (format != OutputFormat.PNG) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Quality: $quality%", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = quality.toFloat(),
+                    onValueChange = { onQualityChange(it.toInt()) },
+                    valueRange = 10f..100f,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(0.25f to "25%", 0.5f to "50%", 0.75f to "75%", 1.0f to "100%").forEach { (sc, label) ->
+                val isSel = kotlin.math.abs(scale - sc) < 0.05f
+                FilterChip(
+                    selected = isSel,
+                    onClick = { onScaleChange(sc) },
+                    label = { Text(label, fontSize = 11.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ToolsShelf(
+    onOpenStitcher: () -> Unit,
+    onOpenIdCard: () -> Unit,
+    onOpenWatermark: () -> Unit,
+    onOpenExtractor: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AssistChip(
+            onClick = onOpenStitcher,
+            label = { Text("Long Stitch") },
+            leadingIcon = { Icon(Icons.Default.BurstMode, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+        AssistChip(
+            onClick = onOpenIdCard,
+            label = { Text("ID Card A4") },
+            leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+        AssistChip(
+            onClick = onOpenWatermark,
+            label = { Text("Watermark") },
+            leadingIcon = { Icon(Icons.Default.Draw, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+        AssistChip(
+            onClick = onOpenExtractor,
+            label = { Text("Extract Media") },
+            leadingIcon = { Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+    }
+}
+
+@Composable
+fun EditorCategoryButton(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// WELCOME & MODAL SHEETS CONTENT
+// -------------------------------------------------------------
+
+@Composable
+fun ImageLabWelcomeContent(
+    onPickImage: () -> Unit,
+    onOpenStitcher: () -> Unit,
+    onOpenIdCard: () -> Unit,
+    onOpenWatermark: () -> Unit,
+    onOpenExtractor: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Hero Card
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onPickImage)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddPhotoAlternate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Select Photo to Edit",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Crop, adjust colors, apply filters, compress, and convert offline.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Specialized Image Tools",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LabToolGridCard(
+                title = "Long Stitcher",
+                desc = "Combine vertical screenshots",
+                emoji = "📜",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenStitcher
+            )
+            LabToolGridCard(
+                title = "ID Card Maker",
+                desc = "Front & back on A4",
+                emoji = "🪪",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenIdCard
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LabToolGridCard(
+                title = "Watermarker",
+                desc = "Custom text overlay",
+                emoji = "💧",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenWatermark
+            )
+            LabToolGridCard(
+                title = "Media Extractor",
+                desc = "Extract images from docs",
+                emoji = "📦",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenExtractor
+            )
+        }
+    }
+}
+
+@Composable
+fun LabToolGridCard(
+    title: String,
+    desc: String,
+    emoji: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = modifier.clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(text = emoji, fontSize = 24.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = desc,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun IdCardSheetContent(
+    frontUri: Uri?,
+    backUri: Uri?,
+    onPickFront: () -> Unit,
+    onPickBack: () -> Unit,
+    onGenerate: () -> Unit,
+    isSuccess: Boolean,
+    successName: String?,
+    onExport: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+        Text("ID Card Print Template (A4)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onPickFront),
+                contentAlignment = Alignment.Center
+            ) {
+                if (frontUri != null) {
+                    AsyncImage(model = frontUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    Text("Upload Front", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onPickBack),
+                contentAlignment = Alignment.Center
+            ) {
+                if (backUri != null) {
+                    AsyncImage(model = backUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    Text("Upload Back", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        if (isSuccess) {
+            Button(
+                onClick = onExport,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Export A4 Document: $successName")
+            }
+        } else {
+            Button(
+                onClick = onGenerate,
+                enabled = frontUri != null && backUri != null,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Generate A4 Layout")
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun StitchSheetContent(
+    selectedUris: List<Uri>,
+    onPickMore: () -> Unit,
+    onStitch: () -> Unit,
+    isSuccess: Boolean,
+    successName: String?,
+    onExport: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+        Text("Long Photo Stitcher", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("${selectedUris.size} images selected for vertical stitching", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        if (isSuccess) {
+            Button(onClick = onExport, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("Export Stitched Photo: $successName")
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onPickMore, modifier = Modifier.weight(1f)) {
+                    Text("Select Images")
+                }
+                Button(onClick = onStitch, enabled = selectedUris.isNotEmpty(), modifier = Modifier.weight(1f)) {
+                    Text("Stitch Vertically")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun WatermarkSheetContent(
+    watermarkText: String,
+    watermarkSize: Float,
+    watermarkAlpha: Int,
+    watermarkRotation: Float,
+    onTextChange: (String) -> Unit,
+    onSizeChange: (Float) -> Unit,
+    onAlphaChange: (Int) -> Unit,
+    onRotationChange: (Float) -> Unit,
+    onApply: () -> Unit,
+    isSuccess: Boolean,
+    successName: String?,
+    onExport: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+        Text("Apply Text Watermark", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = watermarkText,
+            onValueChange = onTextChange,
+            label = { Text("Watermark Text") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text("Size: ${watermarkSize.toInt()}px", fontSize = 12.sp)
+        Slider(value = watermarkSize, onValueChange = onSizeChange, valueRange = 20f..200f)
+
+        Text("Opacity: ${((watermarkAlpha / 255f) * 100).toInt()}%", fontSize = 12.sp)
+        Slider(value = watermarkAlpha.toFloat(), onValueChange = { onAlphaChange(it.toInt()) }, valueRange = 20f..255f)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        if (isSuccess) {
+            Button(onClick = onExport, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("Export Watermarked Image")
+            }
+        } else {
+            Button(onClick = onApply, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("Apply & Save Watermark")
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun ExtractSheetContent(
+    extractedUris: List<Uri>,
+    onExport: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+        Text("Extracted Document Images", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Found ${extractedUris.size} embedded image files in document.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+
+        Spacer(modifier = Modifier.height(16.dp))
+        if (extractedUris.isNotEmpty()) {
+            Button(onClick = onExport, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("Export Extracted Images")
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

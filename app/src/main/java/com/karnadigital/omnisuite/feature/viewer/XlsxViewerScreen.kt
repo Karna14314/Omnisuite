@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -389,6 +390,7 @@ fun XlsxViewerScreen(
         },
         bottomBar = {
             if (state is XlsxLoadState.Success) {
+                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
@@ -397,8 +399,8 @@ fun XlsxViewerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.Center,
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ViewerActionColumnButton(
@@ -406,6 +408,67 @@ fun XlsxViewerScreen(
                             title = "Save"
                         ) {
                             viewModel.commitChanges()
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Search,
+                            title = "Find"
+                        ) {
+                            searchExpanded = true
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.TableChart,
+                            title = "Sheets"
+                        ) {
+                            // Focus or scroll to active sheet
+                        }
+
+                        Box {
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Build,
+                                title = "Tools"
+                            ) {
+                                showToolsMenu = true
+                            }
+                            DropdownMenu(
+                                expanded = showToolsMenu,
+                                onDismissRequest = { showToolsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export to PDF") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        val currentSuccess = state as XlsxLoadState.Success
+                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                        exportPdfLauncher.launch(defaultName)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to CSV") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.XlsxToCsv.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import CSV") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.CsvToXlsx.createRoute(fileUri)))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
+                                )
+                            }
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.Share,
+                            title = "Share"
+                        ) {
+                            onToolAction(ViewerTool.Share)
                         }
                     }
                 }
@@ -713,6 +776,8 @@ fun XlsxViewerScreen(
                                                                         parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == c
                                                                     } ?: false
                                                                 } ?: false
+                                                                val anchoredImageC = activeSheet.images.firstOrNull { it.fromRow == rowIndex && it.fromCol == c }
+                                                                val anchoredChartC = activeSheet.charts.firstOrNull { it.anchorRow == rowIndex && it.anchorCol == c }
                                                                 DataCell(
                                                                     cellData = cellData,
                                                                     colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
@@ -720,6 +785,8 @@ fun XlsxViewerScreen(
                                                                     isSelected = isSelected,
                                                                     isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
+                                                                    cellImage = anchoredImageC,
+                                                                    cellChart = anchoredChartC,
                                                                     scale = scale,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, c)
@@ -750,6 +817,8 @@ fun XlsxViewerScreen(
                                                                         parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
                                                                     } ?: false
                                                                 } ?: false
+                                                                val anchoredImage = activeSheet.images.firstOrNull { it.fromRow == rowIndex && it.fromCol == colIndex }
+                                                                val anchoredChart = activeSheet.charts.firstOrNull { it.anchorRow == rowIndex && it.anchorCol == colIndex }
                                                                 DataCell(
                                                                     cellData = cellData,
                                                                     colWidthDp = activeSheet.columnWidthsDp.getOrElse(colIndex) { 80f } * scale,
@@ -757,6 +826,8 @@ fun XlsxViewerScreen(
                                                                     isSelected = isSelected,
                                                                     isRowSelected = isRowSelected,
                                                                     isSearchResult = isSearchResult,
+                                                                    cellImage = anchoredImage,
+                                                                    cellChart = anchoredChart,
                                                                     scale = scale,
                                                                     onClick = {
                                                                         selectedCell = CellCoords(rowIndex, colIndex)
@@ -1446,6 +1517,8 @@ fun DataCell(
     isSelected: Boolean,
     isRowSelected: Boolean = false,  // true when the entire row this cell belongs to is selected via row header
     isSearchResult: Boolean = false,
+    cellImage: SheetImage? = null,
+    cellChart: SheetChart? = null,
     scale: Float,
     onClick: () -> Unit,
     onUpdateValue: (String) -> Unit = {}
@@ -1459,6 +1532,9 @@ fun DataCell(
         Box(modifier = Modifier.width(colWidthDp.dp).height(rowHeightDp.dp))
         return
     }
+
+    val effectiveColSpan = cellImage?.colSpan ?: cellData.mergeColSpan
+    val effectiveRowSpan = cellImage?.rowSpan ?: cellData.mergeRowSpan
 
     val bgColor = when {
         isSelected     -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
@@ -1480,8 +1556,8 @@ fun DataCell(
         else -> TextAlign.Start
     }
 
-    val totalWidth = colWidthDp * cellData.mergeColSpan + (cellData.mergeColSpan - 1) * 0.5f  // include borders
-    val totalHeight = rowHeightDp * cellData.mergeRowSpan + (cellData.mergeRowSpan - 1) * 0.5f
+    val totalWidth = colWidthDp * effectiveColSpan + (effectiveColSpan - 1) * 0.5f  // include borders
+    val totalHeight = rowHeightDp * effectiveRowSpan + (effectiveRowSpan - 1) * 0.5f
 
     Box(
         modifier = Modifier
@@ -1510,26 +1586,97 @@ fun DataCell(
                 }
             )
             .padding(horizontal = 4.dp, vertical = 2.dp),
-        contentAlignment = when (cellData.horizontalAlign) {
-            "CENTER" -> Alignment.Center
-            "RIGHT" -> Alignment.CenterEnd
+        contentAlignment = when {
+            cellImage != null || cellChart != null -> Alignment.Center
+            cellData.horizontalAlign == "CENTER" -> Alignment.Center
+            cellData.horizontalAlign == "RIGHT" -> Alignment.CenterEnd
             else -> Alignment.CenterStart
         }
     ) {
-        val fontSize = (cellData.fontSizePt.coerceIn(6, 24) * scale).sp
-        Text(
-            text = cellData.text,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = fontSize,
-                fontWeight = if (cellData.isBold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (cellData.isItalic) FontStyle.Italic else FontStyle.Normal,
-                textDecoration = if (cellData.isUnderline) TextDecoration.Underline else TextDecoration.None,
-                color = textColor,
-                textAlign = textAlign
-            ),
-            maxLines = if (cellData.mergeRowSpan > 1) cellData.mergeRowSpan * 2 else 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (cellImage != null) {
+            AsyncImage(
+                model = File(cellImage.filePath),
+                contentDescription = "Embedded Image",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(4.dp)),
+                contentScale = ContentScale.Fit
+            )
+        } else if (cellChart != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.fillMaxSize().padding(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TableChart,
+                        contentDescription = "Chart",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = cellChart.title.ifBlank { "${cellChart.chartType} Chart" },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        } else if (cellData.text.startsWith("=IMAGE(") || cellData.text.startsWith("=DISPIMG(")) {
+            val url = cellData.text.substringAfter("(\"").substringBefore("\")")
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = "Image from formula",
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.fillMaxSize().padding(2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "Image",
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("Image", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                    }
+                }
+            }
+        } else {
+            val fontSize = (cellData.fontSizePt.coerceIn(6, 24) * scale).sp
+            Text(
+                text = cellData.text,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = fontSize,
+                    fontWeight = if (cellData.isBold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (cellData.isItalic) FontStyle.Italic else FontStyle.Normal,
+                    textDecoration = if (cellData.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                    color = textColor,
+                    textAlign = textAlign
+                ),
+                maxLines = if (cellData.mergeRowSpan > 1) cellData.mergeRowSpan * 2 else 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
         // Hyperlink indicator (small icon top-right corner)
         if (cellData.hyperlinkUrl != null) {
