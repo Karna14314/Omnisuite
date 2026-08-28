@@ -293,11 +293,22 @@ fun ImageToolsScreen(
                                         originalSize = uiState.originalSize,
                                         compressMode = uiState.compressMode,
                                         targetSizeKbText = uiState.targetSizeKbText,
+                                        customWidth = uiState.customWidth,
+                                        customHeight = uiState.customHeight,
+                                        lockAspectRatio = uiState.lockAspectRatio,
+                                        dimensionUnit = uiState.dimensionUnit,
+                                        originalWidth = uiState.originalWidth,
+                                        originalHeight = uiState.originalHeight,
                                         onQualityChange = { viewModel.updateQuality(it) },
                                         onScaleChange = { viewModel.updateScale(it) },
                                         onFormatChange = { viewModel.updateFormat(it) },
                                         onCompressModeChange = { viewModel.updateCompressMode(it) },
-                                        onTargetSizeKbTextChange = { viewModel.updateTargetSizeKbText(it) }
+                                        onTargetSizeKbTextChange = { viewModel.updateTargetSizeKbText(it) },
+                                        onCustomWidthChange = { viewModel.updateCustomWidth(it) },
+                                        onCustomHeightChange = { viewModel.updateCustomHeight(it) },
+                                        onToggleLockAspect = { viewModel.toggleLockAspectRatio() },
+                                        onDimensionUnitChange = { viewModel.updateDimensionUnit(it) },
+                                        onApplyPreset = { w, h, targetKb -> viewModel.applyApplicationPreset(w, h, targetKb) }
                                     )
                                 }
                                 PhotoEditorCategory.TOOLS -> {

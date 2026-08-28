@@ -54,6 +54,12 @@ data class ImageToolsUiState(
     val compressMode: String = "QUALITY", // "QUALITY" vs "TARGET_SIZE"
     val targetSizeKbText: String = "200",
     
+    // Custom Dimensions & Units State
+    val customWidth: String = "",
+    val customHeight: String = "",
+    val lockAspectRatio: Boolean = true,
+    val dimensionUnit: String = "px", // "px", "cm", "in", "mm"
+
     // Premium Image Lab Extensions States
     val selectedStitchUris: List<Uri> = emptyList(),
     val extractedMediaUris: List<Uri> = emptyList(),
@@ -224,6 +230,8 @@ class ImageToolsViewModel @Inject constructor(
                                     originalWidth = decoded.width,
                                     originalHeight = decoded.height,
                                     originalSize = fileSize,
+                                    customWidth = decoded.width.toString(),
+                                    customHeight = decoded.height.toString(),
                                     brightness = 0f,
                                     contrast = 1.0f,
                                     saturation = 1.0f,
@@ -258,6 +266,53 @@ class ImageToolsViewModel @Inject constructor(
     fun updateScale(scale: Float) {
         _uiState.value = _uiState.value.copy(
             resizeScale = scale,
+            isSuccess = false
+        )
+    }
+
+    fun updateCustomWidth(widthStr: String) {
+        val state = _uiState.value
+        val w = widthStr.toIntOrNull()
+        if (state.lockAspectRatio && w != null && state.originalWidth > 0 && state.originalHeight > 0) {
+            val ratio = state.originalHeight.toFloat() / state.originalWidth.toFloat()
+            val newH = (w * ratio).toInt()
+            _uiState.value = state.copy(customWidth = widthStr, customHeight = newH.toString(), isSuccess = false)
+        } else {
+            _uiState.value = state.copy(customWidth = widthStr, isSuccess = false)
+        }
+    }
+
+    fun updateCustomHeight(heightStr: String) {
+        val state = _uiState.value
+        val h = heightStr.toIntOrNull()
+        if (state.lockAspectRatio && h != null && state.originalWidth > 0 && state.originalHeight > 0) {
+            val ratio = state.originalWidth.toFloat() / state.originalHeight.toFloat()
+            val newW = (h * ratio).toInt()
+            _uiState.value = state.copy(customHeight = heightStr, customWidth = newW.toString(), isSuccess = false)
+        } else {
+            _uiState.value = state.copy(customHeight = heightStr, isSuccess = false)
+        }
+    }
+
+    fun toggleLockAspectRatio() {
+        _uiState.value = _uiState.value.copy(
+            lockAspectRatio = !_uiState.value.lockAspectRatio
+        )
+    }
+
+    fun updateDimensionUnit(unit: String) {
+        _uiState.value = _uiState.value.copy(
+            dimensionUnit = unit
+        )
+    }
+
+    fun applyApplicationPreset(targetWidth: Int, targetHeight: Int, targetSizeKb: Int) {
+        _uiState.value = _uiState.value.copy(
+            customWidth = targetWidth.toString(),
+            customHeight = targetHeight.toString(),
+            targetSizeKbText = targetSizeKb.toString(),
+            compressMode = "TARGET_SIZE",
+            dimensionUnit = "px",
             isSuccess = false
         )
     }
@@ -396,8 +451,17 @@ class ImageToolsViewModel @Inject constructor(
                     // 1. Rotate Bitmap
                     var processed = ImageUtils.rotate(bitmap, currentState.rotationDegrees)
 
-                    // 2. Resize Bitmap
-                    if (currentState.resizeScale != 1.0f) {
+                    // 2. Resize Bitmap (Handle custom exact dimensions and scale)
+                    val targetWPx = currentState.customWidth.toIntOrNull()
+                    val targetHPx = currentState.customHeight.toIntOrNull()
+                    if (targetWPx != null && targetHPx != null && targetWPx > 0 && targetHPx > 0 &&
+                        (targetWPx != processed.width || targetHPx != processed.height)) {
+                        val exactScaled = Bitmap.createScaledBitmap(processed, targetWPx, targetHPx, true)
+                        if (exactScaled != processed && processed != bitmap) {
+                            processed.recycle()
+                        }
+                        processed = exactScaled
+                    } else if (currentState.resizeScale != 1.0f) {
                         val finalScaled = ImageUtils.resize(processed, currentState.resizeScale)
                         if (finalScaled != processed && processed != bitmap) {
                             processed.recycle()
