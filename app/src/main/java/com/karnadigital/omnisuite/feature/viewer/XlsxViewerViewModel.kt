@@ -506,6 +506,12 @@ class XlsxViewerViewModel @Inject constructor(
                         }
                     }
                 }
+
+                // If drawing patriarch shapes was empty, directly extract from XLSX drawing XMLs
+                if (images.isEmpty() && activeFilePath != null) {
+                    val zipImgs = extractZipDrawings(activeFilePath!!)
+                    images.addAll(zipImgs)
+                }
             } else if (sheet is org.apache.poi.hssf.usermodel.HSSFSheet) {
                 val drawing = sheet.drawingPatriarch
                 if (drawing != null) {
@@ -588,6 +594,71 @@ class XlsxViewerViewModel @Inject constructor(
             }
         } catch (t: Throwable) { t.printStackTrace() }
         return images
+    }
+
+    private fun extractZipDrawings(filePath: String): List<SheetImage> {
+        val result = mutableListOf<SheetImage>()
+        try {
+            val file = File(filePath)
+            if (!file.exists()) return result
+            val zip = java.util.zip.ZipFile(file)
+            val drawingEntries = zip.entries().asSequence()
+                .filter { it.name.startsWith("xl/drawings/drawing") && it.name.endsWith(".xml") }
+                .toList()
+
+            for (dEntry in drawingEntries) {
+                val dXml = zip.getInputStream(dEntry).bufferedReader().use { it.readText() }
+                val dName = dEntry.name.substringAfterLast("/")
+                val relEntryName = "xl/drawings/_rels/$dName.rels"
+                val relEntry = zip.getEntry(relEntryName)
+                val relsMap = mutableMapOf<String, String>()
+                if (relEntry != null) {
+                    val relXml = zip.getInputStream(relEntry).bufferedReader().use { it.readText() }
+                    val relMatcher = java.util.regex.Pattern.compile("Id=\"([^\"]+)\"[^>]*Target=\"([^\"]+)\"").matcher(relXml)
+                    while (relMatcher.find()) {
+                        val id = relMatcher.group(1) ?: continue
+                        val target = relMatcher.group(2)?.replace("../", "xl/") ?: continue
+                        relsMap[id] = target
+                    }
+                }
+
+                val anchorMatcher = java.util.regex.Pattern.compile("(?s)<xdr:(?:oneCellAnchor|twoCellAnchor)>(.*?)</xdr:(?:oneCellAnchor|twoCellAnchor)>").matcher(dXml)
+                while (anchorMatcher.find()) {
+                    val block = anchorMatcher.group(1) ?: continue
+                    val rowMatcher = java.util.regex.Pattern.compile("<xdr:row>(\\d+)</xdr:row>").matcher(block)
+                    val colMatcher = java.util.regex.Pattern.compile("<xdr:col>(\\d+)</xdr:col>").matcher(block)
+                    val embedMatcher = java.util.regex.Pattern.compile("r:embed=\"([^\"]+)\"").matcher(block)
+
+                    val row = if (rowMatcher.find()) rowMatcher.group(1)?.toIntOrNull() ?: 0 else 0
+                    val col = if (colMatcher.find()) colMatcher.group(1)?.toIntOrNull() ?: 0 else 0
+                    val embedId = if (embedMatcher.find()) embedMatcher.group(1) else null
+
+                    if (embedId != null && relsMap.containsKey(embedId)) {
+                        val mediaPath = relsMap[embedId]!!
+                        val mediaEntry = zip.getEntry(mediaPath)
+                        if (mediaEntry != null) {
+                            val dataBytes = zip.getInputStream(mediaEntry).use { it.readBytes() }
+                            val ext = mediaPath.substringAfterLast(".", "png")
+                            val tempFile = File.createTempFile("xlsx_draw_", ".$ext")
+                            tempFile.writeBytes(dataBytes)
+                            result.add(
+                                SheetImage(
+                                    filePath = tempFile.absolutePath,
+                                    fromRow = row,
+                                    fromCol = col,
+                                    colSpan = 3,
+                                    rowSpan = 15
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            zip.close()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+        return result
     }
 
     /**

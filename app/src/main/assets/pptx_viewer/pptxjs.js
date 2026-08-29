@@ -89,30 +89,11 @@
                 jQuery.getScript('./js/divs2slides.js');
             }
         }
-        if (settings.jsZipV2 !== false) {
-            jQuery.getScript(settings.jsZipV2);
-            if (localStorage.getItem('isPPTXjsReLoaded') !== 'yes') {
-                localStorage.setItem('isPPTXjsReLoaded', 'yes');
-                location.reload();
-            }
-        }
-
-        if (settings.keyBoardShortCut) {
-            $(document).bind("keydown", function (event) {
-                event.preventDefault();
-                var key = event.keyCode;
-                console.log(key, isDone)
-                if (key == 116 && !isSlideMode) { //F5
-                    isSlideMode = true;
-                    initSlideMode(divId, settings);
-                } else if (key == 116 && isSlideMode) {
-                    //exit slide mode - TODO
-
-                }
-            });
-        }
-        FileReaderJS.setSync(false);
-        if (settings.pptxFileUrl != "") {
+        if (settings.pptxArrayBuffer) {
+            setTimeout(function() {
+                convertToHtml(settings.pptxArrayBuffer);
+            }, 50);
+        } else if (settings.pptxFileUrl != "") {
             try{
                 JSZipUtils.getBinaryContent(settings.pptxFileUrl, function (err, content) {
                     var blob = new Blob([content]);
@@ -124,7 +105,6 @@
                         readAsDefault: "ArrayBuffer",
                         on: {
                             load: function (e, file) {
-                                //console.log(e.target.result);
                                 convertToHtml(e.target.result);
                             }
                         }

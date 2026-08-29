@@ -158,20 +158,27 @@
                 $("#pptx-container").empty();
 
                 $("#pptx-container").pptxToHtml({
-                    pptxFileUrl: bytes.buffer,
+                    pptxArrayBuffer: bytes.buffer,
+                    pptxFileUrl: "",
                     fileInput: null,
                     slidesScale: "",
                     slidePosition: "center",
                     keyBoardShortCut: false,
                     mediaProcess: true,
-                    jsZipV2: true,
+                    jsZipV2: false,
                     themeProcess: true
                 });
 
-                // Wait for PPTXjs to finish rendering slides
-                setTimeout(function() {
-                    initSlides();
-                }, 800);
+                // Robust polling for PPTXjs to finish rendering slides
+                var checkCount = 0;
+                var checkInterval = setInterval(function() {
+                    checkCount++;
+                    var slides = document.querySelectorAll('#pptx-container .slide, #pptx-container > section, #pptx-container > div:not(.slides-loadnig-msg)');
+                    if (slides.length > 0 || checkCount > 30) {
+                        clearInterval(checkInterval);
+                        initSlides();
+                    }
+                }, 200);
 
             } catch (e) {
                 document.getElementById('loading').style.display = 'none';
@@ -182,7 +189,7 @@
         }
 
         function initSlides() {
-            var slides = document.querySelectorAll('#pptx-container .slide, #pptx-container > section, #pptx-container > div.slides > section');
+            var slides = document.querySelectorAll('#pptx-container .slide, #pptx-container > section, #pptx-container > div:not(.slides-loadnig-msg)');
             if (!slides || slides.length === 0) {
                 // Fallback: check all direct child div/sections
                 slides = document.querySelectorAll('#pptx-container > div, #pptx-container > section');

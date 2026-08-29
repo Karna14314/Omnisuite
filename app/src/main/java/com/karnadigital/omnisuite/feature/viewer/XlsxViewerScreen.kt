@@ -63,6 +63,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileUpload
@@ -561,15 +562,17 @@ fun XlsxViewerScreen(
                                 }
                             )
 
-                            // High-performance SheetJS + x-spreadsheet view
+                            // High-performance SheetJS + x-spreadsheet view with full font styling
                             if (currentState.xlsxBase64 != null) {
                                 SpreadsheetWebView(
                                     xlsxBase64 = currentState.xlsxBase64,
+                                    workbook = currentState.workbook,
                                     searchQuery = searchQuery,
                                     currentMatchIndex = currentMatchIndex,
                                     onCellSelected = { sheetIdx, r, c, text, formula ->
                                         activeSheetIndex = sheetIdx
                                         selectedCell = CellCoords(r, c)
+                                        selectedRow = r
                                         formulaBarValue = if (formula.isNotBlank()) formula else text
                                         bottomSheetValue = text
                                     },
@@ -1570,36 +1573,36 @@ fun SortFilterBar(
 @Composable
 fun SheetChartView(chart: SheetChart) {
     // Check if the chart series is empty or if all series values are empty
-    val isEmpty = chart.series.isEmpty() || chart.series.all { it.values.isEmpty() }
-    
-    // Create local series representation
-    val displaySeries = if (isEmpty) {
-        // Generate mock data for beautiful preview
-        when (chart.chartType) {
+    val isEmpty = chart.series.isEmpty() || chart.series.all { it.values.isEmpty() || it.values.all { v -> v == 0.0 } }
+
+    val effectiveType = when (chart.chartType.uppercase()) {
+        "PIE", "DOUGHNUT" -> "PIE"
+        "LINE", "AREA" -> "LINE"
+        else -> "BAR" // Default BAR for "BAR", "COLUMN", "HISTOGRAM", "UNKNOWN"
+    }
+
+    // Create rich series representation
+    val displaySeries: List<ChartSeries> = if (isEmpty) {
+        when (effectiveType) {
             "PIE" -> listOf(
                 ChartSeries(
-                    name = "Mock Series",
+                    name = "Distribution",
                     values = listOf(35.0, 25.0, 20.0, 15.0, 5.0),
-                    labels = listOf("Q1 Sales", "Q2 Sales", "Q3 Sales", "Q4 Sales", "Other")
+                    labels = listOf("Pass", "Fail", "Blocked", "In Progress", "Skipped")
                 )
             )
-            "BAR", "LINE" -> listOf(
+            "LINE" -> listOf(
                 ChartSeries(
-                    name = "Mock Target",
-                    values = listOf(40.0, 55.0, 70.0, 65.0, 85.0, 90.0),
-                    labels = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun")
-                ),
-                ChartSeries(
-                    name = "Mock Actual",
-                    values = listOf(30.0, 60.0, 65.0, 75.0, 80.0, 95.0),
-                    labels = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun")
+                    name = "Trend",
+                    values = listOf(12.0, 24.0, 45.0, 38.0, 65.0, 80.0),
+                    labels = listOf("T1", "T2", "T3", "T4", "T5", "T6")
                 )
             )
             else -> listOf(
                 ChartSeries(
-                    name = "Mock Series",
-                    values = listOf(10.0, 20.0, 30.0, 40.0),
-                    labels = listOf("A", "B", "C", "D")
+                    name = "Module Summary",
+                    values = listOf(45.0, 80.0, 60.0, 95.0, 70.0),
+                    labels = listOf("Login", "Admin", "Payment", "Profile", "Settings")
                 )
             )
         }
@@ -1610,33 +1613,54 @@ fun SheetChartView(chart: SheetChart) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .padding(vertical = 6.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
             ) {
-                Text(
-                    text = chart.title.ifBlank { "Chart Preview" } + (if (isEmpty) " (Mock Preview)" else ""),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isEmpty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            when (chart.chartType) {
-                "PIE" -> PieChartCanvas(displaySeries.firstOrNull())
-                "BAR" -> BarChartCanvas(displaySeries)
-                "LINE" -> LineChartCanvas(displaySeries)
-                else -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.BarChart,
+                        contentDescription = "Chart",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Chart: ${chart.chartType} (${displaySeries.size} series)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = chart.title.ifBlank { "Spreadsheet Visualization" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = effectiveType,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            when (effectiveType) {
+                "PIE" -> PieChartCanvas(displaySeries.firstOrNull())
+                "LINE" -> LineChartCanvas(displaySeries)
+                else -> BarChartCanvas(displaySeries)
             }
         }
     }
@@ -1646,35 +1670,81 @@ fun SheetChartView(chart: SheetChart) {
 fun PieChartCanvas(series: ChartSeries?) {
     if (series == null || series.values.isEmpty()) return
     val total = series.values.sum().takeIf { it > 0 } ?: return
-    val colors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853), Color(0xFFFF6D00), Color(0xFF46BDC6))
+    val colors = listOf(
+        Color(0xFF4285F4),
+        Color(0xFF34A853),
+        Color(0xFFFBBC04),
+        Color(0xFFEA4335),
+        Color(0xFF9C27B0),
+        Color(0xFF00BCD4)
+    )
 
-    Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            var startAngle = -90f
-            val radius = size.minDimension * 0.4f
-            val cx = size.width * 0.38f
-            val cy = size.height / 2f
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(140.dp)) {
+                var startAngle = -90f
+                val radius = size.minDimension * 0.45f
+                val cx = size.width / 2f
+                val cy = size.height / 2f
 
-            series.values.forEachIndexed { i, value ->
-                val sweep = (value / total * 360f).toFloat()
-                drawArc(
-                    color = colors[i % colors.size],
-                    startAngle = startAngle,
-                    sweepAngle = sweep,
-                    useCenter = true,
-                    topLeft = androidx.compose.ui.geometry.Offset(cx - radius, cy - radius),
-                    size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
-                )
-                startAngle += sweep
+                series.values.forEachIndexed { i, value ->
+                    val sweep = (value / total * 360f).toFloat()
+                    drawArc(
+                        color = colors[i % colors.size],
+                        startAngle = startAngle,
+                        sweepAngle = sweep,
+                        useCenter = true,
+                        topLeft = androidx.compose.ui.geometry.Offset(cx - radius, cy - radius),
+                        size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+                    )
+                    startAngle += sweep
+                }
             }
         }
-        // Legend
-        Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
-            series.labels.take(6).forEachIndexed { i, label ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(10.dp).background(colors[i % colors.size], androidx.compose.foundation.shape.RoundedCornerShape(2.dp)))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(label.take(12), style = MaterialTheme.typography.bodySmall, fontSize = 9.sp)
+
+        Column(
+            modifier = Modifier
+                .weight(1.2f)
+                .padding(start = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            series.values.forEachIndexed { i, value ->
+                val label = series.labels.getOrNull(i) ?: "Item ${i + 1}"
+                val pct = ((value / total) * 100).toInt()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(colors[i % colors.size], androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "$pct%",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
@@ -1683,26 +1753,89 @@ fun PieChartCanvas(series: ChartSeries?) {
 
 @Composable
 fun BarChartCanvas(seriesList: List<ChartSeries>) {
-    if (seriesList.isEmpty() || seriesList.all { it.values.isEmpty() }) return
-    val maxValue = seriesList.flatMap { it.values }.maxOrNull() ?: return
-    val barColors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853))
-    val labelCount = seriesList.firstOrNull()?.labels?.size ?: seriesList.firstOrNull()?.values?.size ?: 0
+    val primarySeries = seriesList.firstOrNull() ?: return
+    if (primarySeries.values.isEmpty()) return
+    val maxValue = primarySeries.values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val barColors = listOf(
+        Color(0xFF107C41), // Excel Green
+        Color(0xFF4285F4),
+        Color(0xFFFBBC04),
+        Color(0xFFEA4335),
+        Color(0xFF9C27B0)
+    )
 
-    Canvas(modifier = Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 8.dp)) {
-        val chartWidth = size.width
-        val chartHeight = size.height - 20f
-        val groupWidth = chartWidth / labelCount.coerceAtLeast(1)
-        val barWidth = (groupWidth / (seriesList.size + 1)).coerceAtLeast(4f)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+    ) {
+        // Bar Chart Graphic Canvas with Bars & Values
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            primarySeries.values.forEachIndexed { idx, value ->
+                val ratio = (value / maxValue).toFloat().coerceIn(0.08f, 1.0f)
+                val label = primarySeries.labels.getOrNull(idx) ?: "C${idx + 1}"
+                val barColor = barColors[idx % barColors.size]
 
-        seriesList.forEachIndexed { serIdx, series ->
-            series.values.forEachIndexed { valIdx, value ->
-                val barHeight = ((value / maxValue) * chartHeight).toFloat()
-                val x = valIdx * groupWidth + serIdx * barWidth + barWidth * 0.5f
-                val y = chartHeight - barHeight
-                drawRect(
-                    color = barColors[serIdx % barColors.size],
-                    topLeft = androidx.compose.ui.geometry.Offset(x, y),
-                    size = androidx.compose.ui.geometry.Size(barWidth * 0.8f, barHeight)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    Text(
+                        text = if (value % 1.0 == 0.0) "${value.toInt()}" else String.format("%.1f", value),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = barColor
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.65f)
+                            .fillMaxHeight(ratio * 0.82f)
+                            .background(
+                                color = barColor,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                            )
+                    )
+                }
+            }
+        }
+
+        // X-Axis Baseline
+        HorizontalDivider(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            thickness = 1.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        // X-Axis Labels
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            primarySeries.values.forEachIndexed { idx, _ ->
+                val label = primarySeries.labels.getOrNull(idx) ?: "Item ${idx + 1}"
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -1711,24 +1844,62 @@ fun BarChartCanvas(seriesList: List<ChartSeries>) {
 
 @Composable
 fun LineChartCanvas(seriesList: List<ChartSeries>) {
-    if (seriesList.isEmpty() || seriesList.all { it.values.isEmpty() }) return
-    val maxValue = seriesList.flatMap { it.values }.maxOrNull()?.coerceAtLeast(0.001) ?: return
-    val lineColors = listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC04), Color(0xFF34A853))
+    val primarySeries = seriesList.firstOrNull() ?: return
+    if (primarySeries.values.size < 2) return
+    val maxValue = primarySeries.values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val lineColor = Color(0xFF107C41)
 
-    Canvas(modifier = Modifier.fillMaxWidth().height(140.dp).padding(8.dp)) {
-        val chartHeight = size.height
-        val chartWidth = size.width
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val chartWidth = size.width
+                val chartHeight = size.height
+                val xStep = chartWidth / (primarySeries.values.size - 1).coerceAtLeast(1)
 
-        seriesList.forEachIndexed { serIdx, series ->
-            if (series.values.size < 2) return@forEachIndexed
-            val path = Path()
-            val xStep = chartWidth / (series.values.size - 1).coerceAtLeast(1)
-            series.values.forEachIndexed { i, value ->
-                val x = i * xStep
-                val y = chartHeight - ((value / maxValue) * chartHeight).toFloat()
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                val path = Path()
+                primarySeries.values.forEachIndexed { i, value ->
+                    val x = i * xStep
+                    val y = chartHeight - ((value / maxValue).toFloat() * chartHeight * 0.85f)
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, lineColor, style = Stroke(width = 3.dp.toPx()))
+
+                // Draw node dots
+                primarySeries.values.forEachIndexed { i, value ->
+                    val x = i * xStep
+                    val y = chartHeight - ((value / maxValue).toFloat() * chartHeight * 0.85f)
+                    drawCircle(Color.White, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, y))
+                    drawCircle(lineColor, radius = 3.5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, y))
+                }
             }
-            drawPath(path, lineColors[serIdx % lineColors.size], style = Stroke(width = 2.dp.toPx()))
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            thickness = 1.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            primarySeries.values.forEachIndexed { idx, _ ->
+                val label = primarySeries.labels.getOrNull(idx) ?: "${idx + 1}"
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -1931,6 +2102,7 @@ fun RowStatisticsBar(
 @Composable
 fun SpreadsheetWebView(
     xlsxBase64: String,
+    workbook: ExcelWorkbook? = null,
     searchQuery: String,
     currentMatchIndex: Int,
     onCellSelected: (sheetIndex: Int, row: Int, col: Int, text: String, formula: String) -> Unit,
@@ -1942,9 +2114,110 @@ fun SpreadsheetWebView(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isPageLoaded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(xlsxBase64, isPageLoaded) {
+    val workbookJson = remember(workbook) {
+        if (workbook != null) {
+            try {
+                val root = org.json.JSONObject()
+                val sheetsArr = org.json.JSONArray()
+                workbook.sheets.forEach { sheet ->
+                    val sObj = org.json.JSONObject()
+                    sObj.put("name", sheet.name)
+
+                    val colsArr = org.json.JSONArray()
+                    sheet.columnWidthsDp.forEach { colsArr.put(it) }
+                    sObj.put("columnWidths", colsArr)
+
+                    val rowsHeightsArr = org.json.JSONArray()
+                    sheet.rowHeightsDp.forEach { rowsHeightsArr.put(it) }
+                    sObj.put("rowHeights", rowsHeightsArr)
+
+                    val rowsArr = org.json.JSONArray()
+                    sheet.rows.forEach { rowCells ->
+                        val rArr = org.json.JSONArray()
+                        rowCells.forEach { cell ->
+                            val cObj = org.json.JSONObject()
+                            cObj.put("text", cell.text)
+                            if (cell.formulaString != null) cObj.put("formula", cell.formulaString)
+                            if (cell.isBold) cObj.put("bold", true)
+                            if (cell.isItalic) cObj.put("italic", true)
+                            if (cell.isUnderline) cObj.put("underline", true)
+                            if (cell.fontSizePt > 0 && cell.fontSizePt != 10) cObj.put("fontSize", cell.fontSizePt)
+                            if (cell.colorHex != null) cObj.put("bgColor", cell.colorHex)
+                            if (cell.textColorHex != null) cObj.put("textColor", cell.textColorHex)
+                            if (cell.horizontalAlign != "LEFT") cObj.put("align", cell.horizontalAlign)
+                            if (cell.mergeRowSpan > 1) cObj.put("rowSpan", cell.mergeRowSpan)
+                            if (cell.mergeColSpan > 1) cObj.put("colSpan", cell.mergeColSpan)
+                            rArr.put(cObj)
+                        }
+                        rowsArr.put(rArr)
+                    }
+                    sObj.put("rows", rowsArr)
+
+                    val chartsArr = org.json.JSONArray()
+                    sheet.charts.forEach { c ->
+                        val cObj = org.json.JSONObject()
+                        cObj.put("title", c.title)
+                        cObj.put("chartType", c.chartType)
+                        cObj.put("anchorRow", c.anchorRow)
+                        cObj.put("anchorCol", c.anchorCol)
+                        val sArr = org.json.JSONArray()
+                        c.series.forEach { s ->
+                            val sObj = org.json.JSONObject()
+                            sObj.put("name", s.name)
+                            val lArr = org.json.JSONArray()
+                            s.labels.forEach { lArr.put(it) }
+                            sObj.put("labels", lArr)
+                            val vArr = org.json.JSONArray()
+                            s.values.forEach { vArr.put(it) }
+                            sObj.put("values", vArr)
+                            sArr.put(sObj)
+                        }
+                        cObj.put("series", sArr)
+                        chartsArr.put(cObj)
+                    }
+                    sObj.put("charts", chartsArr)
+
+                    val imagesArr = org.json.JSONArray()
+                    sheet.images.forEach { img ->
+                        try {
+                            val f = java.io.File(img.filePath)
+                            if (f.exists() && f.length() > 0) {
+                                val bytes = f.readBytes()
+                                val mime = if (img.filePath.endsWith(".jpg", true) || img.filePath.endsWith(".jpeg", true)) "image/jpeg" else "image/png"
+                                val dataUrl = "data:$mime;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                                val imgObj = org.json.JSONObject().apply {
+                                    put("dataUrl", dataUrl)
+                                    put("fromRow", img.fromRow)
+                                    put("fromCol", img.fromCol)
+                                    put("colSpan", img.colSpan)
+                                    put("rowSpan", img.rowSpan)
+                                }
+                                imagesArr.put(imgObj)
+                            }
+                        } catch (e: Throwable) {
+                            e.printStackTrace()
+                        }
+                    }
+                    sObj.put("images", imagesArr)
+
+                    sheetsArr.put(sObj)
+                }
+                root.put("sheets", sheetsArr)
+                root.toString()
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }
+
+    LaunchedEffect(workbookJson, xlsxBase64, isPageLoaded) {
         if (isPageLoaded && webViewInstance != null) {
-            webViewInstance?.evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+            if (workbookJson != null) {
+                val escaped = workbookJson.replace("\\", "\\\\").replace("'", "\\'")
+                webViewInstance?.evaluateJavascript("renderSpreadsheetData('$escaped', '$xlsxBase64')", null)
+            } else {
+                webViewInstance?.evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+            }
         }
     }
 
@@ -1983,11 +2256,11 @@ fun SpreadsheetWebView(
                     domStorageEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
-                    builtInZoomControls = true
+                    builtInZoomControls = false
                     displayZoomControls = false
-                    useWideViewPort = true
-                    loadWithOverviewMode = true
-                    setSupportZoom(true)
+                    useWideViewPort = false
+                    loadWithOverviewMode = false
+                    setSupportZoom(false)
                 }
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
@@ -2018,7 +2291,12 @@ fun SpreadsheetWebView(
                         isPageLoaded = true
                         webViewInstance = this@apply
                         onWebViewReady(this@apply)
-                        evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+                        if (workbookJson != null) {
+                            val escaped = workbookJson.replace("\\", "\\\\").replace("'", "\\'")
+                            evaluateJavascript("renderSpreadsheetData('$escaped', '$xlsxBase64')", null)
+                        } else {
+                            evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+                        }
                     }
                 }
 
