@@ -2,6 +2,7 @@ package com.karnadigital.omnisuite.feature.viewer
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.lifecycle.ViewModel
@@ -18,14 +19,18 @@ import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotation
 import com.tom_roush.pdfbox.pdmodel.graphics.color.PDColor
 import com.tom_roush.pdfbox.pdmodel.graphics.color.PDDeviceRGB
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import javax.inject.Inject
 
@@ -37,6 +42,20 @@ sealed class PdfLoadState {
         val incorrectAttempt: Boolean = false
     ) : PdfLoadState()
     data class Error(val message: String) : PdfLoadState()
+}
+
+data class PageTextData(val text: String, val positions: List<TextPosition>)
+
+data class SearchMatchRect(val pageIndex: Int, val rects: List<RectF>)
+
+data class SearchHighlightState(
+    val query: String = "",
+    val matches: List<SearchMatchRect> = emptyList(),
+    val currentMatchIndex: Int = 0,
+    val isLoading: Boolean = false
+) {
+    val totalMatches: Int
+        get() = matches.size
 }
 
 @HiltViewModel
@@ -71,6 +90,18 @@ class PdfViewerViewModel @Inject constructor(
 
     private val _currentMatchIndex = MutableStateFlow(-1)
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
+
+    // Search highlight state (with text position data for highlighting)
+    private val _searchHighlightState = MutableStateFlow(SearchHighlightState())
+    val searchHighlightState: StateFlow<SearchHighlightState> = _searchHighlightState.asStateFlow()
+
+    // Text extraction cache for text selection
+    private val extractedTextCache = object : LinkedHashMap<Int, PageTextData>(20, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<Int, PageTextData>) = size > 20
+    }
+
+    // Search Job Control
+    private var searchJob: Job? = null
 
     // 5-item LRU Bitmap cache to prevent OutOfMemory crashes
     private val bitmapCache = object : android.util.LruCache<Int, Bitmap>(5) {
@@ -466,6 +497,7 @@ class PdfViewerViewModel @Inject constructor(
         pdfRenderer = null
         parcelFileDescriptor = null
         bitmapCache.evictAll()
+        extractedTextCache.clear()
         val sourcePath = sourceFilePath
         decryptedRenderFile?.let { file ->
             if (file.absolutePath != sourcePath && file.exists()) {
@@ -487,6 +519,151 @@ class PdfViewerViewModel @Inject constructor(
         } catch (e: Exception) {
             ""
         }
+    }
+
+    /**
+     * Extracts text with position data for text selection.
+     */
+    suspend fun getPageText(pageIndex: Int): PageTextData? = withContext(Dispatchers.IO) {
+        try {
+            val file = activeFilePath?.let { File(it) } ?: return@withContext null
+            val cached = extractedTextCache[pageIndex]
+            if (cached != null) return@withContext cached
+
+            val doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file)
+            val textPositions = mutableListOf<TextPosition>()
+            val stripper = object : PDFTextStripper() {
+                override fun processTextPosition(text: TextPosition) {
+                    super.processTextPosition(text)
+                    textPositions.add(text)
+                }
+            }
+            stripper.sortByPosition = true
+            stripper.startPage = pageIndex + 1
+            stripper.endPage = pageIndex + 1
+            val pageText = withTimeoutOrNull(5000) { stripper.getText(doc) } ?: ""
+            doc.close()
+
+            val cleanedText = pageText.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .joinToString("\n")
+
+            val data = PageTextData(cleanedText, textPositions)
+            extractedTextCache[pageIndex] = data
+            data
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Searches PDF and returns matches with text position rectangles for highlighting.
+     * Each individual occurrence is a separate match for proper navigation.
+     */
+    fun searchWithHighlights(query: String) {
+        searchJob?.cancel()
+        if (query.length < 2) {
+            _searchHighlightState.value = SearchHighlightState(query = query)
+            return
+        }
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
+            _searchHighlightState.value = _searchHighlightState.value.copy(query = query, isLoading = true)
+            val matches = mutableListOf<SearchMatchRect>()
+            try {
+                val path = activeFilePath ?: return@launch
+                val doc = PDDocument.load(File(path))
+                val totalPages = doc.numberOfPages
+                for (pageIndex in 0 until totalPages) {
+                    try {
+                        val lowerQuery = query.lowercase()
+                        val textPositions = mutableListOf<TextPosition>()
+                        val stripper = object : PDFTextStripper() {
+                            override fun processTextPosition(text: TextPosition) {
+                                super.processTextPosition(text)
+                                textPositions.add(text)
+                            }
+                        }
+                        stripper.sortByPosition = true
+                        stripper.startPage = pageIndex + 1
+                        stripper.endPage = pageIndex + 1
+                        val pageText = withTimeoutOrNull(5000) { stripper.getText(doc) } ?: ""
+                        if (!pageText.lowercase().contains(lowerQuery)) continue
+
+                        val sb = StringBuilder()
+                        val positionMap = mutableListOf<Int>()
+                        textPositions.forEachIndexed { index, tp ->
+                            sb.append(tp.unicode)
+                            repeat(tp.unicode.length) { positionMap.add(index) }
+                        }
+                        val rawText = sb.toString().lowercase()
+                        var pos = 0
+                        while (true) {
+                            val found = rawText.indexOf(lowerQuery, pos)
+                            if (found == -1) break
+                            // Create individual match for each occurrence
+                            val matchRects = mutableListOf<RectF>()
+                            for (i in found until (found + lowerQuery.length)) {
+                                if (i < positionMap.size) {
+                                    val tpIndex = positionMap[i]
+                                    val tp = textPositions[tpIndex]
+                                    val x = tp.xDirAdj * 1.5f
+                                    val y = tp.yDirAdj * 1.5f
+                                    val w = tp.widthDirAdj * 1.5f
+                                    val h = tp.heightDir * 1.5f
+                                    matchRects.add(RectF(x, y - h, x + w, y + h * 0.2f))
+                                }
+                            }
+                            if (matchRects.isNotEmpty()) {
+                                matches.add(SearchMatchRect(pageIndex, matchRects))
+                            }
+                            pos = found + 1
+                        }
+                    } catch (e: Exception) {
+                        // skip page
+                    }
+                }
+                doc.close()
+            } catch (e: Exception) {
+                // search failed
+            }
+            _searchHighlightState.value = SearchHighlightState(
+                query = query,
+                matches = matches,
+                isLoading = false
+            )
+        }
+    }
+
+    fun stopHighlightSearch() {
+        searchJob?.cancel()
+        searchJob = null
+        val current = _searchHighlightState.value
+        if (current.isLoading) {
+            _searchHighlightState.value = current.copy(isLoading = false)
+        }
+    }
+
+    fun nextHighlightMatch() {
+        val current = _searchHighlightState.value
+        if (current.matches.isNotEmpty()) {
+            val next = (current.currentMatchIndex + 1) % current.matches.size
+            _searchHighlightState.value = current.copy(currentMatchIndex = next)
+        }
+    }
+
+    fun prevHighlightMatch() {
+        val current = _searchHighlightState.value
+        if (current.matches.isNotEmpty()) {
+            val prev = if (current.currentMatchIndex > 0) current.currentMatchIndex - 1 else current.matches.size - 1
+            _searchHighlightState.value = current.copy(currentMatchIndex = prev)
+        }
+    }
+
+    fun clearHighlightSearch() {
+        searchJob?.cancel()
+        searchJob = null
+        _searchHighlightState.value = SearchHighlightState()
     }
 
     override fun onCleared() {

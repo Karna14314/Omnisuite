@@ -112,9 +112,16 @@ fun handleViewerToolAction(
         is ViewerTool.Print -> {
             try {
                 val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+                val file = File(fileUri)
+                val uri = if (file.exists()) {
+                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                } else {
+                    Uri.parse(fileUri)
+                }
+                val docName = file.name
                 printManager.print(
                     "OmniSuite Print",
-                    GenericDocumentAdapter(context, File(fileUri), getMimeTypeForFile(fileUri)),
+                    GenericDocumentAdapter(context, uri, docName, getMimeTypeForFile(fileUri)),
                     null
                 )
             } catch (e: Exception) {
@@ -163,7 +170,8 @@ private fun getMimeTypeForFile(fileUri: String): String {
 
 class GenericDocumentAdapter(
     private val context: Context,
-    private val file: File,
+    private val uri: Uri,
+    private val documentName: String,
     private val mimeType: String
 ) : PrintDocumentAdapter() {
     override fun onLayout(
@@ -177,7 +185,7 @@ class GenericDocumentAdapter(
             callback?.onLayoutCancelled()
             return
         }
-        val info = PrintDocumentInfo.Builder(file.name)
+        val info = PrintDocumentInfo.Builder(documentName)
             .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
             .build()
         callback?.onLayoutFinished(info, true)
@@ -192,9 +200,9 @@ class GenericDocumentAdapter(
         var input: InputStream? = null
         var output: OutputStream? = null
         try {
-            input = FileInputStream(file)
+            input = context.contentResolver.openInputStream(uri)
             output = FileOutputStream(destination?.fileDescriptor)
-            input.copyTo(output)
+            input?.copyTo(output)
             callback?.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
         } catch (e: Exception) {
             callback?.onWriteFailed(e.localizedMessage)
