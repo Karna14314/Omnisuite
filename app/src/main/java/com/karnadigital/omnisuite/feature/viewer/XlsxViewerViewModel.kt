@@ -382,6 +382,26 @@ class XlsxViewerViewModel @Inject constructor(
                         }
                     }
 
+                    // Check for Rich Text String formatting runs (e.g. bold prefixes in cell text)
+                    if (!isBold) {
+                        try {
+                            if (cell.cellType == org.apache.poi.ss.usermodel.CellType.STRING) {
+                                val rString = cell.richStringCellValue
+                                if (rString != null && rString.numFormattingRuns() > 0) {
+                                    for (fIdx in 0 until rString.numFormattingRuns()) {
+                                        val fontOfRun = if (rString is org.apache.poi.xssf.usermodel.XSSFRichTextString) {
+                                            rString.getFontOfFormattingRun(fIdx)
+                                        } else null
+                                        if (fontOfRun != null && fontOfRun.bold) {
+                                            isBold = true
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (t: Throwable) { }
+                    }
+
                     // --- Value ---
                     val formulaString = if (cell.cellType == org.apache.poi.ss.usermodel.CellType.FORMULA) {
                         "=${cell.cellFormula}"

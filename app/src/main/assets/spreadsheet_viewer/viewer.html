@@ -211,6 +211,62 @@
         var allSheetImages = [];
 
         /**
+         * Generate clean, vector SVG markup for spreadsheet charts
+         */
+        function generateChartSvg(chart, width, height) {
+            var type = (chart.chartType || 'BAR').toUpperCase();
+            if (type === 'UNKNOWN') type = 'BAR';
+            var title = chart.title || 'Spreadsheet Chart';
+            var values = [45, 80, 60, 95, 70];
+            var labels = ['Login', 'Admin', 'Payment', 'Profile', 'Settings'];
+            if (chart.series && chart.series.length > 0 && chart.series[0].values && chart.series[0].values.length > 0) {
+                values = chart.series[0].values;
+                labels = chart.series[0].labels || labels;
+            }
+            var colors = ['#107C41', '#4285F4', '#FBBC04', '#EA4335', '#9C27B0', '#009688'];
+
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">';
+            svg += '<rect width="100%" height="100%" fill="#ffffff" rx="6" stroke="#d0d7de" stroke-width="1.5"/>';
+            svg += '<text x="14" y="24" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">' + title + '</text>';
+            svg += '<rect x="' + (width - 64) + '" y="12" width="50" height="16" rx="3" fill="#e8f5e9"/>';
+            svg += '<text x="' + (width - 39) + '" y="24" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#107c41" text-anchor="middle">' + type + '</text>';
+            svg += '<line x1="12" y1="34" x2="' + (width - 12) + '" y2="34" stroke="#e0e0e0" stroke-width="1"/>';
+
+            if (type === 'PIE') {
+                var total = values.reduce(function(a, b) { return a + b; }, 0) || 1;
+                var startAngle = 0;
+                var cx = width / 2, cy = height / 2 + 10, r = Math.min(width, height) / 3.2;
+                values.forEach(function(val, vIdx) {
+                    var sliceAngle = (val / total) * 2 * Math.PI;
+                    var x1 = cx + r * Math.sin(startAngle);
+                    var y1 = cy - r * Math.cos(startAngle);
+                    var x2 = cx + r * Math.sin(startAngle + sliceAngle);
+                    var y2 = cy - r * Math.cos(startAngle + sliceAngle);
+                    var largeArc = sliceAngle > Math.PI ? 1 : 0;
+                    var pathData = 'M ' + cx + ' ' + cy + ' L ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2 + ' Z';
+                    svg += '<path d="' + pathData + '" fill="' + colors[vIdx % colors.length] + '"/>';
+                    startAngle += sliceAngle;
+                });
+            } else {
+                var maxVal = Math.max.apply(null, values) || 100;
+                var count = Math.min(values.length, 6);
+                var barW = (width - 60) / count - 12;
+                var startX = 30;
+                values.slice(0, count).forEach(function(val, vIdx) {
+                    var bH = Math.max((val / maxVal) * (height - 80), 8);
+                    var bx = startX + vIdx * (barW + 12);
+                    var by = height - 30 - bH;
+                    svg += '<rect x="' + bx + '" y="' + by + '" width="' + barW + '" height="' + bH + '" rx="3" fill="' + colors[vIdx % colors.length] + '"/>';
+                    svg += '<text x="' + (bx + barW / 2) + '" y="' + (by - 4) + '" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="' + colors[vIdx % colors.length] + '" text-anchor="middle">' + Math.round(val) + '</text>';
+                    var lbl = (labels[vIdx] || ('Item ' + (vIdx + 1))).substring(0, 7);
+                    svg += '<text x="' + (bx + barW / 2) + '" y="' + (height - 14) + '" font-family="Arial, sans-serif" font-size="9" fill="#555555" text-anchor="middle">' + lbl + '</text>';
+                });
+            }
+            svg += '</svg>';
+            return svg;
+        }
+
+        /**
          * Render full workbook from POI-extracted JSON structure with complete font formatting,
          * colors, merged cells, and column dimensions.
          */
@@ -258,7 +314,7 @@
                             },
                             underline: !!cell.underline,
                             align: align,
-                            valign: 'middle'
+                            valign: 'top'
                         };
                         if (bg) st.bgcolor = bg;
                         if (fg) st.color = fg;
@@ -276,16 +332,79 @@
                         });
                     }
 
-                    // Reserve rows for images/charts
+                    // Preload and bind images strictly to their anchor cells
                     if (sheet.images) {
                         sheet.images.forEach(function(img) {
-                            var rStart = img.fromRow || 0;
-                            var rLen = img.rowSpan || 14;
-                            for (var r = rStart; r < rStart + rLen; r++) {
-                                if (!sheetObj.rows[r]) {
-                                    sheetObj.rows[r] = { height: 24, cells: {} };
+                            var r = img.fromRow || 0;
+                            var c = img.fromCol || 0;
+                            var rSpan = img.rowSpan || 14;
+                            var cSpan = img.colSpan || 3;
+
+                            for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
+                                if (!sheetObj.rows[rowIdx]) {
+                                    sheetObj.rows[rowIdx] = { height: 24, cells: {} };
                                 }
                             }
+                            if (!sheetObj.rows[r]) sheetObj.rows[r] = { height: 26, cells: {} };
+                            if (!sheetObj.rows[r].cells[c]) sheetObj.rows[r].cells[c] = { text: '' };
+
+                            var targetCell = sheetObj.rows[r].cells[c];
+                            targetCell.merge = [rSpan - 1, cSpan - 1];
+
+                            var rangeStr = XLSX.utils.encode_range({
+                                s: { r: r, c: c },
+                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
+                            });
+                            sheetObj.merges.push(rangeStr);
+
+                            if (img.dataUrl) {
+                                var im = new Image();
+                                im.src = img.dataUrl;
+                                targetCell._img = im;
+                                img._img = im;
+                                im.onload = function() {
+                                    if (xs && xs.sheet && xs.sheet.table) {
+                                        xs.sheet.table.render();
+                                    }
+                                };
+                            }
+                        });
+                    }
+
+                    // Preload and bind standalone charts (Bar/Pie/Line) strictly to their anchor cells
+                    if (sheet.charts) {
+                        sheet.charts.forEach(function(chart) {
+                            var r = chart.anchorRow || 0;
+                            var c = chart.anchorCol || 0;
+                            var rSpan = 12;
+                            var cSpan = 4;
+
+                            for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
+                                if (!sheetObj.rows[rowIdx]) {
+                                    sheetObj.rows[rowIdx] = { height: 24, cells: {} };
+                                }
+                            }
+                            if (!sheetObj.rows[r]) sheetObj.rows[r] = { height: 26, cells: {} };
+                            if (!sheetObj.rows[r].cells[c]) sheetObj.rows[r].cells[c] = { text: '' };
+
+                            var targetCell = sheetObj.rows[r].cells[c];
+                            targetCell.merge = [rSpan - 1, cSpan - 1];
+
+                            var rangeStr = XLSX.utils.encode_range({
+                                s: { r: r, c: c },
+                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
+                            });
+                            sheetObj.merges.push(rangeStr);
+
+                            var svgStr = generateChartSvg(chart, 360, 240);
+                            var im = new Image();
+                            im.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgStr);
+                            targetCell._img = im;
+                            im.onload = function() {
+                                if (xs && xs.sheet && xs.sheet.table) {
+                                    xs.sheet.table.render();
+                                }
+                            };
                         });
                     }
 
@@ -293,6 +412,15 @@
                     if (sheet.rows && sheet.rows.length > 0) {
                         sheet.rows.forEach(function(rowCells, rIdx) {
                             var rHeight = (sheet.rowHeights && sheet.rowHeights[rIdx]) ? Math.max(sheet.rowHeights[rIdx], 26) : 26;
+
+                            // Calculate multi-line expansion so summary headers never clip
+                            rowCells.forEach(function(c) {
+                                if (c && c.text && c.text.indexOf('\n') !== -1) {
+                                    var lineCount = c.text.split('\n').length;
+                                    rHeight = Math.max(rHeight, lineCount * 18 + 14);
+                                }
+                            });
+
                             if (!sheetObj.rows[rIdx]) {
                                 sheetObj.rows[rIdx] = { height: rHeight, cells: {} };
                             } else {
@@ -308,7 +436,7 @@
                                 }
 
                                 // Apply Font & Style
-                                if (cell.bold || cell.italic || cell.underline || cell.bgColor || cell.textColor || (cell.fontSize && cell.fontSize !== 10) || (cell.align && cell.align !== 'LEFT')) {
+                                if (cell.bold || cell.italic || cell.underline || cell.bgColor || cell.textColor || (cell.fontSize && cell.fontSize !== 10) || (cell.align && cell.align !== 'LEFT') || (cell.text && cell.text.indexOf('\n') !== -1)) {
                                     cellData.style = getStyleIdx(cell);
                                 }
 
@@ -322,6 +450,10 @@
                                         e: { r: rIdx + rSpan - 1, c: cIdx + cSpan - 1 }
                                     });
                                     sheetObj.merges.push(rangeStr);
+                                }
+
+                                if (sheetObj.rows[rIdx].cells[cIdx] && sheetObj.rows[rIdx].cells[cIdx]._img) {
+                                    cellData._img = sheetObj.rows[rIdx].cells[cIdx]._img;
                                 }
 
                                 sheetObj.rows[rIdx].cells[cIdx] = cellData;
@@ -357,17 +489,56 @@
 
                 xs.loadData(xData);
 
-                // Attach render hook for real-time 60fps scrolling sync of cell-bounded visuals
+                // Direct Canvas Drawing: Render images and charts directly onto the spreadsheet canvas
                 if (xs.sheet && xs.sheet.table) {
                     var origTableRender = xs.sheet.table.render;
                     xs.sheet.table.render = function() {
                         origTableRender.apply(this, arguments);
-                        updateVisualPositions();
-                    };
-                }
 
-                // Render in-place visual cards strictly tied to cell coordinates
-                renderFloatingVisuals(allSheetCharts[0], allSheetImages[0]);
+                        var activeImgs = allSheetImages[currentSheetIndex] || [];
+                        var d = this.data;
+                        var ctx = this.ctx;
+                        var minX = d.cols.indexWidth;
+                        var minY = d.rows.height;
+                        var maxX = this.el.width;
+                        var maxY = this.el.height;
+
+                        activeImgs.forEach(function(img) {
+                            if (!img._img) return;
+                            var r = img.fromRow || 0;
+                            var c = img.fromCol || 0;
+                            var rSpan = img.rowSpan || 14;
+                            var cSpan = img.colSpan || 3;
+
+                            var x = d.cols.sumWidth(0, c) + d.cols.indexWidth - d.scroll.x;
+                            var y = d.rows.sumHeight(0, r) + d.rows.height - d.scroll.y;
+                            var w = d.cols.sumWidth(c, c + cSpan);
+                            var h = d.rows.sumHeight(r, r + rSpan);
+
+                            if (w < 120) w = 320;
+                            if (h < 80) h = 260;
+
+                            if (x + w > minX && x < maxX && y + h > minY && y < maxY) {
+                                ctx.save();
+                                ctx.beginPath();
+                                ctx.rect(minX, minY, maxX - minX, maxY - minY);
+                                ctx.clip();
+
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+                                ctx.strokeStyle = '#d0d7de';
+                                ctx.lineWidth = 1;
+                                ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+                                if (img._img.complete && img._img.naturalWidth > 0) {
+                                    ctx.drawImage(img._img, x + 6, y + 6, w - 12, h - 12);
+                                }
+                                ctx.restore();
+                            }
+                        });
+                    };
+                    xs.sheet.table.render();
+                }
 
                 // Cell selection listener
                 xs.on('cell-selected', function(cell, ri, ci) {
@@ -544,201 +715,9 @@
          */
         function switchSheet(index) {
             currentSheetIndex = index;
-            if (allSheetCharts && allSheetImages) {
-                renderFloatingVisuals(allSheetCharts[index] || [], allSheetImages[index] || []);
+            if (xs && xs.sheet && xs.sheet.table) {
+                xs.sheet.table.render();
             }
-        }
-
-        /**
-         * Render charts and embedded images directly tied to their anchor cell positions.
-         */
-        function renderFloatingVisuals(chartsData, imagesData) {
-            var existing = document.getElementById('charts-overlay');
-            if (existing) existing.remove();
-
-            var charts = [];
-            if (chartsData) {
-                charts = typeof chartsData === 'string' ? JSON.parse(chartsData) : chartsData;
-            }
-
-            var images = [];
-            if (imagesData) {
-                images = typeof imagesData === 'string' ? JSON.parse(imagesData) : imagesData;
-            }
-
-            if ((!charts || charts.length === 0) && (!images || images.length === 0)) return;
-
-            var overlay = document.createElement('div');
-            overlay.id = 'charts-overlay';
-
-            // 1. Render embedded images (such as Pie Chart figure in educase_test_cases.xlsx)
-            if (images && images.length > 0) {
-                images.forEach(function(img) {
-                    if (!img.dataUrl) return;
-                    var item = document.createElement('div');
-                    item.className = 'floating-visual-item';
-                    item.setAttribute('data-row', img.fromRow || 0);
-                    item.setAttribute('data-col', img.fromCol || 0);
-                    item.setAttribute('data-rowspan', img.rowSpan || 14);
-                    item.setAttribute('data-colspan', img.colSpan || 3);
-
-                    var imageEl = document.createElement('img');
-                    imageEl.src = img.dataUrl;
-                    imageEl.style.width = '100%';
-                    imageEl.style.height = '100%';
-                    imageEl.style.objectFit = 'contain';
-                    imageEl.style.display = 'block';
-                    imageEl.style.background = '#ffffff';
-
-                    item.appendChild(imageEl);
-                    overlay.appendChild(item);
-                });
-            }
-
-            // 2. Render standalone charts
-            if (charts && charts.length > 0) {
-                charts.forEach(function(chart, idx) {
-                    var card = document.createElement('div');
-                    card.className = 'floating-visual-item';
-                    card.setAttribute('data-row', chart.anchorRow || 0);
-                    card.setAttribute('data-col', chart.anchorCol || 0);
-                    card.setAttribute('data-rowspan', 12);
-                    card.setAttribute('data-colspan', 4);
-
-                    var type = (chart.chartType || 'BAR').toUpperCase();
-                    if (type === 'UNKNOWN') type = 'BAR';
-
-                    var title = chart.title || 'Spreadsheet Chart ' + (idx + 1);
-
-                    var header = document.createElement('div');
-                    header.className = 'floating-chart-header';
-                    header.innerHTML = '<span class="floating-chart-title">' + title + '</span><span class="floating-chart-badge">' + type + '</span>';
-                    card.appendChild(header);
-
-                    var body = document.createElement('div');
-                    body.style.width = '100%';
-                    body.style.height = 'calc(100% - 32px)';
-                    body.style.display = 'flex';
-                    body.style.alignItems = 'flex-end';
-                    body.style.justifyContent = 'space-around';
-                    body.style.padding = '6px';
-                    body.style.boxSizing = 'border-box';
-
-                    var values = [45, 80, 60, 95, 70];
-                    var labels = ['Login', 'Admin', 'Payment', 'Profile', 'Settings'];
-
-                    if (chart.series && chart.series.length > 0 && chart.series[0].values && chart.series[0].values.length > 0) {
-                        values = chart.series[0].values;
-                        labels = chart.series[0].labels || labels;
-                    }
-
-                    var maxVal = Math.max.apply(null, values) || 100;
-                    var colors = ['#107C41', '#4285F4', '#FBBC04', '#EA4335', '#9C27B0'];
-
-                    if (type === 'PIE') {
-                        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                        svg.setAttribute('width', '100%');
-                        svg.setAttribute('height', '100%');
-                        svg.setAttribute('viewBox', '0 0 160 130');
-                        var total = values.reduce(function(a, b) { return a + b; }, 0) || 1;
-                        var startAngle = 0;
-                        var cx = 70, cy = 65, r = 45;
-                        values.forEach(function(val, vIdx) {
-                            var sliceAngle = (val / total) * 2 * Math.PI;
-                            var x1 = cx + r * Math.sin(startAngle);
-                            var y1 = cy - r * Math.cos(startAngle);
-                            var x2 = cx + r * Math.sin(startAngle + sliceAngle);
-                            var y2 = cy - r * Math.cos(startAngle + sliceAngle);
-                            var largeArc = sliceAngle > Math.PI ? 1 : 0;
-                            var pathData = 'M ' + cx + ' ' + cy + ' L ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2 + ' Z';
-                            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                            path.setAttribute('d', pathData);
-                            path.setAttribute('fill', colors[vIdx % colors.length]);
-                            svg.appendChild(path);
-                            startAngle += sliceAngle;
-                        });
-                        body.appendChild(svg);
-                    } else {
-                        values.slice(0, 6).forEach(function(val, vIdx) {
-                            var col = document.createElement('div');
-                            col.style.display = 'flex';
-                            col.style.flexDirection = 'column';
-                            col.style.alignItems = 'center';
-                            col.style.flex = '1';
-                            var valText = document.createElement('span');
-                            valText.style.fontSize = '9px';
-                            valText.style.fontWeight = 'bold';
-                            valText.style.color = colors[vIdx % colors.length];
-                            valText.textContent = Math.round(val);
-                            var bar = document.createElement('div');
-                            bar.style.width = '20px';
-                            bar.style.height = Math.max((val / maxVal) * 85, 8) + 'px';
-                            bar.style.backgroundColor = colors[vIdx % colors.length];
-                            bar.style.borderRadius = '4px 4px 0 0';
-                            col.appendChild(valText);
-                            col.appendChild(bar);
-                            body.appendChild(col);
-                        });
-                    }
-                    card.appendChild(body);
-                    overlay.appendChild(card);
-                });
-            }
-
-            var sheetContainer = document.querySelector('.x-spreadsheet-sheet') || document.getElementById('xspreadsheet');
-            if (sheetContainer) {
-                sheetContainer.appendChild(overlay);
-            }
-            updateVisualPositions();
-        }
-
-        /**
-         * Update visual positions strictly aligned to cell rectangle coordinates
-         */
-        function updateVisualPositions() {
-            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
-            var d = xs.datas[currentSheetIndex];
-            var overlay = document.getElementById('charts-overlay');
-            if (!overlay) return;
-
-            var headerHeight = d.rows.height || 26;
-            var indexWidth = d.cols.indexWidth || 42;
-
-            var items = overlay.querySelectorAll('.floating-visual-item');
-            items.forEach(function(item) {
-                var r = parseInt(item.getAttribute('data-row')) || 0;
-                var c = parseInt(item.getAttribute('data-col')) || 0;
-                var rSpan = parseInt(item.getAttribute('data-rowspan')) || 14;
-                var cSpan = parseInt(item.getAttribute('data-colspan')) || 3;
-
-                var rect = d.cellRect(r, c);
-                if (!rect) return;
-
-                var totalW = 0;
-                for (var i = 0; i < cSpan; i++) {
-                    totalW += d.cols.getWidth(c + i);
-                }
-                var totalH = 0;
-                for (var j = 0; j < rSpan; j++) {
-                    totalH += d.rows.getHeight(r + j);
-                }
-                if (totalW < 120) totalW = 320;
-                if (totalH < 80) totalH = 260;
-
-                var invScale = 1.0 / currentScale;
-                var viewH = window.innerHeight * invScale;
-                var viewW = window.innerWidth * invScale;
-
-                if (rect.top + totalH < headerHeight || rect.top > viewH || rect.left + totalW < indexWidth || rect.left > viewW) {
-                    item.style.display = 'none';
-                } else {
-                    item.style.display = 'block';
-                    item.style.top = rect.top + 'px';
-                    item.style.left = rect.left + 'px';
-                    item.style.width = totalW + 'px';
-                    item.style.height = totalH + 'px';
-                }
-            });
         }
 
         /**
@@ -764,20 +743,11 @@
             if (xs && xs.sheet) {
                 xs.sheet.reload();
             }
-            updateVisualPositions();
         }
 
         function zoomIn() { updateZoom(currentScale + 0.15); }
         function zoomOut() { updateZoom(currentScale - 0.15); }
         function resetZoom() { updateZoom(1.0); }
-
-        // Touch & scroll listeners for real-time visual synchronisation
-        document.addEventListener('touchmove', function() {
-            requestAnimationFrame(updateVisualPositions);
-        }, { passive: true });
-        document.addEventListener('wheel', function() {
-            requestAnimationFrame(updateVisualPositions);
-        }, { passive: true });
 
         // Multi-touch pinch-to-zoom gesture listener
         var pinchStartDist = 0;
