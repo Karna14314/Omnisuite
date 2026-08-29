@@ -310,7 +310,7 @@ class XlsxViewerViewModel @Inject constructor(
                 val row = sheet.getRow(r)
                 // Height: POI uses 1/20th of a point; 1pt ≈ 1.33dp
                 val rowHeightDp = if (row != null && row.height > 0) {
-                    (row.height / 20f * 1.33f).coerceIn(20f, 120f)
+                    Math.max(row.height / 20f * 1.33f, 24f)
                 } else 24f
                 rowHeightsDp.add(rowHeightDp)
 

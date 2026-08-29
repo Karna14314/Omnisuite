@@ -314,7 +314,8 @@
                             },
                             underline: !!cell.underline,
                             align: align,
-                            valign: 'top'
+                            valign: 'top',
+                            textwrap: true
                         };
                         if (bg) st.bgcolor = bg;
                         if (fg) st.color = fg;
@@ -332,13 +333,15 @@
                         });
                     }
 
-                    // Preload and bind images strictly to their anchor cells
+                    // Preload and bind drawings (images & charts) to sheet
+                    var drawings = [];
+
                     if (sheet.images) {
                         sheet.images.forEach(function(img) {
                             var r = img.fromRow || 0;
                             var c = img.fromCol || 0;
                             var rSpan = img.rowSpan || 14;
-                            var cSpan = img.colSpan || 3;
+                            var cSpan = img.colSpan || 4;
 
                             for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
                                 if (!sheetObj.rows[rowIdx]) {
@@ -348,30 +351,29 @@
                             if (!sheetObj.rows[r]) sheetObj.rows[r] = { height: 26, cells: {} };
                             if (!sheetObj.rows[r].cells[c]) sheetObj.rows[r].cells[c] = { text: '' };
 
-                            var targetCell = sheetObj.rows[r].cells[c];
-                            targetCell.merge = [rSpan - 1, cSpan - 1];
-
-                            var rangeStr = XLSX.utils.encode_range({
-                                s: { r: r, c: c },
-                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
-                            });
-                            sheetObj.merges.push(rangeStr);
-
                             if (img.dataUrl) {
                                 var im = new Image();
                                 im.src = img.dataUrl;
-                                targetCell._img = im;
-                                img._img = im;
+                                var drObj = {
+                                    fromRow: r,
+                                    fromCol: c,
+                                    rowSpan: rSpan,
+                                    colSpan: cSpan,
+                                    widthPx: img.widthPx || (cSpan * 90),
+                                    heightPx: img.heightPx || (rSpan * 24),
+                                    _img: im
+                                };
+                                sheetObj.rows[r].cells[c]._img = im;
                                 im.onload = function() {
                                     if (xs && xs.sheet && xs.sheet.table) {
                                         xs.sheet.table.render();
                                     }
                                 };
+                                drawings.push(drObj);
                             }
                         });
                     }
 
-                    // Preload and bind standalone charts (Bar/Pie/Line) strictly to their anchor cells
                     if (sheet.charts) {
                         sheet.charts.forEach(function(chart) {
                             var r = chart.anchorRow || 0;
@@ -387,26 +389,29 @@
                             if (!sheetObj.rows[r]) sheetObj.rows[r] = { height: 26, cells: {} };
                             if (!sheetObj.rows[r].cells[c]) sheetObj.rows[r].cells[c] = { text: '' };
 
-                            var targetCell = sheetObj.rows[r].cells[c];
-                            targetCell.merge = [rSpan - 1, cSpan - 1];
-
-                            var rangeStr = XLSX.utils.encode_range({
-                                s: { r: r, c: c },
-                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
-                            });
-                            sheetObj.merges.push(rangeStr);
-
-                            var svgStr = generateChartSvg(chart, 360, 240);
+                            var svgStr = generateChartSvg(chart, 380, 260);
                             var im = new Image();
                             im.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgStr);
-                            targetCell._img = im;
+                            var drObj = {
+                                fromRow: r,
+                                fromCol: c,
+                                rowSpan: rSpan,
+                                colSpan: cSpan,
+                                widthPx: 380,
+                                heightPx: 260,
+                                _img: im
+                            };
+                            sheetObj.rows[r].cells[c]._img = im;
                             im.onload = function() {
                                 if (xs && xs.sheet && xs.sheet.table) {
                                     xs.sheet.table.render();
                                 }
                             };
+                            drawings.push(drObj);
                         });
                     }
+
+                    sheetObj.drawings = drawings;
 
                     // Rows and cells
                     if (sheet.rows && sheet.rows.length > 0) {
@@ -488,57 +493,6 @@
                 });
 
                 xs.loadData(xData);
-
-                // Direct Canvas Drawing: Render images and charts directly onto the spreadsheet canvas
-                if (xs.sheet && xs.sheet.table) {
-                    var origTableRender = xs.sheet.table.render;
-                    xs.sheet.table.render = function() {
-                        origTableRender.apply(this, arguments);
-
-                        var activeImgs = allSheetImages[currentSheetIndex] || [];
-                        var d = this.data;
-                        var ctx = this.ctx;
-                        var minX = d.cols.indexWidth;
-                        var minY = d.rows.height;
-                        var maxX = this.el.width;
-                        var maxY = this.el.height;
-
-                        activeImgs.forEach(function(img) {
-                            if (!img._img) return;
-                            var r = img.fromRow || 0;
-                            var c = img.fromCol || 0;
-                            var rSpan = img.rowSpan || 14;
-                            var cSpan = img.colSpan || 3;
-
-                            var x = d.cols.sumWidth(0, c) + d.cols.indexWidth - d.scroll.x;
-                            var y = d.rows.sumHeight(0, r) + d.rows.height - d.scroll.y;
-                            var w = d.cols.sumWidth(c, c + cSpan);
-                            var h = d.rows.sumHeight(r, r + rSpan);
-
-                            if (w < 120) w = 320;
-                            if (h < 80) h = 260;
-
-                            if (x + w > minX && x < maxX && y + h > minY && y < maxY) {
-                                ctx.save();
-                                ctx.beginPath();
-                                ctx.rect(minX, minY, maxX - minX, maxY - minY);
-                                ctx.clip();
-
-                                ctx.fillStyle = '#ffffff';
-                                ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
-                                ctx.strokeStyle = '#d0d7de';
-                                ctx.lineWidth = 1;
-                                ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
-
-                                if (img._img.complete && img._img.naturalWidth > 0) {
-                                    ctx.drawImage(img._img, x + 6, y + 6, w - 12, h - 12);
-                                }
-                                ctx.restore();
-                            }
-                        });
-                    };
-                    xs.sheet.table.render();
-                }
 
                 // Cell selection listener
                 xs.on('cell-selected', function(cell, ri, ci) {
@@ -708,6 +662,62 @@
         function updateCellFromAndroid(row, col, value) {
             if (!xs) return;
             xs.cellText(row, col, value, currentSheetIndex).reRender();
+        }
+
+        /**
+         * Set custom row height programmatically
+         */
+        function setRowHeight(rIdx, h) {
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
+            var height = Math.max(parseInt(h) || 24, 15);
+            xs.datas[currentSheetIndex].rows.setHeight(rIdx, height);
+            xs.sheet.reload();
+        }
+
+        /**
+         * Set custom column width programmatically
+         */
+        function setColWidth(cIdx, w) {
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
+            var width = Math.max(parseInt(w) || 60, 20);
+            xs.datas[currentSheetIndex].cols.setWidth(cIdx, width);
+            xs.sheet.reload();
+        }
+
+        /**
+         * Auto-fit row height to cell contents
+         */
+        function autofitRow(rIdx) {
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
+            var d = xs.datas[currentSheetIndex];
+            var maxLines = 1;
+            d.rows.eachCells(rIdx, function(c, cell) {
+                if (cell && cell.text) {
+                    var lines = String(cell.text).split('\n').length;
+                    if (lines > maxLines) maxLines = lines;
+                }
+            });
+            d.rows.setHeight(rIdx, Math.max(maxLines * 19 + 12, 26));
+            xs.sheet.reload();
+        }
+
+        /**
+         * Auto-fit column width to cell contents
+         */
+        function autofitCol(cIdx) {
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
+            var d = xs.datas[currentSheetIndex];
+            var maxLen = 8;
+            d.rows.each(function(r, row) {
+                if (row && row.cells && row.cells[cIdx] && row.cells[cIdx].text) {
+                    var lines = String(row.cells[cIdx].text).split('\n');
+                    lines.forEach(function(l) {
+                        if (l.length > maxLen) maxLen = l.length;
+                    });
+                }
+            });
+            d.cols.setWidth(cIdx, Math.min(Math.max(maxLen * 9 + 20, 60), 400));
+            xs.sheet.reload();
         }
 
         /**
