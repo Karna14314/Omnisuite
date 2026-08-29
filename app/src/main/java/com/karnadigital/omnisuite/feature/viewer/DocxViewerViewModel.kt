@@ -20,9 +20,43 @@ import kotlinx.coroutines.withContext
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.IBodyElement
+import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
+
+enum class TabStopAlignment { LEFT, CENTER, RIGHT, DECIMAL, CLEAR }
+
+data class DocxTabStop(
+    val positionTwips: Long,
+    val alignment: TabStopAlignment = TabStopAlignment.LEFT
+) {
+    val positionPt: Float get() = positionTwips / 20f
+}
+
+data class DocxPageGeometry(
+    val widthTwips: Long = 11906L,   // Default A4 width in twips (595.3 pt)
+    val heightTwips: Long = 16838L,  // Default A4 height in twips (841.9 pt)
+    val marginTopTwips: Long = 1440L,    // Default 1 inch in twips (72 pt)
+    val marginBottomTwips: Long = 1440L,
+    val marginLeftTwips: Long = 1440L,
+    val marginRightTwips: Long = 1440L,
+    val headerMarginTwips: Long = 720L,
+    val footerMarginTwips: Long = 720L,
+    val isLandscape: Boolean = false
+) {
+    val widthPt: Float get() = widthTwips / 20f
+    val heightPt: Float get() = heightTwips / 20f
+    val marginTopPt: Float get() = marginTopTwips / 20f
+    val marginBottomPt: Float get() = marginBottomTwips / 20f
+    val marginLeftPt: Float get() = marginLeftTwips / 20f
+    val marginRightPt: Float get() = marginRightTwips / 20f
+    val headerMarginPt: Float get() = headerMarginTwips / 20f
+    val footerMarginPt: Float get() = footerMarginTwips / 20f
+
+    val printableWidthPt: Float get() = (widthPt - marginLeftPt - marginRightPt).coerceAtLeast(100f)
+    val printableHeightPt: Float get() = (heightPt - marginTopPt - marginBottomPt).coerceAtLeast(100f)
+}
 
 data class DocxRun(
     val text: String,
@@ -32,11 +66,13 @@ data class DocxRun(
     val isStrike: Boolean,
     val color: String? = null,
     val fontFamily: String? = null,
-    val fontSizePt: Int? = null,
+    val fontSizePt: Float? = null,
     val hyperlinkUrl: String? = null,
     val imageUrl: String? = null,
     val widthEmu: Long? = null,
-    val heightEmu: Long? = null
+    val heightEmu: Long? = null,
+    val isPageBreak: Boolean = false,
+    val isTab: Boolean = false
 )
 
 data class DocxParagraph(
@@ -45,11 +81,21 @@ data class DocxParagraph(
     val headingLevel: Int, // 0 = body, 1-6 = heading level
     val isHeading: Boolean,
     val comment: String? = null,
-    val spacingAfterPt: Int = 0,
-    val spacingBeforePt: Int = 0,
-    val indentStartDp: Int = 0,      // left indentation in dp (twips / 20 / 1.33)
-    val firstLineIndentDp: Int = 0   // first-line indent in dp
-)
+    val spacingAfterPt: Float = 0f,
+    val spacingBeforePt: Float = 0f,
+    val lineHeightMultiplier: Float = 1.15f,
+    val exactLineHeightPt: Float? = null,
+    val indentStartPt: Float = 0f,
+    val firstLineIndentPt: Float = 0f,
+    val tabStops: List<DocxTabStop> = emptyList(),
+    val isKeepNext: Boolean = false,
+    val isKeepLines: Boolean = false,
+    val isPageBreakBefore: Boolean = false
+) {
+    // Backward compatibility helpers for UI dp calculations
+    val indentStartDp: Int get() = (indentStartPt * (160f / 72f)).toInt()
+    val firstLineIndentDp: Int get() = (firstLineIndentPt * (160f / 72f)).toInt()
+}
 
 data class DocxTableCell(val paragraphs: List<DocxParagraph>)
 data class DocxTableRow(val cells: List<DocxTableCell>)
@@ -59,11 +105,18 @@ sealed class DocxBodyElement {
     data class Table(val rows: List<DocxTableRow>) : DocxBodyElement()
 }
 
-data class DocxDocument(val elements: List<DocxBodyElement>)
+data class DocxDocument(
+    val elements: List<DocxBodyElement>,
+    val pageGeometry: DocxPageGeometry = DocxPageGeometry()
+)
 
 sealed class DocxLoadState {
     object Loading : DocxLoadState()
-    data class Success(val document: DocxDocument, val fileName: String) : DocxLoadState()
+    data class Success(
+        val document: DocxDocument,
+        val fileName: String,
+        val docxBase64: String? = null  // Base64-encoded file bytes for WebView rendering
+    ) : DocxLoadState()
     data class Error(val message: String) : DocxLoadState()
 }
 
@@ -126,6 +179,12 @@ class DocxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
+                    // Read raw bytes for WebView rendering (DOCX files only)
+                    val rawBytes = file.readBytes()
+                    val base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true)) {
+                        Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                    } else null
+
                     fileInputStream = FileInputStream(file)
 
                     if (filePath.endsWith(".doc", ignoreCase = true)) {
@@ -137,7 +196,8 @@ class DocxViewerViewModel @Inject constructor(
 
                         _loadState.value = DocxLoadState.Success(
                             document = parsedDoc,
-                            fileName = file.name
+                            fileName = file.name,
+                            docxBase64 = null  // WebView rendering not supported for legacy .doc
                         )
                     } else {
                         doc = XWPFDocument(fileInputStream)
@@ -148,7 +208,8 @@ class DocxViewerViewModel @Inject constructor(
 
                         _loadState.value = DocxLoadState.Success(
                             document = parsedDoc,
-                            fileName = file.name
+                            fileName = file.name,
+                            docxBase64 = base64ForWebView
                         )
                     }
 
@@ -176,6 +237,15 @@ class DocxViewerViewModel @Inject constructor(
         }
     }
 
+    private fun extractNumber(value: Any?): Long? {
+        return when (value) {
+            null -> null
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull()
+            else -> value.toString().toLongOrNull()
+        }
+    }
+
     private fun parseLegacyDocument(doc: org.apache.poi.hwpf.HWPFDocument): DocxDocument {
         val elements = mutableListOf<DocxBodyElement>()
         val range = doc.range
@@ -195,7 +265,7 @@ class DocxViewerViewModel @Inject constructor(
                         isUnderline = run.getUnderlineCode() != 0,
                         isStrike = run.isStrikeThrough,
                         fontFamily = run.fontName,
-                        fontSizePt = if (run.fontSize > 0) run.fontSize / 2 else null
+                        fontSizePt = if (run.fontSize > 0) run.fontSize / 2f else null
                     )
                 )
             }
@@ -217,7 +287,7 @@ class DocxViewerViewModel @Inject constructor(
                 )
             )
         }
-        return DocxDocument(elements)
+        return DocxDocument(elements = elements, pageGeometry = DocxPageGeometry())
     }
 
     private fun loadParagraphComments(filePath: String): Map<Int, String> {
@@ -252,6 +322,13 @@ class DocxViewerViewModel @Inject constructor(
         }
     }
 
+    private fun isOnOff(onOff: org.openxmlformats.schemas.wordprocessingml.x2006.main.CTOnOff?): Boolean {
+        if (onOff == null) return false
+        if (!onOff.isSetVal()) return true
+        val v = onOff.`val`?.toString()?.lowercase() ?: return true
+        return v != "0" && v != "false" && v != "off" && v != "none"
+    }
+
     private fun parseDocument(doc: XWPFDocument): DocxDocument {
         val elements = mutableListOf<DocxBodyElement>()
         val commentsMap = activeFilePath?.let { loadParagraphComments(it) } ?: emptyMap()
@@ -278,7 +355,62 @@ class DocxViewerViewModel @Inject constructor(
                 }
             }
         }
-        return DocxDocument(elements)
+
+        // Parse sectPr (Page Size & Margins) with fallback to paragraph-level sectPr
+        var geometry = DocxPageGeometry()
+        try {
+            val sectPr = doc.document?.body?.sectPr
+                ?: doc.paragraphs.lastOrNull()?.ctp?.pPr?.sectPr
+                ?: doc.paragraphs.asReversed().mapNotNull { it.ctp?.pPr?.sectPr }.firstOrNull()
+
+            var widthTwips = 11906L  // default A4 width (or 12240 for Letter)
+            var heightTwips = 16838L // default A4 height (or 15840 for Letter)
+            var isLandscape = false
+            var topTwips = 720L      // default 0.5 inch (36 pt)
+            var bottomTwips = 720L
+            var leftTwips = 720L
+            var rightTwips = 720L
+            var headerTwips = 360L
+            var footerTwips = 360L
+
+            if (sectPr != null) {
+                val pgSz = sectPr.pgSz
+                if (pgSz != null) {
+                    val rawW = extractNumber(pgSz.w)
+                    val rawH = extractNumber(pgSz.h)
+                    if (rawW != null && rawW > 0) widthTwips = rawW
+                    if (rawH != null && rawH > 0) heightTwips = rawH
+                    isLandscape = pgSz.orient?.toString()?.equals("landscape", ignoreCase = true) == true ||
+                            (widthTwips > heightTwips)
+                }
+
+                val pgMar = sectPr.pgMar
+                if (pgMar != null) {
+                    extractNumber(pgMar.top)?.let { if (it >= 0) topTwips = it }
+                    extractNumber(pgMar.bottom)?.let { if (it >= 0) bottomTwips = it }
+                    extractNumber(pgMar.left)?.let { if (it >= 0) leftTwips = it }
+                    extractNumber(pgMar.right)?.let { if (it >= 0) rightTwips = it }
+                    extractNumber(pgMar.header)?.let { if (it >= 0) headerTwips = it }
+                    extractNumber(pgMar.footer)?.let { if (it >= 0) footerTwips = it }
+                }
+            }
+
+            geometry = DocxPageGeometry(
+                widthTwips = widthTwips,
+                heightTwips = heightTwips,
+                marginTopTwips = topTwips,
+                marginBottomTwips = bottomTwips,
+                marginLeftTwips = leftTwips,
+                marginRightTwips = rightTwips,
+                headerMarginTwips = headerTwips,
+                footerMarginTwips = footerTwips,
+                isLandscape = isLandscape
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return DocxDocument(elements = elements, pageGeometry = geometry)
     }
 
     private fun parseParagraph(
@@ -287,14 +419,41 @@ class DocxViewerViewModel @Inject constructor(
     ): DocxParagraph {
         val runs = mutableListOf<DocxRun>()
         for (run in paragraph.runs) {
-            val text = run.getText(0) ?: ""
+            var isPageBreak = false
+            var hasTab = false
+
+            try {
+                val ctr = run.ctr
+                if (ctr != null) {
+                    val brList = ctr.brList
+                    if (brList != null) {
+                        for (br in brList) {
+                            if (br.type?.toString()?.equals("page", ignoreCase = true) == true) {
+                                isPageBreak = true
+                            }
+                        }
+                    }
+                    val tabList = ctr.tabList
+                    if (tabList != null && tabList.isNotEmpty()) {
+                        hasTab = true
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore XML inspection errors
+            }
+
+            var text = run.text() ?: run.getText(0) ?: ""
+            if (hasTab && !text.contains("\t")) {
+                text = "\t$text"
+            }
+
             val isBold = run.isBold
             val isItalic = run.isItalic
             val isUnderline = run.underline != org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
             val isStrike = run.isStrikeThrough
             val color = run.color
             val fontFamily = run.fontFamily
-            val fontSize = run.fontSize  // in half-points; divide by 2 for pt
+            val fontSize = run.fontSize
             val hyperlinkUrl = if (run is org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun) {
                 run.getHyperlink(paragraph.document)?.url
             } else null
@@ -328,12 +487,10 @@ class DocxViewerViewModel @Inject constructor(
                 text = text, isBold = isBold, isItalic = isItalic,
                 isUnderline = isUnderline, isStrike = isStrike,
                 color = color, fontFamily = fontFamily,
-                // XWPFRun.fontSize returns full points directly (unlike HWPF which uses half-points).
-                // Do NOT divide by 2 here — the legacy DOC path (CharacterRun.fontSize / 2) is correct
-                // for HWPF's half-point encoding, but this DOCX path must not be halved.
-                fontSizePt = if (fontSize > 0) fontSize else null,
+                fontSizePt = if (fontSize > 0) fontSize.toFloat() else null,
                 hyperlinkUrl = hyperlinkUrl, imageUrl = imageUrl,
-                widthEmu = emuWidth, heightEmu = emuHeight
+                widthEmu = emuWidth, heightEmu = emuHeight,
+                isPageBreak = isPageBreak, isTab = hasTab
             ))
         }
 
@@ -354,13 +511,76 @@ class DocxViewerViewModel @Inject constructor(
             else -> 0
         }
 
+        // Parse w:spacing (line, lineRule, before, after)
+        var lineHeightMultiplier = 1.15f
+        var exactLineHeightPt: Float? = null
+        var spacingBeforePt = 0f
+        var spacingAfterPt = 0f
+        var isKeepNext = headingLevel in 1..3
+        var isKeepLines = false
+        var isPageBreakBefore = false
+        val tabStops = mutableListOf<DocxTabStop>()
 
+        try {
+            val ctp = paragraph.ctp
+            val pPr = ctp?.pPr
+            if (pPr != null) {
+                if (isOnOff(pPr.keepNext)) isKeepNext = true
+                if (isOnOff(pPr.keepLines)) isKeepLines = true
+                if (isOnOff(pPr.pageBreakBefore)) isPageBreakBefore = true
 
-        // Indentation: POI returns twips; convert to dp (twips ÷ 20 = pt, ÷ 1.33 ≈ dp at 160dpi)
+                val spacing = pPr.spacing
+                if (spacing != null) {
+                    val rawLine = extractNumber(spacing.line)
+                    val lineRuleStr = spacing.lineRule?.toString()?.lowercase() ?: "auto"
+                    if (rawLine != null && rawLine > 0) {
+                        if (lineRuleStr == "exact" || lineRuleStr == "atleast") {
+                            exactLineHeightPt = rawLine / 20f
+                        } else {
+                            lineHeightMultiplier = (rawLine / 240f).coerceIn(0.85f, 3.0f)
+                        }
+                    }
+                    val rawBefore = extractNumber(spacing.before)
+                    if (rawBefore != null && rawBefore > 0) {
+                        spacingBeforePt = rawBefore / 20f
+                    }
+                    val rawAfter = extractNumber(spacing.after)
+                    if (rawAfter != null && rawAfter > 0) {
+                        spacingAfterPt = rawAfter / 20f
+                    }
+                }
+
+                val ctTabs = pPr.tabs
+                if (ctTabs != null) {
+                    for (tab in ctTabs.tabList) {
+                        val pos = extractNumber(tab.pos) ?: continue
+                        val align = when (tab.`val`?.toString()?.lowercase()) {
+                            "right" -> TabStopAlignment.RIGHT
+                            "center" -> TabStopAlignment.CENTER
+                            "decimal" -> TabStopAlignment.DECIMAL
+                            "clear" -> TabStopAlignment.CLEAR
+                            else -> TabStopAlignment.LEFT
+                        }
+                        tabStops.add(DocxTabStop(pos, align))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore XML inspection errors
+        }
+
+        // Fallbacks from POI high-level getters if XML was absent
+        if (spacingBeforePt == 0f && paragraph.spacingBefore > 0) {
+            spacingBeforePt = paragraph.spacingBefore / 20f
+        }
+        if (spacingAfterPt == 0f && paragraph.spacingAfter > 0) {
+            spacingAfterPt = paragraph.spacingAfter / 20f
+        }
+
         val rawIndentLeft = paragraph.indentationLeft.coerceAtLeast(0)
         val rawFirstLine = paragraph.indentationFirstLine.coerceAtLeast(0)
-        val indentStartDp = (rawIndentLeft / 20 / 1.33f).toInt()
-        val firstLineIndentDp = (rawFirstLine / 20 / 1.33f).toInt()
+        val indentStartPt = rawIndentLeft / 20f
+        val firstLineIndentPt = rawFirstLine / 20f
 
         return DocxParagraph(
             runs = runs,
@@ -368,12 +588,16 @@ class DocxViewerViewModel @Inject constructor(
             headingLevel = headingLevel,
             isHeading = headingLevel > 0,
             comment = comment,
-            // spacingAfter/Before return -1 when not set (inherits from style).
-            // Use 0 as fallback so the Screen's own breathing room handles layout naturally.
-            spacingAfterPt = paragraph.spacingAfter.takeIf { it > 0 }?.div(20) ?: 0,
-            spacingBeforePt = paragraph.spacingBefore.takeIf { it > 0 }?.div(20) ?: 0,
-            indentStartDp = indentStartDp,
-            firstLineIndentDp = firstLineIndentDp
+            spacingAfterPt = spacingAfterPt,
+            spacingBeforePt = spacingBeforePt,
+            lineHeightMultiplier = lineHeightMultiplier,
+            exactLineHeightPt = exactLineHeightPt,
+            indentStartPt = indentStartPt,
+            firstLineIndentPt = firstLineIndentPt,
+            tabStops = tabStops,
+            isKeepNext = isKeepNext,
+            isKeepLines = isKeepLines,
+            isPageBreakBefore = isPageBreakBefore
         )
     }
     /**

@@ -37,10 +37,17 @@ import android.net.Uri
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import android.graphics.BitmapFactory
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import android.annotation.SuppressLint
+import android.view.ViewGroup
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -101,7 +108,7 @@ fun DocxViewerScreen(
     val state by viewModel.loadState.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
     var showAppendDialog by remember { mutableStateOf(false) }
-    var isPrintLayout by remember { mutableStateOf(false) }
+    var isPrintLayout by remember { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
     
     val context = LocalContext.current
@@ -272,14 +279,6 @@ fun DocxViewerScreen(
                     actions = {
                         if (state is DocxLoadState.Success) {
                             var showMenu by remember { mutableStateOf(false) }
-
-                            IconButton(onClick = { isPrintLayout = !isPrintLayout }) {
-                                Icon(
-                                    imageVector = if (isPrintLayout) Icons.Default.Print else Icons.Default.PictureAsPdf,
-                                    contentDescription = "Toggle Print Layout",
-                                    tint = if (isPrintLayout) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
 
                             IconButton(onClick = { searchExpanded = true }) {
                                 Icon(
@@ -488,196 +487,59 @@ fun DocxViewerScreen(
                 }
                 is DocxLoadState.Success -> {
                     val document = currentState.document
-                    if (document.elements.isEmpty()) {
+                    if (document.elements.isEmpty() && currentState.docxBase64 == null) {
                         EmptyDocumentState()
+                    } else if (!isEditMode && currentState.docxBase64 != null) {
+                        // High-fidelity WebView DOCX renderer using docx-preview.js (Print Layout / Reflow)
+                        DocxWebView(
+                            docxBase64 = currentState.docxBase64,
+                            isPrintLayout = isPrintLayout,
+                            searchQuery = searchQuery,
+                            currentMatchIndex = currentMatchIndex,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     } else {
-                        if (isPrintLayout) {
-                            val pages = remember(document.elements) {
-                                val PAGE_BUDGET_UNITS = 1200
-
-                                val result = mutableListOf<List<DocxBodyElement>>()
-                                var currentPage = mutableListOf<DocxBodyElement>()
-                                var currentUnits = 0
-
-                                fun estimateUnits(element: DocxBodyElement): Int {
-                                    return when (element) {
+                        // Compose interactive editor stream (when in Edit Mode or fallback for legacy format)
+                        SelectionContainer {
+                            LazyColumn(
+                                state = lazyListState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surface),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
+                            ) {
+                                itemsIndexed(document.elements) { index, element ->
+                                    when (element) {
                                         is DocxBodyElement.Para -> {
-                                            val para = element.paragraph
-                                            val hasImage = para.runs.any { it.imageUrl != null }
-                                            if (hasImage) return 240
-                                            val text = para.runs.joinToString("") { it.text }
-                                            if (text.isBlank()) return 16
-                                            val charsPerLine = 80
-                                            val lineCount = ((text.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
-                                            val unitPerLine = when (para.headingLevel) {
-                                                1 -> 36
-                                                2 -> 30
-                                                3 -> 26
-                                                else -> 20
-                                            }
-                                            val headingOverhead = when (para.headingLevel) {
-                                                1 -> 32
-                                                2 -> 20
-                                                3 -> 14
-                                                else -> 8
-                                            }
-                                            (lineCount * unitPerLine) + headingOverhead
-                                        }
-                                        is DocxBodyElement.Table -> {
-                                            val rowCount = element.rows.size
-                                            (rowCount * 32) + 24
-                                        }
-                                    }
-                                }
-
-                                for (element in document.elements) {
-                                    val cost = estimateUnits(element)
-                                    if (currentUnits + cost > PAGE_BUDGET_UNITS && currentPage.isNotEmpty()) {
-                                        result.add(currentPage)
-                                        currentPage = mutableListOf()
-                                        currentUnits = 0
-                                    }
-                                    currentPage.add(element)
-                                    currentUnits += cost
-                                }
-                                if (currentPage.isNotEmpty()) result.add(currentPage)
-                                result
-                            }
-
-                            val deskBg = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFFECEFF1) else Color(0xFF18181B)
-
-                            ZoomableBox(
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                LazyColumn(
-                                    state = lazyListState,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(deskBg),
-                                    contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    itemsIndexed(pages) { pageIndex, pageParagraphs ->
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Card(
-                                                modifier = Modifier
-                                                    .fillMaxWidth(0.96f)
-                                                    .wrapContentHeight()
-                                                    .defaultMinSize(minHeight = 520.dp),
-                                                shape = RoundedCornerShape(3.dp),
-                                                colors = CardDefaults.cardColors(containerColor = Color.White),
-                                                border = BorderStroke(0.5.dp, Color(0xFFCBD5E1)),
-                                                elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
-                                            ) {
-                                                SelectionContainer {
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)
-                                                    ) {
-                                                        // Print Header
-                                                        Row(
-                                                            modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .padding(bottom = 8.dp),
-                                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Text(
-                                                                text = currentState.fileName.take(30),
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = Color(0xFF94A3B8),
-                                                                maxLines = 1,
-                                                                overflow = TextOverflow.Ellipsis
-                                                            )
-                                                            Text(
-                                                                text = "${pageIndex + 1} / ${pages.size}",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = Color(0xFF94A3B8),
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                        }
-                                                        HorizontalDivider(
-                                                            thickness = 0.5.dp,
-                                                            color = Color(0xFFE2E8F0),
-                                                            modifier = Modifier.padding(bottom = 14.dp)
-                                                        )
-
-                                                        // Page Body Elements
-                                                        pageParagraphs.forEach { element ->
-                                                            when (element) {
-                                                                is DocxBodyElement.Para -> DocxParagraphItem(
-                                                                    paragraph = element.paragraph,
-                                                                    isHighlighted = false,
-                                                                    searchQuery = searchQuery,
-                                                                    isPrintLayout = true
-                                                                )
-                                                                is DocxBodyElement.Table -> DocxTableItem(
-                                                                    table = element,
-                                                                    searchQuery = searchQuery,
-                                                                    isPrintLayout = true
-                                                                )
-                                                            }
-                                                        }
-
-                                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                                        // Print Footer
-                                                        HorizontalDivider(
-                                                            thickness = 0.5.dp,
-                                                            color = Color(0xFFE2E8F0),
-                                                            modifier = Modifier.padding(bottom = 10.dp)
-                                                        )
-                                                        Text(
-                                                            text = "Page ${pageIndex + 1} of ${pages.size}",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = Color(0xFF94A3B8),
-                                                            textAlign = TextAlign.Center,
-                                                            modifier = Modifier.fillMaxWidth()
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            ZoomableBox(
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                SelectionContainer {
-                                    LazyColumn(
-                                    state = lazyListState,
-                                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
-                                ) {
-                                    itemsIndexed(document.elements) { index, element ->
-                                        when (element) {
-                                            is DocxBodyElement.Para -> {
-                                                val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
-                                                val clickableModifier = if (isEditMode) {
-                                                    Modifier.fillMaxWidth().clickable {
+                                            val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
+                                            val clickableModifier = if (isEditMode) {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
                                                         activeIndexToEdit = index
                                                         paragraphToEdit = element.paragraph
-                                                    }.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(6.dp)
-                                                } else Modifier
-                                                Box(modifier = clickableModifier) {
-                                                    DocxParagraphItem(element.paragraph, isHighlighted, searchQuery)
-                                                }
+                                                    }
+                                                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                                    .padding(6.dp)
+                                            } else Modifier
+                                            Box(modifier = clickableModifier) {
+                                                DocxParagraphItem(
+                                                    paragraph = element.paragraph,
+                                                    isHighlighted = isHighlighted,
+                                                    searchQuery = searchQuery,
+                                                    isPrintLayout = false
+                                                )
                                             }
-                                            is DocxBodyElement.Table -> {
-                                                DocxTableItem(element, searchQuery)
-                                            }
+                                        }
+                                        is DocxBodyElement.Table -> {
+                                            DocxTableItem(
+                                                table = element,
+                                                searchQuery = searchQuery,
+                                                isPrintLayout = false
+                                            )
                                         }
                                     }
                                 }
-                            }
                             }
                         }
                     }
@@ -1075,6 +937,63 @@ fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String, isPrintLayo
     }
 }
 
+private fun buildAnnotatedStringForRuns(
+    runs: List<DocxRun>,
+    searchQuery: String,
+    isPrintLayout: Boolean
+): AnnotatedString {
+    return buildAnnotatedString {
+        runs.forEach { run ->
+            if (run.text.isBlank() && run.imageUrl == null) return@forEach
+            val cleanText = run.text.replace("\t", "")
+            if (cleanText.isEmpty()) return@forEach
+            val start = length
+            append(cleanText)
+            val end = length
+
+            val isLink = run.hyperlinkUrl != null
+            val runColor: Color = when {
+                isLink -> Color(0xFF1A73E8)
+                run.color != null && run.color != "000000" && run.color != "auto" -> {
+                    try { Color(android.graphics.Color.parseColor("#${run.color}")) }
+                    catch (e: Exception) { if (isPrintLayout) Color(0xFF1F1F1F) else Color.Unspecified }
+                }
+                isPrintLayout -> Color(0xFF1F1F1F)
+                else -> Color.Unspecified
+            }
+
+            val spanStyle = SpanStyle(
+                fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
+                textDecoration = when {
+                    isLink -> TextDecoration.Underline
+                    run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
+                    run.isUnderline -> TextDecoration.Underline
+                    run.isStrike -> TextDecoration.LineThrough
+                    else -> TextDecoration.None
+                },
+                color = runColor,
+                fontSize = if (run.fontSizePt != null && run.fontSizePt > 0) run.fontSizePt.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+                fontFamily = mapFontFamily(run.fontFamily)
+            )
+            addStyle(spanStyle, start, end)
+
+            if (run.hyperlinkUrl != null) {
+                addStringAnnotation("URL", run.hyperlinkUrl, start, end)
+            }
+        }
+
+        if (searchQuery.isNotEmpty()) {
+            val fullText = toString()
+            var idx = fullText.indexOf(searchQuery, ignoreCase = true)
+            while (idx != -1) {
+                addStyle(SpanStyle(background = Color.Yellow, color = Color.Black), idx, idx + searchQuery.length)
+                idx = fullText.indexOf(searchQuery, idx + searchQuery.length, ignoreCase = true)
+            }
+        }
+    }
+}
+
 @Composable
 fun DocxParagraphItem(
     paragraph: DocxParagraph,
@@ -1083,59 +1002,6 @@ fun DocxParagraphItem(
     isPrintLayout: Boolean = false
 ) {
     val context = LocalContext.current
-    val isDarkTheme = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
-
-    val annotatedString = remember(paragraph, searchQuery, isPrintLayout) {
-        buildAnnotatedString {
-            paragraph.runs.forEach { run ->
-                if (run.text.isBlank() && run.imageUrl == null) return@forEach
-                val start = length
-                append(run.text)
-                val end = length
-
-                val isLink = run.hyperlinkUrl != null
-                val runColor: Color = when {
-                    isLink -> Color(0xFF1A73E8)
-                    run.color != null && run.color != "000000" && run.color != "auto" -> {
-                        try { Color(android.graphics.Color.parseColor("#${run.color}")) }
-                        catch (e: Exception) { if (isPrintLayout) Color(0xFF1F1F1F) else Color.Unspecified }
-                    }
-                    isPrintLayout -> Color(0xFF1F1F1F)
-                    else -> Color.Unspecified  // Let Material theme handle default text color
-                }
-
-                val spanStyle = SpanStyle(
-                    fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
-                    fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = when {
-                        isLink -> TextDecoration.Underline
-                        run.isUnderline && run.isStrike -> TextDecoration.Underline + TextDecoration.LineThrough
-                        run.isUnderline -> TextDecoration.Underline
-                        run.isStrike -> TextDecoration.LineThrough
-                        else -> TextDecoration.None
-                    },
-                    color = runColor,
-                    fontSize = if (run.fontSizePt != null && run.fontSizePt > 0) run.fontSizePt.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
-                    fontFamily = mapFontFamily(run.fontFamily)
-                )
-                addStyle(spanStyle, start, end)
-
-                if (run.hyperlinkUrl != null) {
-                    addStringAnnotation("URL", run.hyperlinkUrl, start, end)
-                }
-            }
-
-            // Search highlight
-            if (searchQuery.isNotEmpty()) {
-                val fullText = toString()
-                var idx = fullText.indexOf(searchQuery, ignoreCase = true)
-                while (idx != -1) {
-                    addStyle(SpanStyle(background = Color.Yellow, color = Color.Black), idx, idx + searchQuery.length)
-                    idx = fullText.indexOf(searchQuery, idx + searchQuery.length, ignoreCase = true)
-                }
-            }
-        }
-    }
 
     val textAlign = when (paragraph.alignment) {
         "CENTER" -> TextAlign.Center
@@ -1144,63 +1010,46 @@ fun DocxParagraphItem(
         else -> TextAlign.Left
     }
 
-    val inkPrimaryColor = if (isPrintLayout) Color(0xFF0F3E6D) else MaterialTheme.colorScheme.primary
-    val inkTextColor = if (isPrintLayout) Color(0xFF1F1F1F) else MaterialTheme.colorScheme.onSurface
+    val inkTextColor = if (isPrintLayout) Color(0xFF111827) else MaterialTheme.colorScheme.onSurface
 
-    // Clean, modern typography scale
-    val baseStyle = when (paragraph.headingLevel) {
-        1 -> MaterialTheme.typography.headlineSmall.copy(
-            fontSize = 22.sp,
-            lineHeight = 28.sp,
-            fontWeight = FontWeight.Bold,
-            color = inkPrimaryColor
-        )
-        2 -> MaterialTheme.typography.titleLarge.copy(
-            fontSize = 18.sp,
-            lineHeight = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = inkPrimaryColor
-        )
-        3 -> MaterialTheme.typography.titleMedium.copy(
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = inkTextColor
-        )
-        4 -> MaterialTheme.typography.titleSmall.copy(
-            fontSize = 15.sp,
-            lineHeight = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = inkTextColor
-        )
-        5 -> MaterialTheme.typography.bodyMedium.copy(
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-            fontWeight = FontWeight.Medium,
-            color = inkTextColor
-        )
-        else -> MaterialTheme.typography.bodyMedium.copy(
-            fontSize = 14.sp,
-            lineHeight = 21.sp,
-            fontWeight = FontWeight.Normal,
-            color = inkTextColor
-        )
-    }
-
-    val verticalPadding = when (paragraph.headingLevel) {
-        1 -> 8.dp
-        2 -> 6.dp
-        3 -> 6.dp
-        else -> if (paragraph.spacingAfterPt > 0) paragraph.spacingAfterPt.dp.coerceIn(2.dp, 10.dp) else 4.dp
-    }
-
-    val spacingTop = if (paragraph.spacingBeforePt > 0) {
-        paragraph.spacingBeforePt.dp.coerceIn(0.dp, 12.dp)
+    // Fidelity-first typography scale matching Word / reference viewers
+    val baseFontSize = if (isPrintLayout) {
+        when (paragraph.headingLevel) {
+            1 -> 15.sp
+            2 -> 12.5.sp
+            3 -> 11.5.sp
+            4 -> 10.5.sp
+            else -> 10.sp
+        }
     } else {
-        if (paragraph.headingLevel in 1..3) 8.dp else 0.dp
+        when (paragraph.headingLevel) {
+            1 -> 19.sp
+            2 -> 15.5.sp
+            3 -> 13.5.sp
+            4 -> 12.5.sp
+            else -> 11.5.sp
+        }
     }
+
+    val resolvedLineHeight = paragraph.exactLineHeightPt?.sp ?: (baseFontSize * paragraph.lineHeightMultiplier)
+
+    val baseStyle = TextStyle(
+        fontSize = baseFontSize,
+        lineHeight = resolvedLineHeight,
+        fontWeight = if (paragraph.isHeading) FontWeight.Bold else FontWeight.Normal,
+        color = inkTextColor,
+        textAlign = textAlign
+    )
+
+    // Accurate paragraph vertical spacing directly from document spacing rules
+    val verticalPadding = paragraph.spacingAfterPt.coerceAtMost(6f).dp
+    val spacingTop = paragraph.spacingBeforePt.coerceAtMost(6f).dp
 
     val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent
+
+    // Check if paragraph contains tab stops / tab-separated runs (e.g. Title on left, Date on right)
+    val hasTabs = paragraph.tabStops.isNotEmpty() || paragraph.runs.any { it.isTab || it.text.contains("\t") }
+    val tabRunIndex = paragraph.runs.indexOfFirst { it.isTab || it.text.contains("\t") }
 
     Column(
         modifier = Modifier
@@ -1208,32 +1057,83 @@ fun DocxParagraphItem(
             .background(backgroundColor)
             .padding(top = spacingTop)
     ) {
-        SelectionContainer {
-            var layoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-            Text(
-                text = annotatedString,
-                style = baseStyle.copy(textAlign = textAlign),
-                onTextLayout = { layoutResult = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = paragraph.indentStartDp.dp,
-                        end = 0.dp,
-                        bottom = verticalPadding
+        if (hasTabs && tabRunIndex != -1) {
+            // Split into left and right tab portions
+            val leftRuns = mutableListOf<DocxRun>()
+            val rightRuns = mutableListOf<DocxRun>()
+
+            paragraph.runs.forEachIndexed { idx, run ->
+                if (idx < tabRunIndex) {
+                    leftRuns.add(run)
+                } else if (idx == tabRunIndex) {
+                    val parts = run.text.split("\t", limit = 2)
+                    if (parts[0].isNotEmpty()) leftRuns.add(run.copy(text = parts[0]))
+                    if (parts.size > 1 && parts[1].isNotEmpty()) rightRuns.add(run.copy(text = parts[1]))
+                } else {
+                    rightRuns.add(run)
+                }
+            }
+
+            val leftAnnotated = remember(leftRuns, searchQuery, isPrintLayout) {
+                buildAnnotatedStringForRuns(leftRuns, searchQuery, isPrintLayout)
+            }
+            val rightAnnotated = remember(rightRuns, searchQuery, isPrintLayout) {
+                buildAnnotatedStringForRuns(rightRuns, searchQuery, isPrintLayout)
+            }
+
+            SelectionContainer {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = paragraph.indentStartPt.dp, bottom = verticalPadding),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = leftAnnotated,
+                        style = baseStyle.copy(textAlign = TextAlign.Left),
+                        modifier = Modifier.weight(1f, fill = false)
                     )
-                    .pointerInput(annotatedString) {
-                        detectTapGestures { offset ->
-                            layoutResult?.let { layout ->
-                                val position = layout.getOffsetForPosition(offset)
-                                annotatedString.getStringAnnotations("URL", position, position)
-                                    .firstOrNull()?.let { annotation ->
-                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
-                                        catch (e: Exception) { }
-                                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = rightAnnotated,
+                        style = baseStyle.copy(textAlign = TextAlign.Right),
+                        modifier = Modifier.wrapContentWidth()
+                    )
+                }
+            }
+        } else {
+            val annotatedString = remember(paragraph, searchQuery, isPrintLayout) {
+                buildAnnotatedStringForRuns(paragraph.runs, searchQuery, isPrintLayout)
+            }
+
+            SelectionContainer {
+                var layoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                Text(
+                    text = annotatedString,
+                    style = baseStyle,
+                    onTextLayout = { layoutResult = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = paragraph.indentStartPt.dp,
+                            end = 0.dp,
+                            bottom = verticalPadding
+                        )
+                        .pointerInput(annotatedString) {
+                            detectTapGestures { offset ->
+                                layoutResult?.let { layout ->
+                                    val position = layout.getOffsetForPosition(offset)
+                                    annotatedString.getStringAnnotations("URL", position, position)
+                                        .firstOrNull()?.let { annotation ->
+                                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
+                                            catch (e: Exception) { }
+                                        }
+                                }
                             }
                         }
-                    }
-            )
+                )
+            }
         }
 
         // Render embedded images with proper sizing
@@ -1249,7 +1149,7 @@ fun DocxParagraphItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .wrapContentHeight()
-                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                             .clip(RoundedCornerShape(4.dp)),
                         contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
                     )
@@ -1344,4 +1244,96 @@ private class DocxPrintDocumentAdapter(private val context: Context, private val
         }
     }
 }
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun DocxWebView(
+    docxBase64: String,
+    isPrintLayout: Boolean,
+    searchQuery: String,
+    currentMatchIndex: Int,
+    modifier: Modifier = Modifier
+) {
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isPageLoaded by remember { mutableStateOf(false) }
+
+    // When layout mode changes (Print Layout vs Reflow)
+    LaunchedEffect(isPrintLayout, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
+        }
+    }
+
+    // When search query changes
+    LaunchedEffect(searchQuery, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            if (searchQuery.isBlank()) {
+                webViewInstance?.evaluateJavascript("clearHighlights()", null)
+            } else {
+                val escaped = searchQuery
+                    .replace("\\", "\\\\")
+                    .replace("'", "\\'")
+                    .replace("\n", " ")
+                    .replace("\r", "")
+                webViewInstance?.evaluateJavascript("searchText('$escaped')", null)
+            }
+        }
+    }
+
+    // When match index changes (next / prev match)
+    var lastMatchIndex by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(currentMatchIndex, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null && currentMatchIndex != lastMatchIndex) {
+            if (currentMatchIndex > lastMatchIndex) {
+                webViewInstance?.evaluateJavascript("nextMatch()", null)
+            } else if (currentMatchIndex < lastMatchIndex && currentMatchIndex >= 0) {
+                webViewInstance?.evaluateJavascript("prevMatch()", null)
+            }
+            lastMatchIndex = currentMatchIndex
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    setSupportZoom(true)
+                }
+                isVerticalScrollBarEnabled = true
+                isHorizontalScrollBarEnabled = true
+                setInitialScale(0)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        isPageLoaded = true
+                        webViewInstance = this@apply
+                        evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
+                    }
+                }
+
+                loadUrl("file:///android_asset/docx_viewer/viewer.html")
+                webViewInstance = this
+            }
+        },
+        update = { wv ->
+            webViewInstance = wv
+        },
+        modifier = modifier
+    )
+}
+
 
