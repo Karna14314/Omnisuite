@@ -155,10 +155,10 @@ class XlsxViewerViewModel @Inject constructor(
                         XSSFWorkbook(fileInputStream)
                     }
 
-                    val parsedWb = parseWorkbook(workbook)
-
                     activeWorkbook = workbook
                     activeFilePath = filePath
+
+                    val parsedWb = parseWorkbook(workbook)
 
                     _loadState.value = XlsxLoadState.Success(
                         workbook = parsedWb,
@@ -648,10 +648,16 @@ class XlsxViewerViewModel @Inject constructor(
                     val rowMatcher = java.util.regex.Pattern.compile("<xdr:row>(\\d+)</xdr:row>").matcher(block)
                     val colMatcher = java.util.regex.Pattern.compile("<xdr:col>(\\d+)</xdr:col>").matcher(block)
                     val embedMatcher = java.util.regex.Pattern.compile("r:embed=\"([^\"]+)\"").matcher(block)
+                    val extMatcher = java.util.regex.Pattern.compile("<xdr:ext\\s+cx=\"(\\d+)\"\\s+cy=\"(\\d+)\"").matcher(block)
 
                     val row = if (rowMatcher.find()) rowMatcher.group(1)?.toIntOrNull() ?: 0 else 0
                     val col = if (colMatcher.find()) colMatcher.group(1)?.toIntOrNull() ?: 0 else 0
                     val embedId = if (embedMatcher.find()) embedMatcher.group(1) else null
+                    val cx = if (extMatcher.find()) extMatcher.group(1)?.toLongOrNull() ?: 0L else 0L
+                    val cy = if (extMatcher.find(0)) extMatcher.group(2)?.toLongOrNull() ?: 0L else 0L
+
+                    val colSpan = if (cx > 0) ((cx / 9525L) / 85L).toInt().coerceIn(2, 10) else 4
+                    val rowSpan = if (cy > 0) ((cy / 9525L) / 22L).toInt().coerceIn(5, 25) else 14
 
                     if (embedId != null && relsMap.containsKey(embedId)) {
                         val mediaPath = relsMap[embedId]!!
@@ -666,8 +672,8 @@ class XlsxViewerViewModel @Inject constructor(
                                     filePath = tempFile.absolutePath,
                                     fromRow = row,
                                     fromCol = col,
-                                    colSpan = 3,
-                                    rowSpan = 15
+                                    colSpan = colSpan,
+                                    rowSpan = rowSpan
                                 )
                             )
                         }

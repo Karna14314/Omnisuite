@@ -790,10 +790,120 @@
             }
         });
 
+        // Interactive Touch-Drag Resizing for Column and Row Headers
+        var resizeState = null;
+        document.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 1 && xs && xs.datas && xs.datas[currentSheetIndex]) {
+                var touch = e.touches[0];
+                var d = xs.datas[currentSheetIndex];
+                var indexW = d.cols.indexWidth || 42;
+                var headerH = d.rows.height || 26;
+
+                var container = document.getElementById('xspreadsheet');
+                var rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+                var x = (touch.clientX - rect.left) / currentScale;
+                var y = (touch.clientY - rect.top) / currentScale;
+
+                if (y <= headerH && x > indexW) {
+                    var docX = x - indexW + d.scroll.x;
+                    var curW = 0;
+                    for (var c = 0; c < d.cols.len; c++) {
+                        var colW = d.cols.getWidth(c);
+                        curW += colW;
+                        if (Math.abs(docX - curW) <= 20) {
+                            resizeState = { type: 'col', index: c, startWidth: colW, startTouchX: touch.clientX };
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+                } else if (x <= indexW && y > headerH) {
+                    var docY = y - headerH + d.scroll.y;
+                    var curH = 0;
+                    for (var r = 0; r < d.rows.len; r++) {
+                        var rowH = d.rows.getHeight(r);
+                        curH += rowH;
+                        if (Math.abs(docY - curH) <= 20) {
+                            resizeState = { type: 'row', index: r, startHeight: rowH, startTouchY: touch.clientY };
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchmove', function(e) {
+            if (resizeState && e.touches.length === 1 && xs && xs.datas && xs.datas[currentSheetIndex]) {
+                var touch = e.touches[0];
+                var d = xs.datas[currentSheetIndex];
+                if (resizeState.type === 'col') {
+                    var dx = (touch.clientX - resizeState.startTouchX) / currentScale;
+                    var newW = Math.max(35, Math.round(resizeState.startWidth + dx));
+                    d.cols.setWidth(resizeState.index, newW);
+                    xs.sheet.reload();
+                } else if (resizeState.type === 'row') {
+                    var dy = (touch.clientY - resizeState.startTouchY) / currentScale;
+                    var newH = Math.max(20, Math.round(resizeState.startHeight + dy));
+                    d.rows.setHeight(resizeState.index, newH);
+                    xs.sheet.reload();
+                }
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchend', function(e) {
+            if (resizeState) {
+                resizeState = null;
+            }
+        });
+
+        function jumpToCell(sIdx, r, c) {
+            if (sIdx !== undefined && sIdx !== currentSheetIndex) {
+                switchSheet(sIdx);
+            }
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
+            var d = xs.datas[currentSheetIndex];
+            var rIdx = parseInt(r) || 0;
+            var cIdx = parseInt(c) || 0;
+            
+            d.selector.setIndexes(rIdx, cIdx);
+            d.selector.range.set(rIdx, cIdx, rIdx, cIdx);
+            
+            var cellX = d.cols.sumWidth(0, cIdx);
+            var cellY = d.rows.sumHeight(0, rIdx);
+            var cellW = d.cols.getWidth(cIdx);
+            var cellH = d.rows.getHeight(rIdx);
+
+            var viewW = window.innerWidth / currentScale;
+            var viewH = window.innerHeight / currentScale;
+
+            var targetScrollX = Math.max(0, Math.round(cellX - (viewW / 2) + (cellW / 2)));
+            var targetScrollY = Math.max(0, Math.round(cellY - (viewH / 2) + (cellH / 2)));
+
+            d.scroll.x = targetScrollX;
+            d.scroll.y = targetScrollY;
+            
+            window.activeSearchMatch = { r: rIdx, c: cIdx };
+            xs.sheet.reload();
+
+            var cell = d.rows.getCell(rIdx, cIdx);
+            var text = cell ? (cell.text || '') : '';
+            var formula = cell && cell.f ? cell.f : '';
+            if (window.AndroidBridge) {
+                window.AndroidBridge.onCellSelected(currentSheetIndex, rIdx, cIdx, text, formula);
+            }
+        }
+
         function searchSpreadsheet(query) {
             searchMatches = [];
             currentSearchIndex = -1;
-            if (!query || query.trim() === '') return 0;
+            window.allSearchMatches = [];
+            window.activeSearchMatch = null;
+
+            if (!query || query.trim() === '') {
+                if (xs && xs.sheet) xs.sheet.reload();
+                return 0;
+            }
             var lower = query.toLowerCase();
 
             if (xs && xs.datas && xs.datas[currentSheetIndex]) {
@@ -810,9 +920,13 @@
                 });
             }
 
+            window.allSearchMatches = searchMatches;
+
             if (searchMatches.length > 0) {
                 currentSearchIndex = 0;
                 highlightSearchMatch(0);
+            } else if (xs && xs.sheet) {
+                xs.sheet.reload();
             }
             return searchMatches.length;
         }
@@ -820,9 +934,33 @@
         function highlightSearchMatch(index) {
             if (!xs || index < 0 || index >= searchMatches.length) return;
             var match = searchMatches[index];
+            window.activeSearchMatch = match;
+            window.allSearchMatches = searchMatches;
+
+            var d = xs.datas[currentSheetIndex];
+            if (d) {
+                d.selector.setIndexes(match.r, match.c);
+                d.selector.range.set(match.r, match.c, match.r, match.c);
+
+                var cellX = d.cols.sumWidth(0, match.c);
+                var cellY = d.rows.sumHeight(0, match.r);
+                var cellW = d.cols.getWidth(match.c);
+                var cellH = d.rows.getHeight(match.r);
+
+                var viewW = window.innerWidth / currentScale;
+                var viewH = window.innerHeight / currentScale;
+
+                var targetScrollX = Math.max(0, Math.round(cellX - (viewW / 2) + (cellW / 2)));
+                var targetScrollY = Math.max(0, Math.round(cellY - (viewH / 2) + (cellH / 2)));
+
+                d.scroll.x = targetScrollX;
+                d.scroll.y = targetScrollY;
+                xs.sheet.reload();
+            }
+
             if (window.AndroidBridge) {
-                var cell = xs.cell(match.r, match.c);
-                window.AndroidBridge.onCellSelected(currentSheetIndex, match.r, match.c, cell ? cell.text : '', cell && cell.f ? cell.f : '');
+                var cell = d ? d.rows.getCell(match.r, match.c) : null;
+                window.AndroidBridge.onCellSelected(currentSheetIndex, match.r, match.c, cell ? (cell.text || '') : '', cell && cell.f ? cell.f : '');
             }
         }
 
