@@ -17,6 +17,12 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
 import java.io.File
+import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.view.ViewGroup
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -493,6 +499,94 @@ fun PptxViewerScreen(
                     val presentation = currentState.presentation
                     if (presentation.slides.isEmpty()) {
                         EmptyPresentationState()
+                    } else if (!isEditMode && currentState.pptxBase64 != null) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            PptxWebView(
+                                pptxBase64 = currentState.pptxBase64,
+                                viewMode = viewMode,
+                                currentPage = pagerState.currentPage,
+                                searchQuery = searchQuery,
+                                currentMatchIndex = currentMatchIndex,
+                                onSlideChanged = { idx, _ ->
+                                    if (pagerState.currentPage != idx && idx < pagerState.pageCount) {
+                                        coroutineScope.launch { pagerState.scrollToPage(idx) }
+                                    }
+                                },
+                                onSlideClicked = { idx ->
+                                    if (viewMode == PptxViewMode.GRID) {
+                                        viewMode = PptxViewMode.PAGER
+                                        coroutineScope.launch { pagerState.scrollToPage(idx) }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            )
+
+                            // Speaker notes bottom panel
+                            if (showNotesPanel && viewMode != PptxViewMode.SLIDESHOW) {
+                                val currentSlide = presentation.slides.getOrNull(pagerState.currentPage)
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.SpeakerNotes,
+                                                    contentDescription = "Speaker Notes",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Speaker Notes (Slide ${pagerState.currentPage + 1})",
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { showNotesPanel = false },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Close Notes", modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val displayNotes = currentSlide?.speakerNotes
+                                        if (!displayNotes.isNullOrBlank()) {
+                                            Text(
+                                                text = displayNotes,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "No slide notes recorded.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         if (viewMode == PptxViewMode.SLIDESHOW) {
                             // WPS Office Fullscreen Presentation Mode
@@ -1417,3 +1511,112 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
         }
     }
 }
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun PptxWebView(
+    pptxBase64: String,
+    viewMode: PptxViewMode,
+    currentPage: Int,
+    searchQuery: String,
+    currentMatchIndex: Int,
+    onSlideChanged: (currentIndex: Int, totalSlides: Int) -> Unit,
+    onSlideClicked: (index: Int) -> Unit,
+    onWebViewReady: (WebView) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isPageLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pptxBase64, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("renderPptxBase64('$pptxBase64')", null)
+        }
+    }
+
+    LaunchedEffect(viewMode, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("setViewMode('${viewMode.name}')", null)
+        }
+    }
+
+    LaunchedEffect(currentPage, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("goToSlide($currentPage)", null)
+        }
+    }
+
+    LaunchedEffect(searchQuery, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            val escaped = searchQuery
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", " ")
+                .replace("\r", "")
+            webViewInstance?.evaluateJavascript("searchPresentation('$escaped')", null)
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    setSupportZoom(true)
+                }
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+
+                addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onSlideChanged(currentIndex: Int, totalSlides: Int) {
+                        onSlideChanged(currentIndex, totalSlides)
+                    }
+
+                    @JavascriptInterface
+                    fun onSlideClicked(index: Int) {
+                        onSlideClicked(index)
+                    }
+
+                    @JavascriptInterface
+                    fun onRenderComplete(totalSlides: Int) {
+                        onSlideChanged(0, totalSlides)
+                    }
+                }, "AndroidBridge")
+
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        isPageLoaded = true
+                        webViewInstance = this@apply
+                        onWebViewReady(this@apply)
+                        evaluateJavascript("renderPptxBase64('$pptxBase64')", null)
+                        evaluateJavascript("setViewMode('${viewMode.name}')", null)
+                        evaluateJavascript("goToSlide($currentPage)", null)
+                    }
+                }
+
+                loadUrl("file:///android_asset/pptx_viewer/viewer.html")
+                webViewInstance = this
+                onWebViewReady(this)
+            }
+        },
+        update = { wv ->
+            webViewInstance = wv
+            onWebViewReady(wv)
+        },
+        modifier = modifier
+    )
+}
+

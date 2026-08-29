@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, user-scalable=yes">
+    <link rel="stylesheet" href="xspreadsheet.css">
+    <script src="xlsx.full.min.js"></script>
+    <script src="xspreadsheet.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #xspreadsheet {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Loading indicator */
+        #loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: #5f6368;
+            font-size: 14px;
+            background: #ffffff;
+        }
+        #loading .spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid #dadce0;
+            border-top-color: #107c41; /* Excel green */
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #error {
+            display: none;
+            padding: 40px 20px;
+            text-align: center;
+            color: #d93025;
+            font-size: 14px;
+        }
+
+        /* Custom mobile styling for x-spreadsheet toolbar and bottom tabs */
+        .x-spreadsheet-toolbar {
+            display: none !important; /* Managed natively in OmniSuite TopAppBar */
+        }
+        .x-spreadsheet-bottombar {
+            height: 38px !important;
+            background: #f3f3f3 !important;
+            border-top: 1px solid #e0e0e0 !important;
+        }
+        .x-spreadsheet-bottombar .x-spreadsheet-menu li {
+            font-size: 13px !important;
+            padding: 6px 14px !important;
+            border-radius: 4px 4px 0 0 !important;
+        }
+        .x-spreadsheet-bottombar .x-spreadsheet-menu li.active {
+            background: #ffffff !important;
+            color: #107c41 !important;
+            font-weight: 600 !important;
+            border-bottom: 2px solid #107c41 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <span>Opening spreadsheet…</span>
+    </div>
+    <div id="error"></div>
+    <div id="xspreadsheet"></div>
+
+    <script>
+        var xs = null;
+        var currentWorkbook = null;
+        var currentSheetIndex = 0;
+        var searchMatches = [];
+        var currentSearchIndex = -1;
+
+        /**
+         * Convert SheetJS Workbook into x-spreadsheet data format.
+         */
+        function stox(wb) {
+            var out = [];
+            wb.SheetNames.forEach(function(name) {
+                var o = { name: name, rows: {}, styles: [] };
+                var ws = wb.Sheets[name];
+                if (!ws || !ws['!ref']) {
+                    out.push(o);
+                    return;
+                }
+                var range = XLSX.utils.decode_range(ws['!ref']);
+
+                // Merges
+                if (ws['!merges']) {
+                    o.merges = ws['!merges'].map(function(m) {
+                        return XLSX.utils.encode_range(m);
+                    });
+                }
+
+                // Row heights if specified
+                if (ws['!rows']) {
+                    ws['!rows'].forEach(function(rowInfo, rIdx) {
+                        if (rowInfo && rowInfo.hpx) {
+                            if (!o.rows[rIdx]) o.rows[rIdx] = { cells: {} };
+                            o.rows[rIdx].height = rowInfo.hpx;
+                        }
+                    });
+                }
+
+                // Column widths if specified
+                if (ws['!cols']) {
+                    o.cols = {};
+                    ws['!cols'].forEach(function(colInfo, cIdx) {
+                        if (colInfo && colInfo.wpx) {
+                            o.cols[cIdx] = { width: colInfo.wpx };
+                        } else if (colInfo && colInfo.wch) {
+                            o.cols[cIdx] = { width: colInfo.wch * 8 };
+                        }
+                    });
+                }
+
+                // Cells
+                for (var R = range.s.r; R <= range.e.r; ++R) {
+                    for (var C = range.s.c; C <= range.e.c; ++C) {
+                        var cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                        var cell = ws[cell_ref];
+                        if (!cell) continue;
+
+                        if (!o.rows[R]) o.rows[R] = { cells: {} };
+
+                        var cellText = cell.w !== undefined ? cell.w : (cell.v !== undefined ? String(cell.v) : "");
+                        var cellData = { text: cellText };
+
+                        if (cell.f) {
+                            cellData.f = "=" + cell.f;
+                        }
+
+                        o.rows[R].cells[C] = cellData;
+                    }
+                }
+                out.push(o);
+            });
+            return out;
+        }
+
+        /**
+         * Render spreadsheet from Base64 string.
+         */
+        function renderSpreadsheetBase64(base64Data) {
+            try {
+                document.getElementById('loading').style.display = 'flex';
+                document.getElementById('error').style.display = 'none';
+
+                var binaryString = atob(base64Data);
+                var len = binaryString.length;
+                var bytes = new Uint8Array(len);
+                for (var i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                currentWorkbook = XLSX.read(bytes.buffer, {
+                    type: 'array',
+                    cellStyles: true,
+                    cellDates: true,
+                    cellFormula: true,
+                    cellNF: true
+                });
+
+                var xData = stox(currentWorkbook);
+
+                var container = document.getElementById('xspreadsheet');
+                container.innerHTML = '';
+
+                xs = x_spreadsheet('#xspreadsheet', {
+                    showToolbar: false,
+                    showGrid: true,
+                    showContextmenu: true,
+                    view: {
+                        height: function() { return window.innerHeight; },
+                        width: function() { return window.innerWidth; }
+                    },
+                    row: {
+                        len: 200,
+                        height: 25
+                    },
+                    col: {
+                        len: 50,
+                        width: 90,
+                        indexWidth: 40,
+                        minWidth: 40
+                    }
+                });
+
+                xs.loadData(xData);
+
+                // Listen to cell selection and edit events
+                xs.on('cell-selected', function(cell, ri, ci) {
+                    var text = cell ? (cell.text || '') : '';
+                    var formula = cell && cell.f ? cell.f : '';
+                    if (window.AndroidBridge) {
+                        window.AndroidBridge.onCellSelected(currentSheetIndex, ri, ci, text, formula);
+                    }
+                });
+
+                xs.on('cell-edited', function(text, ri, ci) {
+                    if (window.AndroidBridge) {
+                        window.AndroidBridge.onCellEdited(currentSheetIndex, ri, ci, text);
+                    }
+                });
+
+                document.getElementById('loading').style.display = 'none';
+
+                if (window.AndroidBridge) {
+                    window.AndroidBridge.onRenderComplete(currentWorkbook.SheetNames.length);
+                }
+            } catch (e) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = 'Spreadsheet render error: ' + e.message;
+                console.error('Spreadsheet error:', e);
+            }
+        }
+
+        /**
+         * Update a cell value programmatically from Android (e.g. Formula Bar or Edit Dialog).
+         */
+        function updateCellFromAndroid(row, col, value) {
+            if (!xs) return;
+            xs.cellText(row, col, value, currentSheetIndex).reRender();
+        }
+
+        /**
+         * Switch sheet tab programmatically.
+         */
+        function switchSheet(index) {
+            if (!xs || !currentWorkbook || !currentWorkbook.SheetNames[index]) return;
+            currentSheetIndex = index;
+            // x-spreadsheet handles bottom bar clicks automatically
+        }
+
+        /**
+         * Search cell text across the active sheet.
+         */
+        function searchSpreadsheet(query) {
+            searchMatches = [];
+            currentSearchIndex = -1;
+            if (!query || query.trim() === '' || !currentWorkbook) return 0;
+
+            var sheetName = currentWorkbook.SheetNames[currentSheetIndex];
+            var ws = currentWorkbook.Sheets[sheetName];
+            if (!ws || !ws['!ref']) return 0;
+
+            var range = XLSX.utils.decode_range(ws['!ref']);
+            var lowerQuery = query.toLowerCase();
+
+            for (var R = range.s.r; R <= range.e.r; ++R) {
+                for (var C = range.s.c; C <= range.e.c; ++C) {
+                    var cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                    var cell = ws[cell_ref];
+                    if (!cell) continue;
+                    var text = (cell.w || (cell.v !== undefined ? String(cell.v) : "")).toLowerCase();
+                    if (text.indexOf(lowerQuery) !== -1) {
+                        searchMatches.push({ r: R, c: C });
+                    }
+                }
+            }
+
+            if (searchMatches.length > 0) {
+                currentSearchIndex = 0;
+                highlightSearchMatch(0);
+            }
+
+            return searchMatches.length;
+        }
+
+        function highlightSearchMatch(index) {
+            if (!xs || index < 0 || index >= searchMatches.length) return;
+            var match = searchMatches[index];
+            xs.cellText(match.r, match.c, xs.cell(match.r, match.c).text || '', currentSheetIndex);
+            if (window.AndroidBridge) {
+                var cell = xs.cell(match.r, match.c);
+                window.AndroidBridge.onCellSelected(currentSheetIndex, match.r, match.c, cell ? cell.text : '', cell && cell.f ? cell.f : '');
+            }
+        }
+
+        function nextSearchMatch() {
+            if (searchMatches.length === 0) return -1;
+            currentSearchIndex = (currentSearchIndex + 1) % searchMatches.length;
+            highlightSearchMatch(currentSearchIndex);
+            return currentSearchIndex;
+        }
+
+        function prevSearchMatch() {
+            if (searchMatches.length === 0) return -1;
+            currentSearchIndex = (currentSearchIndex - 1 + searchMatches.length) % searchMatches.length;
+            highlightSearchMatch(currentSearchIndex);
+            return currentSearchIndex;
+        }
+
+        window.addEventListener('resize', function() {
+            if (xs) xs.reRender();
+        });
+    </script>
+</body>
+</html>

@@ -20,6 +20,7 @@ import org.apache.poi.xslf.usermodel.XSLFSlide
 import org.apache.poi.xslf.usermodel.XSLFTextParagraph
 import org.apache.poi.xslf.usermodel.XSLFTextRun
 import org.apache.poi.xslf.usermodel.XSLFTextShape
+import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -62,7 +63,11 @@ data class PptxPresentation(val slides: List<PptxSlide>)
 
 sealed class PptxLoadState {
     object Loading : PptxLoadState()
-    data class Success(val presentation: PptxPresentation, val fileName: String) : PptxLoadState()
+    data class Success(
+        val presentation: PptxPresentation,
+        val fileName: String,
+        val pptxBase64: String? = null
+    ) : PptxLoadState()
     data class Error(val message: String) : PptxLoadState()
 }
 
@@ -646,6 +651,9 @@ class PptxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
+                    val rawBytes = file.readBytes()
+                    val base64Data = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+
                     fileInputStream = FileInputStream(file)
                     ppt = if (filePath.endsWith(".ppt", ignoreCase = true)) {
                         org.apache.poi.hslf.usermodel.HSLFSlideShow(fileInputStream)
@@ -660,7 +668,8 @@ class PptxViewerViewModel @Inject constructor(
 
                     _loadState.value = PptxLoadState.Success(
                         presentation = PptxPresentation(slides),
-                        fileName = file.name
+                        fileName = file.name,
+                        pptxBase64 = base64Data
                     )
 
                 } catch (e: Throwable) {

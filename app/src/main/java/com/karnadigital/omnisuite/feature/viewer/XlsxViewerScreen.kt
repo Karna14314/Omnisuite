@@ -17,6 +17,12 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
 import java.io.File
+import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.view.ViewGroup
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -135,6 +141,7 @@ fun XlsxViewerScreen(
     var bottomSheetValue by remember { mutableStateOf("") }
     var scale by remember { mutableStateOf(1f) }
     var selectedColForSort by remember { mutableStateOf<Int?>(null) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
     // Tracks which row number is selected (header tap) — used to highlight the full row
     var selectedRow by remember { mutableStateOf<Int?>(null) }
     var formulaBarValue by remember(selectedCell, state, activeSheetIndex) {
@@ -541,354 +548,49 @@ fun XlsxViewerScreen(
                                             colIndex = selectedCell!!.colIndex,
                                             valueString = formulaBarValue
                                         )
+                                        val escaped = formulaBarValue
+                                            .replace("\\", "\\\\")
+                                            .replace("'", "\\'")
+                                            .replace("\n", " ")
+                                            .replace("\r", "")
+                                        webViewRef?.evaluateJavascript(
+                                            "updateCellFromAndroid(${selectedCell!!.rowIndex}, ${selectedCell!!.colIndex}, '$escaped')",
+                                            null
+                                        )
                                     }
                                 }
                             )
 
-                            // Sort Filter Bar
-                            if (selectedColForSort != null) {
-                                val colLabel = getColHeaderString(selectedColForSort!!)
-                                SortFilterBar(
-                                    selectedColIndex = selectedColForSort,
-                                    colLabel = colLabel,
-                                    onSortAscending = {
-                                        viewModel.sortByColumn(activeSheetIndex, selectedColForSort!!, true)
-                                        selectedColForSort = null
+                            // High-performance SheetJS + x-spreadsheet view
+                            if (currentState.xlsxBase64 != null) {
+                                SpreadsheetWebView(
+                                    xlsxBase64 = currentState.xlsxBase64,
+                                    searchQuery = searchQuery,
+                                    currentMatchIndex = currentMatchIndex,
+                                    onCellSelected = { sheetIdx, r, c, text, formula ->
+                                        activeSheetIndex = sheetIdx
+                                        selectedCell = CellCoords(r, c)
+                                        formulaBarValue = if (formula.isNotBlank()) formula else text
+                                        bottomSheetValue = text
                                     },
-                                    onSortDescending = {
-                                        viewModel.sortByColumn(activeSheetIndex, selectedColForSort!!, false)
-                                        selectedColForSort = null
+                                    onCellEdited = { sheetIdx, r, c, newValue ->
+                                        viewModel.updateCell(
+                                            sheetIndex = sheetIdx,
+                                            rowIndex = r,
+                                            colIndex = c,
+                                            valueString = newValue
+                                        )
                                     },
-                                    onDismiss = { selectedColForSort = null }
+                                    onSheetChanged = { sheetIdx ->
+                                        activeSheetIndex = sheetIdx
+                                    },
+                                    onWebViewReady = { wv ->
+                                        webViewRef = wv
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
                                 )
-                            }
-
-                            // Aligned Scrollable Grid Container
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                            ) {
-                                val actualFrozenRows = activeSheet.frozenRowCount.coerceAtMost(activeSheet.rows.size)
-                                val actualFrozenCols = activeSheet.frozenColCount.coerceAtMost(if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0)
-
-                                ZoomableDataGrid(
-                                    scale = scale,
-                                    onScaleChange = { scale = it },
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Column(modifier = Modifier.fillMaxSize()) {
-                                        // 1. Column headers index (A, B, C...) - pinned vertically, scrolls horizontally
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        ) {
-                                            HeaderCell("", isIntersection = true, scale = scale)
-                                            
-                                            // Frozen column headers
-                                            if (actualFrozenCols > 0) {
-                                                Row {
-                                                    for (c in 0 until actualFrozenCols) {
-                                                        ColumnHeaderCell(
-                                                            colIndex = c,
-                                                            text = getColHeaderString(c),
-                                                            widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
-                                                            isSelected = selectedColForSort == c,
-                                                            scale = scale,
-                                                            onSelect = {
-                                                                selectedColForSort = c
-                                                                selectedRow = null  // clear row selection on col tap
-                                                            },
-                                                            onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
-                                                            onContextAction = { action ->
-                                                                when (action) {
-                                                                    "INSERT_LEFT" -> viewModel.insertColumn(activeSheetIndex, c, left = true)
-                                                                    "INSERT_RIGHT" -> viewModel.insertColumn(activeSheetIndex, c, left = false)
-                                                                    "DELETE" -> viewModel.deleteColumn(activeSheetIndex, c)
-                                                                    "BEST_FIT" -> viewModel.setColumnBestFit(activeSheetIndex, c)
-                                                                }
-                                                            }
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            // Scrollable column headers
-                                            Box(
-                                                modifier = Modifier.horizontalScroll(horizontalScrollState)
-                                            ) {
-                                                Row {
-                                                    val colCount = if (activeSheet.rows.isNotEmpty()) activeSheet.rows[0].size else 0
-                                                     for (c in actualFrozenCols until colCount) {
-                                                         ColumnHeaderCell(
-                                                             colIndex = c,
-                                                             text = getColHeaderString(c),
-                                                             widthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
-                                                             isSelected = selectedColForSort == c,
-                                                             scale = scale,
-                                                             onSelect = {
-                                                                 selectedColForSort = c
-                                                                 selectedRow = null  // clear row selection on col tap
-                                                             },
-                                                             onResize = { newWidth -> viewModel.setColumnWidth(activeSheetIndex, c, newWidth / scale) },
-                                                             onContextAction = { action ->
-                                                                 when (action) {
-                                                                     "INSERT_LEFT" -> viewModel.insertColumn(activeSheetIndex, c, left = true)
-                                                                     "INSERT_RIGHT" -> viewModel.insertColumn(activeSheetIndex, c, left = false)
-                                                                     "DELETE" -> viewModel.deleteColumn(activeSheetIndex, c)
-                                                                     "BEST_FIT" -> viewModel.setColumnBestFit(activeSheetIndex, c)
-                                                                 }
-                                                             }
-                                                         )
-                                                     }
-                                                }
-                                            }
-                                        }
-
-                                        // 2. Frozen Rows Block (does not scroll vertically, scrolls horizontally)
-                                        if (actualFrozenRows > 0) {
-                                            Column {
-                                                for (r in 0 until actualFrozenRows) {
-                                                    val rowCells = activeSheet.rows.getOrNull(r) ?: emptyList()
-                                                    val rowHeight = activeSheet.rowHeightsDp.getOrNull(r) ?: 24f
-                                                    Row(modifier = Modifier.fillMaxWidth()) {
-                                                        RowHeaderCell(
-                                                            rowIndex = r,
-                                                            text = (r + 1).toString(),
-                                                            heightDp = rowHeight * scale,
-                                                            isSelected = selectedRow == r,
-                                                            scale = scale,
-                                                            onSelect = {
-                                                                selectedRow = r
-                                                                selectedCell = null  // clear cell selection when row selected
-                                                            },
-                                                            onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, r, newHeight / scale) },
-                                                            onContextAction = { action ->
-                                                                when (action) {
-                                                                    "INSERT_ABOVE" -> viewModel.insertRow(activeSheetIndex, r, above = true)
-                                                                    "INSERT_BELOW" -> viewModel.insertRow(activeSheetIndex, r, above = false)
-                                                                    "DELETE" -> viewModel.deleteRow(activeSheetIndex, r)
-                                                                }
-                                                            }
-                                                        )
-                                                        if (actualFrozenCols > 0) {
-                                                            Row {
-                                                                for (c in 0 until actualFrozenCols) {
-                                                                    val cellData = rowCells.getOrNull(c) ?: CellData("")
-                                                                    val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
-                                                                    val isRowSelected = selectedRow == r
-                                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                                        match.pageIndex == activeSheetIndex &&
-                                                                        match.extraData?.split(",")?.let { parts ->
-                                                                            parts.size == 2 && parts[0].toInt() == r && parts[1].toInt() == c
-                                                                        } ?: false
-                                                                    } ?: false
-                                                                    DataCell(
-                                                                        cellData = cellData,
-                                                                        colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
-                                                                        rowHeightDp = rowHeight * scale,
-                                                                        isSelected = isSelected,
-                                                                        isRowSelected = isRowSelected,
-                                                                        isSearchResult = isSearchResult,
-                                                                        scale = scale,
-                                                                        onClick = {
-                                                                            selectedCell = CellCoords(r, c)
-                                                                            selectedCellData = cellData
-                                                                            bottomSheetValue = cellData.text
-                                                                            showBottomSheet = true
-                                                                        },
-                                                                        onUpdateValue = { newValue ->
-                                                                            viewModel.updateCell(activeSheetIndex, r, c, newValue)
-                                                                        }
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                                                            Row {
-                                                                for (c in actualFrozenCols until rowCells.size) {
-                                                                    val cellData = rowCells.getOrNull(c) ?: CellData("")
-                                                                    val isSelected = selectedCell?.rowIndex == r && selectedCell?.colIndex == c
-                                                                    val isRowSelected = selectedRow == r
-                                                                    val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                                        match.pageIndex == activeSheetIndex &&
-                                                                        match.extraData?.split(",")?.let { parts ->
-                                                                            parts.size == 2 && parts[0].toInt() == r && parts[1].toInt() == c
-                                                                        } ?: false
-                                                                    } ?: false
-                                                                    DataCell(
-                                                                        cellData = cellData,
-                                                                        colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
-                                                                        rowHeightDp = rowHeight * scale,
-                                                                        isSelected = isSelected,
-                                                                        isRowSelected = isRowSelected,
-                                                                        isSearchResult = isSearchResult,
-                                                                        scale = scale,
-                                                                        onClick = {
-                                                                            selectedCell = CellCoords(r, c)
-                                                                            selectedCellData = cellData
-                                                                            bottomSheetValue = cellData.text
-                                                                            showBottomSheet = true
-                                                                        },
-                                                                        onUpdateValue = { newValue ->
-                                                                            viewModel.updateCell(activeSheetIndex, r, c, newValue)
-                                                                        }
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // 3. Scrollable Rows Block (LazyColumn)
-                                        LazyColumn(
-                                            state = lazyListState,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .weight(1f),
-                                            contentPadding = PaddingValues(bottom = 16.dp)
-                                        ) {
-                                            items(
-                                                count = activeSheet.rows.size - actualFrozenRows,
-                                                key = { index -> "${activeSheetIndex}_${index + actualFrozenRows}" },
-                                                contentType = { "sheet_row" }
-                                            ) { index ->
-                                                val rowIndex = index + actualFrozenRows
-                                                val rowCells = activeSheet.rows[rowIndex]
-                                                val rowHeight = activeSheet.rowHeightsDp.getOrElse(rowIndex) { 24f }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    // Row Number Header Index - pinned horizontally
-                                                    RowHeaderCell(
-                                                        rowIndex = rowIndex,
-                                                        text = (rowIndex + 1).toString(),
-                                                        heightDp = rowHeight * scale,
-                                                        isSelected = selectedRow == rowIndex,
-                                                        scale = scale,
-                                                        onSelect = {
-                                                            selectedRow = rowIndex
-                                                            selectedCell = null  // clear cell selection when row selected
-                                                        },
-                                                        onResize = { newHeight -> viewModel.setRowHeight(activeSheetIndex, rowIndex, newHeight / scale) },
-                                                        onContextAction = { action ->
-                                                            when (action) {
-                                                                "INSERT_ABOVE" -> viewModel.insertRow(activeSheetIndex, rowIndex, above = true)
-                                                                "INSERT_BELOW" -> viewModel.insertRow(activeSheetIndex, rowIndex, above = false)
-                                                                "DELETE" -> viewModel.deleteRow(activeSheetIndex, rowIndex)
-                                                            }
-                                                        }
-                                                    )
-                                                    
-                                                    // Frozen column data cells in this row
-                                                    if (actualFrozenCols > 0) {
-                                                        Row {
-                                                            for (c in 0 until actualFrozenCols) {
-                                                                val cellData = rowCells.getOrNull(c) ?: CellData("")
-                                                                val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == c
-                                                                val isRowSelected = selectedRow == rowIndex
-                                                                val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                                    match.pageIndex == activeSheetIndex &&
-                                                                    match.extraData?.split(",")?.let { parts ->
-                                                                        parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == c
-                                                                    } ?: false
-                                                                } ?: false
-                                                                val anchoredImageC = activeSheet.images.firstOrNull { it.fromRow == rowIndex && it.fromCol == c }
-                                                                val anchoredChartC = activeSheet.charts.firstOrNull { it.anchorRow == rowIndex && it.anchorCol == c }
-                                                                DataCell(
-                                                                    cellData = cellData,
-                                                                    colWidthDp = activeSheet.columnWidthsDp.getOrElse(c) { 80f } * scale,
-                                                                    rowHeightDp = rowHeight * scale,
-                                                                    isSelected = isSelected,
-                                                                    isRowSelected = isRowSelected,
-                                                                    isSearchResult = isSearchResult,
-                                                                    cellImage = anchoredImageC,
-                                                                    cellChart = anchoredChartC,
-                                                                    scale = scale,
-                                                                    onClick = {
-                                                                        selectedCell = CellCoords(rowIndex, c)
-                                                                        selectedCellData = cellData
-                                                                        bottomSheetValue = cellData.text
-                                                                        showBottomSheet = true
-                                                                    },
-                                                                    onUpdateValue = { newValue ->
-                                                                        viewModel.updateCell(activeSheetIndex, rowIndex, c, newValue)
-                                                                    }
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // Data Row Cells - scrolls horizontally in sync
-                                                    Box(
-                                                        modifier = Modifier.horizontalScroll(horizontalScrollState)
-                                                    ) {
-                                                        Row {
-                                                            for (colIndex in actualFrozenCols until rowCells.size) {
-                                                                val cellData = rowCells[colIndex]
-                                                                val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
-                                                                val isRowSelected = selectedRow == rowIndex
-                                                                val isSearchResult = searchResults.getOrNull(currentMatchIndex)?.let { match ->
-                                                                    match.pageIndex == activeSheetIndex &&
-                                                                    match.extraData?.split(",")?.let { parts ->
-                                                                        parts.size == 2 && parts[0].toInt() == rowIndex && parts[1].toInt() == colIndex
-                                                                    } ?: false
-                                                                } ?: false
-                                                                val anchoredImage = activeSheet.images.firstOrNull { it.fromRow == rowIndex && it.fromCol == colIndex }
-                                                                val anchoredChart = activeSheet.charts.firstOrNull { it.anchorRow == rowIndex && it.anchorCol == colIndex }
-                                                                DataCell(
-                                                                    cellData = cellData,
-                                                                    colWidthDp = activeSheet.columnWidthsDp.getOrElse(colIndex) { 80f } * scale,
-                                                                    rowHeightDp = rowHeight * scale,
-                                                                    isSelected = isSelected,
-                                                                    isRowSelected = isRowSelected,
-                                                                    isSearchResult = isSearchResult,
-                                                                    cellImage = anchoredImage,
-                                                                    cellChart = anchoredChart,
-                                                                    scale = scale,
-                                                                    onClick = {
-                                                                        selectedCell = CellCoords(rowIndex, colIndex)
-                                                                        selectedCellData = cellData
-                                                                        bottomSheetValue = cellData.text
-                                                                        showBottomSheet = true
-                                                                    },
-                                                                    onUpdateValue = { newValue ->
-                                                                        viewModel.updateCell(activeSheetIndex, rowIndex, colIndex, newValue)
-                                                                    }
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // Draw sheet charts and embedded images below the grid
-                                            if (activeSheet.charts.isNotEmpty() || activeSheet.images.isNotEmpty()) {
-                                                item {
-                                                    Spacer(modifier = Modifier.height(24.dp))
-                                                    Text(
-                                                        text = "Visualizations & Images (${activeSheet.charts.size + activeSheet.images.size})",
-                                                        style = MaterialTheme.typography.titleMedium,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                                    )
-                                                }
-                                                items(activeSheet.charts.size) { chartIndex ->
-                                                    val chart = activeSheet.charts[chartIndex]
-                                                    SheetChartView(chart)
-                                                }
-                                                items(activeSheet.images.size) { imageIndex ->
-                                                    val img = activeSheet.images[imageIndex]
-                                                    SheetImageView(img)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
 
                             // Selected Row Statistics Bar
@@ -2224,3 +1926,112 @@ fun RowStatisticsBar(
         }
     }
 }
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun SpreadsheetWebView(
+    xlsxBase64: String,
+    searchQuery: String,
+    currentMatchIndex: Int,
+    onCellSelected: (sheetIndex: Int, row: Int, col: Int, text: String, formula: String) -> Unit,
+    onCellEdited: (sheetIndex: Int, row: Int, col: Int, newValue: String) -> Unit,
+    onSheetChanged: (sheetIndex: Int) -> Unit,
+    onWebViewReady: (WebView) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isPageLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(xlsxBase64, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+        }
+    }
+
+    LaunchedEffect(searchQuery, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null) {
+            val escaped = searchQuery
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", " ")
+                .replace("\r", "")
+            webViewInstance?.evaluateJavascript("searchSpreadsheet('$escaped')", null)
+        }
+    }
+
+    var lastMatchIndex by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(currentMatchIndex, isPageLoaded) {
+        if (isPageLoaded && webViewInstance != null && currentMatchIndex != lastMatchIndex) {
+            if (currentMatchIndex > lastMatchIndex) {
+                webViewInstance?.evaluateJavascript("nextSearchMatch()", null)
+            } else if (currentMatchIndex < lastMatchIndex && currentMatchIndex >= 0) {
+                webViewInstance?.evaluateJavascript("prevSearchMatch()", null)
+            }
+            lastMatchIndex = currentMatchIndex
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    setSupportZoom(true)
+                }
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+
+                addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onCellSelected(sheetIndex: Int, row: Int, col: Int, text: String, formula: String) {
+                        onCellSelected(sheetIndex, row, col, text, formula)
+                    }
+
+                    @JavascriptInterface
+                    fun onCellEdited(sheetIndex: Int, row: Int, col: Int, newValue: String) {
+                        onCellEdited(sheetIndex, row, col, newValue)
+                    }
+
+                    @JavascriptInterface
+                    fun onSheetChanged(sheetIndex: Int) {
+                        onSheetChanged(sheetIndex)
+                    }
+
+                    @JavascriptInterface
+                    fun onRenderComplete(sheetCount: Int) {}
+                }, "AndroidBridge")
+
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        isPageLoaded = true
+                        webViewInstance = this@apply
+                        onWebViewReady(this@apply)
+                        evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
+                    }
+                }
+
+                loadUrl("file:///android_asset/spreadsheet_viewer/viewer.html")
+                webViewInstance = this
+                onWebViewReady(this)
+            }
+        },
+        update = { wv ->
+            webViewInstance = wv
+            onWebViewReady(wv)
+        },
+        modifier = modifier
+    )
+}
+

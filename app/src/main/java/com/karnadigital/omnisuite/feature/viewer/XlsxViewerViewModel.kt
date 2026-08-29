@@ -23,6 +23,7 @@ import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.DateUtil
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
@@ -81,7 +82,11 @@ data class ExcelWorkbook(val sheets: List<ExcelSheet>)
 
 sealed class XlsxLoadState {
     object Loading : XlsxLoadState()
-    data class Success(val workbook: ExcelWorkbook, val fileName: String) : XlsxLoadState()
+    data class Success(
+        val workbook: ExcelWorkbook,
+        val fileName: String,
+        val xlsxBase64: String? = null
+    ) : XlsxLoadState()
     data class Error(val message: String) : XlsxLoadState()
 }
 
@@ -136,6 +141,9 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
+                    val rawBytes = file.readBytes()
+                    val base64Data = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+
                     val isCsv = SpreadsheetUtils.isCsvFile(file)
                     workbook = if (isCsv) {
                         loadCsvAsWorkbook(file)
@@ -154,7 +162,8 @@ class XlsxViewerViewModel @Inject constructor(
 
                     _loadState.value = XlsxLoadState.Success(
                         workbook = parsedWb,
-                        fileName = file.name
+                        fileName = file.name,
+                        xlsxBase64 = base64Data
                     )
 
                 } catch (e: Exception) {
