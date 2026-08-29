@@ -494,6 +494,96 @@
 
                 xs.loadData(xData);
 
+                // Runtime rendering patches: search highlighting + resize handles
+                (function patchSpreadsheetRendering() {
+                    if (!xs || !xs.sheet || !xs.sheet.table) return;
+                    var tableObj = xs.sheet.table;
+                    var origRender = tableObj.render;
+                    tableObj.render = function() {
+                        origRender.call(this);
+                        try {
+                            var d = xs.datas[currentSheetIndex];
+                            if (!d) return;
+                            var canvas = tableObj.tableEl || (tableObj.el ? tableObj.el.querySelector('canvas') : null);
+                            if (!canvas) return;
+                            var ctx = canvas.getContext('2d');
+                            if (!ctx) return;
+                            var scrollX = d.scroll.x, scrollY = d.scroll.y;
+                            var indexW = d.cols.indexWidth || 42;
+                            var headerH = d.rows.height || 26;
+
+                            // 1. Search highlighting on canvas
+                            if (window.allSearchMatches && window.allSearchMatches.length > 0) {
+                                window.allSearchMatches.forEach(function(m) {
+                                    var cell = d.rows.getCell(m.r, m.c);
+                                    if (!cell && cell !== 0) return;
+                                    var isActive = window.activeSearchMatch && window.activeSearchMatch.r === m.r && window.activeSearchMatch.c === m.c;
+                                    var cellX = indexW + d.cols.sumWidth(0, m.c) - scrollX;
+                                    var cellY = headerH + d.rows.sumHeight(0, m.r) - scrollY;
+                                    var cellW = d.cols.getWidth(m.c);
+                                    var cellH = d.rows.getHeight(m.r);
+                                    if (cellX + cellW < indexW || cellY + cellH < headerH) return;
+                                    if (cellX > canvas.width || cellY > canvas.height) return;
+                                    ctx.save();
+                                    if (isActive) {
+                                        ctx.fillStyle = "rgba(255,152,0,0.45)";
+                                        ctx.fillRect(cellX, cellY, cellW, cellH);
+                                        ctx.strokeStyle = "rgba(255,152,0,0.9)";
+                                        ctx.lineWidth = 2;
+                                        ctx.strokeRect(cellX + 1, cellY + 1, cellW - 2, cellH - 2);
+                                    } else {
+                                        ctx.fillStyle = "rgba(255,235,59,0.35)";
+                                        ctx.fillRect(cellX, cellY, cellW, cellH);
+                                        ctx.strokeStyle = "rgba(255,193,7,0.8)";
+                                        ctx.lineWidth = 1.5;
+                                        ctx.strokeRect(cellX + 1, cellY + 1, cellW - 2, cellH - 2);
+                                    }
+                                    ctx.restore();
+                                });
+                            }
+
+                            // 2. Resize handle indicators on headers
+                            ctx.save();
+                            var vr = d.viewRange();
+                            d.colEach(vr.sci, vr.eci, function(cIdx) {
+                                var colW = d.cols.getWidth(cIdx);
+                                var x = indexW + d.cols.sumWidth(0, cIdx) - scrollX;
+                                ctx.strokeStyle = "rgba(16,124,65,0.4)";
+                                ctx.lineWidth = 1.5;
+                                ctx.setLineDash([2, 2]);
+                                ctx.beginPath();
+                                ctx.moveTo(x + colW - 2, 3);
+                                ctx.lineTo(x + colW - 2, headerH - 3);
+                                ctx.stroke();
+                                ctx.setLineDash([]);
+                                ctx.fillStyle = "rgba(16,124,65,0.7)";
+                                ctx.font = "bold 9px sans-serif";
+                                ctx.textAlign = "center";
+                                ctx.textBaseline = "middle";
+                                ctx.fillText("↔", x + colW - 7, headerH / 2);
+                            });
+                            d.rowEach(vr.sri, vr.eri, function(rIdx) {
+                                var rowH = d.rows.getHeight(rIdx);
+                                var y = headerH + d.rows.sumHeight(0, rIdx) - scrollY;
+                                ctx.strokeStyle = "rgba(16,124,65,0.4)";
+                                ctx.lineWidth = 1.5;
+                                ctx.setLineDash([2, 2]);
+                                ctx.beginPath();
+                                ctx.moveTo(3, y + rowH - 2);
+                                ctx.lineTo(indexW - 3, y + rowH - 2);
+                                ctx.stroke();
+                                ctx.setLineDash([]);
+                                ctx.fillStyle = "rgba(16,124,65,0.7)";
+                                ctx.font = "bold 9px sans-serif";
+                                ctx.textAlign = "center";
+                                ctx.textBaseline = "middle";
+                                ctx.fillText("↕", indexW / 2, y + rowH - 7);
+                            });
+                            ctx.restore();
+                        } catch(e) { /* ignore render patch errors */ }
+                    };
+                })();
+
                 // Cell selection listener
                 xs.on('cell-selected', function(cell, ri, ci) {
                     var text = cell ? (cell.text || '') : '';
@@ -882,9 +972,12 @@
 
             d.scroll.x = targetScrollX;
             d.scroll.y = targetScrollY;
-            
+
+            if (xs.sheet.verticalScrollbar) xs.sheet.verticalScrollbar.move({ top: targetScrollY });
+            if (xs.sheet.horizontalScrollbar) xs.sheet.horizontalScrollbar.move({ left: targetScrollX });
+
             window.activeSearchMatch = { r: rIdx, c: cIdx };
-            xs.sheet.reload();
+            if (xs.sheet.table) xs.sheet.table.render();
 
             var cell = d.rows.getCell(rIdx, cIdx);
             var text = cell ? (cell.text || '') : '';
@@ -955,7 +1048,10 @@
 
                 d.scroll.x = targetScrollX;
                 d.scroll.y = targetScrollY;
-                xs.sheet.reload();
+
+                if (xs.sheet.verticalScrollbar) xs.sheet.verticalScrollbar.move({ top: targetScrollY });
+                if (xs.sheet.horizontalScrollbar) xs.sheet.horizontalScrollbar.move({ left: targetScrollX });
+                if (xs.sheet.table) xs.sheet.table.render();
             }
 
             if (window.AndroidBridge) {

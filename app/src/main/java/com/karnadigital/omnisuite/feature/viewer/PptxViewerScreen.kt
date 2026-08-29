@@ -1306,13 +1306,29 @@ fun SlideCardItem(
                 shape = RoundedCornerShape(12.dp)
             )
     ) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(8.dp)
         ) {
-            // 1. Title Block
+            val slideW = constraints.maxWidth.toFloat()
+            val slideH = (constraints.maxWidth * 0.5625f).coerceAtLeast(260f)
+
+            fun absX(normalized: Float): Dp = (normalized * slideW).dp
+            fun absY(normalized: Float): Dp = (normalized * slideH).dp
+            fun absW(normalized: Float): Dp = (normalized * slideW).dp
+            fun absH(normalized: Float): Dp = (normalized * slideH).dp
+
+            fun textBlockStyle(block: PptxTextBlock, textAlign: TextAlign) = MaterialTheme.typography.bodyLarge.copy(
+                fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
+                fontSize = (block.fontSizePt * 0.55f).sp,
+                lineHeight = (block.fontSizePt * 0.7f).sp,
+                textAlign = textAlign
+            )
+
+            // 1. Title Block — positioned using normalized bounds
             val title = slide.title
             if (title.text.isNotBlank()) {
                 val titleColor = title.textColorHex?.let {
@@ -1328,7 +1344,8 @@ fun SlideCardItem(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .offset(x = absX(title.shapeLeft), y = absY(title.shapeTop))
+                        .size(width = absW(title.shapeWidth), height = absH(title.shapeHeight))
                         .clickable(enabled = isEditMode) {
                             onTextBlockClick(title, true, -1)
                         }
@@ -1338,33 +1355,22 @@ fun SlideCardItem(
                             color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
                             shape = RoundedCornerShape(4.dp)
                         )
-                        .padding(if (isEditMode) 4.dp else 0.dp)
+                        .padding(4.dp)
                 ) {
                     androidx.compose.foundation.text.selection.SelectionContainer {
                         Text(
                             text = title.text,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.SemiBold,
-                                fontStyle = if (title.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                                textDecoration = if (title.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                fontSize = 22.sp,
-                                lineHeight = 28.sp,
-                                textAlign = titleAlign
+                            style = textBlockStyle(title, titleAlign).copy(
+                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.SemiBold
                             ),
                             color = titleColor,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
-
-                HorizontalDivider(
-                    color = titleColor.copy(alpha = 0.15f),
-                    thickness = 1.dp,
-                    modifier = Modifier.padding(vertical = 2.dp)
-                )
             }
 
-            // 2. Body Content & Text Blocks
+            // 2. Body Content & Text Blocks — absolutely positioned
             slide.textBlocks.forEachIndexed { idx, block ->
                 val blockColor = block.textColorHex?.let {
                     try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
@@ -1379,7 +1385,8 @@ fun SlideCardItem(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .offset(x = absX(block.shapeLeft), y = absY(block.shapeTop))
+                        .size(width = absW(block.shapeWidth), height = absH(block.shapeHeight))
                         .clickable(enabled = isEditMode) {
                             onTextBlockClick(block, false, idx)
                         }
@@ -1389,7 +1396,7 @@ fun SlideCardItem(
                             color = if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent,
                             shape = RoundedCornerShape(4.dp)
                         )
-                        .padding(if (isEditMode) 4.dp else 0.dp),
+                        .padding(2.dp),
                     contentAlignment = Alignment.TopStart
                 ) {
                     androidx.compose.foundation.text.selection.SelectionContainer {
@@ -1398,26 +1405,19 @@ fun SlideCardItem(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             if (block.bulletLevel > 0) {
-                                Spacer(modifier = Modifier.width((block.bulletLevel * 12).dp))
+                                Spacer(modifier = Modifier.width((block.bulletLevel * 10).dp))
                                 Text(
                                     text = "• ",
                                     style = MaterialTheme.typography.bodyLarge.copy(
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
+                                        fontSize = (block.fontSizePt * 0.55f).sp
                                     ),
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Text(
                                 text = block.text,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
-                                    fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                                    textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                                    fontSize = 15.sp,
-                                    lineHeight = 22.sp,
-                                    textAlign = textAlign
-                                ),
+                                style = textBlockStyle(block, textAlign),
                                 color = blockColor,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
@@ -1426,17 +1426,17 @@ fun SlideCardItem(
                 }
             }
 
-            // 3. Embedded Images
+            // 3. Embedded Images — absolutely positioned using normalized bounds
             if (slide.images.isNotEmpty()) {
                 slide.images.forEach { img ->
                     AsyncImage(
                         model = File(img.filePath),
                         contentDescription = "Slide Image",
                         modifier = Modifier
-                            .fillMaxWidth(0.95f)
-                            .heightIn(max = 240.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                            .offset(x = absX(img.left), y = absY(img.top))
+                            .size(width = absW(img.width), height = absH(img.height))
+                            .clip(RoundedCornerShape(6.dp))
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit
                     )
                 }
@@ -1492,22 +1492,55 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
         cancellationSignal: CancellationSignal?,
         callback: WriteResultCallback?
     ) {
-        var input: java.io.InputStream? = null
-        var output: java.io.OutputStream? = null
+        var ppt: org.apache.poi.xslf.usermodel.XMLSlideShow? = null
         try {
-            input = java.io.FileInputStream(file)
-            output = java.io.FileOutputStream(destination?.fileDescriptor)
-            val buffer = ByteArray(1024)
-            var bytesRead: Int
-            while (input.read(buffer).also { bytesRead = it } >= 0) {
-                output.write(buffer, 0, bytesRead)
+            ppt = org.apache.poi.xslf.usermodel.XMLSlideShow(java.io.FileInputStream(file))
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val slideW = ppt.pageSize.width.toInt().coerceAtLeast(960)
+            val slideH = ppt.pageSize.height.toInt().coerceAtLeast(540)
+
+            var pageNum = 0
+            for (slide in ppt.slides) {
+                if (cancellationSignal?.isCanceled == true) break
+                pageNum++
+                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(slideW, slideH, pageNum).create()
+                val page = pdfDoc.startPage(pageInfo)
+                val canvas = page.canvas
+                val paint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 36f
+                    isAntiAlias = true
+                }
+                val titlePaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 48f
+                    isAntiAlias = true
+                    isFakeBoldText = true
+                }
+
+                var yOffset = 60f
+                for (shape in slide.shapes) {
+                    if (shape is org.apache.poi.xslf.usermodel.XSLFTextShape) {
+                        val text = shape.text ?: continue
+                        val isTitle = shape.isPlaceholder && (shape.textType == org.apache.poi.sl.usermodel.Placeholder.TITLE || shape.textType == org.apache.poi.sl.usermodel.Placeholder.CENTERED_TITLE)
+                        val currentPaint = if (isTitle) titlePaint else paint
+                        canvas.drawText(text, 40f, yOffset, currentPaint)
+                        yOffset += if (isTitle) 70f else 50f
+                    }
+                }
+
+                pdfDoc.finishPage(page)
             }
+
+            val outputStream = java.io.FileOutputStream(destination?.fileDescriptor)
+            pdfDoc.writeTo(outputStream)
+            outputStream.close()
+            pdfDoc.close()
             callback?.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
         } catch (e: Exception) {
             callback?.onWriteFailed(e.localizedMessage)
         } finally {
-            try { input?.close() } catch(e: Exception) {}
-            try { output?.close() } catch(e: Exception) {}
+            try { ppt?.close() } catch (e: Exception) {}
         }
     }
 }

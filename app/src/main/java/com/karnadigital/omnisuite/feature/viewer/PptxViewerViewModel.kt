@@ -961,6 +961,105 @@ class PptxViewerViewModel @Inject constructor(
                             val newShape = newSlide.createTextBox()
                             newShape.clearText()
                             newShape.setText(shape.text)
+                            // Preserve font formatting from original runs
+                            val origParas = shape.textParagraphs
+                            val newParas = newShape.textParagraphs
+                            if (origParas.isNotEmpty() && newParas.isNotEmpty()) {
+                                val origRuns = origParas[0].textRuns
+                                val newRuns = newParas[0].textRuns
+                                if (origRuns.isNotEmpty()) {
+                                    newShape.clearText()
+                                    val newPara = newShape.addNewTextParagraph()
+                                    origRuns.forEach { run ->
+                                        val newRun = newPara.addNewTextRun()
+                                        newRun.setText(run.rawText)
+                                        newRun.isBold = run.isBold
+                                        newRun.isItalic = run.isItalic
+                                        newRun.isUnderlined = run.isUnderlined
+                                        setRunProperties(newRun, extractTextRunColorHex(run), run.fontSize.toFloat())
+                                    }
+                                }
+                            }
+                            // Preserve shape position and size
+                            val xmlBounds = getXmlShapeBoundsNormalized(
+                                shape,
+                                getSlideDimensionsEmu(ppt).first,
+                                getSlideDimensionsEmu(ppt).second
+                            )
+                            if (xmlBounds != null) {
+                                val newSp = getXmlObjectReflection(newShape)
+                                val newSpPr = try {
+                                    newSp?.javaClass?.getMethod("getSpPr")?.invoke(newSp)
+                                        ?: newSp?.javaClass?.getMethod("addNewSpPr")?.invoke(newSp)
+                                } catch (t: Throwable) { null }
+                                val newXfrm = try {
+                                    newSpPr?.javaClass?.getMethod("getXfrm")?.invoke(newSpPr)
+                                        ?: newSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(newSpPr)
+                                } catch (t: Throwable) { null }
+                                if (newXfrm != null) {
+                                    val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+                                    val off = try {
+                                        newXfrm.javaClass.getMethod("getOff").invoke(newXfrm)
+                                            ?: newXfrm.javaClass.getMethod("addNewOff").invoke(newXfrm)
+                                    } catch (t: Throwable) { null }
+                                    val ext = try {
+                                        newXfrm.javaClass.getMethod("getExt").invoke(newXfrm)
+                                            ?: newXfrm.javaClass.getMethod("addNewExt").invoke(newXfrm)
+                                    } catch (t: Throwable) { null }
+                                    if (off != null) {
+                                        off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[0] * slideW).toLong())
+                                        off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[1] * slideH).toLong())
+                                    }
+                                    if (ext != null) {
+                                        ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[2] * slideW).toLong())
+                                        ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[3] * slideH).toLong())
+                                    }
+                                }
+                            }
+                        } else if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
+                            try {
+                                val picData = shape.pictureData
+                                val imageBytes = picData.data
+                                if (imageBytes != null && imageBytes.isNotEmpty()) {
+                                    val newPicData = ppt.addPicture(imageBytes, picData.type)
+                                    val newPicShape = newSlide.createPicture(newPicData)
+                                    val xmlBounds = getXmlShapeBoundsNormalized(
+                                        shape,
+                                        getSlideDimensionsEmu(ppt).first,
+                                        getSlideDimensionsEmu(ppt).second
+                                    )
+                                    if (xmlBounds != null) {
+                                        val newSp = getXmlObjectReflection(newPicShape)
+                                        val newSpPr = try {
+                                            newSp?.javaClass?.getMethod("getSpPr")?.invoke(newSp)
+                                                ?: newSp?.javaClass?.getMethod("addNewSpPr")?.invoke(newSp)
+                                        } catch (t: Throwable) { null }
+                                        val newXfrm = try {
+                                            newSpPr?.javaClass?.getMethod("getXfrm")?.invoke(newSpPr)
+                                                ?: newSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(newSpPr)
+                                        } catch (t: Throwable) { null }
+                                        if (newXfrm != null) {
+                                            val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+                                            val off = try {
+                                                newXfrm.javaClass.getMethod("getOff").invoke(newXfrm)
+                                                    ?: newXfrm.javaClass.getMethod("addNewOff").invoke(newXfrm)
+                                            } catch (t: Throwable) { null }
+                                            val ext = try {
+                                                newXfrm.javaClass.getMethod("getExt").invoke(newXfrm)
+                                                    ?: newXfrm.javaClass.getMethod("addNewExt").invoke(newXfrm)
+                                            } catch (t: Throwable) { null }
+                                            if (off != null) {
+                                                off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[0] * slideW).toLong())
+                                                off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[1] * slideH).toLong())
+                                            }
+                                            if (ext != null) {
+                                                ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[2] * slideW).toLong())
+                                                ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[3] * slideH).toLong())
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (t: Throwable) { t.printStackTrace() }
                         }
                     } catch (t: Throwable) {
                         t.printStackTrace()

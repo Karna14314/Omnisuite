@@ -72,8 +72,8 @@ fun ZoomableBox(
                             if (scale > 1f) {
                                 val maxOffsetX = (size.width * (scale - 1f)) / 2f
                                 val maxOffsetY = (size.height * (scale - 1f)) / 2f
-                                offsetX = (offsetX + panChange.x * scale).coerceIn(-maxOffsetX, maxOffsetX)
-                                offsetY = (offsetY + panChange.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
+                                offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
                             } else {
                                 offsetX = 0f
                                 offsetY = 0f
