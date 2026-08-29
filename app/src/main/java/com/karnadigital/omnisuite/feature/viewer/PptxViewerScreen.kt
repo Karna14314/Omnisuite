@@ -1311,15 +1311,17 @@ fun SlideCardItem(
                 .fillMaxWidth()
                 .padding(8.dp)
         ) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
             val slideW = constraints.maxWidth.toFloat()
             val slideH = (constraints.maxWidth * 0.5625f).coerceAtLeast(260f)
 
-            fun absX(normalized: Float): Dp = (normalized * slideW).dp
-            fun absY(normalized: Float): Dp = (normalized * slideH).dp
-            fun absW(normalized: Float): Dp = (normalized * slideW).dp
-            fun absH(normalized: Float): Dp = (normalized * slideH).dp
+            fun absX(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideW).toDp() }
+            fun absY(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideH).toDp() }
+            fun absW(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideW).toDp() }
+            fun absH(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideH).toDp() }
 
-            fun textBlockStyle(block: PptxTextBlock, textAlign: TextAlign) = MaterialTheme.typography.bodyLarge.copy(
+            val defaultTextStyle = MaterialTheme.typography.bodyLarge
+            fun textBlockStyle(block: PptxTextBlock, textAlign: TextAlign) = defaultTextStyle.copy(
                 fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
                 fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                 textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
@@ -1496,8 +1498,8 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
         try {
             ppt = org.apache.poi.xslf.usermodel.XMLSlideShow(java.io.FileInputStream(file))
             val pdfDoc = android.graphics.pdf.PdfDocument()
-            val slideW = ppt.pageSize.width.toInt().coerceAtLeast(960)
-            val slideH = ppt.pageSize.height.toInt().coerceAtLeast(540)
+            val slideW = 960
+            val slideH = 540
 
             var pageNum = 0
             for (slide in ppt.slides) {
