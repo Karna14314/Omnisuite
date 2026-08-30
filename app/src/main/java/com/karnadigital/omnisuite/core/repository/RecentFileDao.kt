@@ -27,6 +27,18 @@ interface RecentFileDao {
     suspend fun deleteRecentFile(recentFile: RecentFile)
 
     /**
+     * Finds an existing recent file by its URI.
+     */
+    @Query("SELECT * FROM recent_files WHERE fileUri = :fileUri LIMIT 1")
+    suspend fun getRecentFileByUri(fileUri: String): RecentFile?
+
+    /**
+     * Updates the lastOpened timestamp for an existing record.
+     */
+    @Query("UPDATE recent_files SET lastOpened = :timestamp WHERE fileUri = :fileUri")
+    suspend fun updateLastOpened(fileUri: String, timestamp: Long)
+
+    /**
      * Deletes a recent file reference using its fileUri path.
      */
     @Query("DELETE FROM recent_files WHERE fileUri = :fileUri")

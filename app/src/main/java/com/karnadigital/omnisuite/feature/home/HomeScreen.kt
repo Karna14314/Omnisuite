@@ -353,7 +353,7 @@ fun HomeScreen(
                                 color = OmniColors.TextMuted,
                                 fontWeight = FontWeight.Bold
                             )
-                            TextButton(onClick = { showHistorySheet = true }) {
+                            TextButton(onClick = { onEvent(NavigationEvent.NavigateToHistory) }) {
                                 Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp), tint = OmniColors.Accent)
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("All History", color = OmniColors.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -419,6 +419,7 @@ fun HomeScreen(
                             }
                         } else {
                             recentFiles.take(8).forEach { file ->
+                                val (typeColor, typeIcon) = getFileTypeInfo(file.mimeType)
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -439,10 +440,21 @@ fun HomeScreen(
                                             .padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = getFileEmoji(file.mimeType),
-                                            fontSize = 20.sp
-                                        )
+                                        // File type icon with color
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = typeColor.copy(alpha = 0.15f),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = typeIcon,
+                                                    contentDescription = null,
+                                                    tint = typeColor,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
@@ -453,11 +465,28 @@ fun HomeScreen(
                                                 overflow = TextOverflow.Ellipsis,
                                                 color = OmniColors.TextPrimary
                                             )
-                                            Text(
-                                                text = "${formatRelativeTime(file.lastOpened)}${if (file.fileSize > 0) " • ${formatFileSize(file.fileSize)}" else ""}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = OmniColors.TextMuted
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                // Type badge
+                                                Text(
+                                                    text = file.mimeType.substringAfterLast('/').take(4).uppercase(),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = typeColor,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp
+                                                )
+                                                if (file.fileSize > 0) {
+                                                    Text(
+                                                        text = " • ${formatFileSize(file.fileSize)}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = OmniColors.TextMuted
+                                                    )
+                                                }
+                                                Text(
+                                                    text = " • ${formatRelativeTime(file.lastOpened)}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = OmniColors.TextMuted
+                                                )
+                                            }
                                         }
                                         Icon(
                                             imageVector = Icons.Rounded.ChevronRight,
@@ -521,6 +550,22 @@ private fun getFileEmoji(mimeType: String): String {
         mimeType.contains("zip") || mimeType.contains("archive") -> "📦"
         mimeType.startsWith("text/") -> "📄"
         else -> "📁"
+    }
+}
+
+/**
+ * Returns a color and icon for visual file type identification.
+ */
+private fun getFileTypeInfo(mimeType: String): Pair<Color, androidx.compose.ui.graphics.vector.ImageVector> {
+    return when {
+        mimeType.contains("pdf") -> Pair(Color(0xFFE53935), Icons.Default.PictureAsPdf)
+        mimeType.contains("word") || mimeType.contains("document") -> Pair(Color(0xFF1565C0), Icons.Default.Description)
+        mimeType.contains("sheet") || mimeType.contains("excel") -> Pair(Color(0xFF2E7D32), Icons.Default.TableChart)
+        mimeType.contains("presentation") || mimeType.contains("powerpoint") -> Pair(Color(0xFFE65100), Icons.Default.Slideshow)
+        mimeType.startsWith("image/") -> Pair(Color(0xFF7B1FA2), Icons.Default.Image)
+        mimeType.contains("zip") || mimeType.contains("archive") -> Pair(Color(0xFFF9A825), Icons.Default.Archive)
+        mimeType.startsWith("text/") -> Pair(Color(0xFF455A64), Icons.Default.Article)
+        else -> Pair(Color(0xFF607D8B), Icons.Default.InsertDriveFile)
     }
 }
 
@@ -748,6 +793,7 @@ private fun UniversalHistoryBottomSheet(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(files, key = { it.id }) { file ->
+                        val (typeColor, typeIcon) = getFileTypeInfo(file.mimeType)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -762,10 +808,20 @@ private fun UniversalHistoryBottomSheet(
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = getFileEmoji(file.mimeType),
-                                    fontSize = 22.sp
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = typeColor.copy(alpha = 0.15f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = typeIcon,
+                                            contentDescription = null,
+                                            tint = typeColor,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -777,11 +833,27 @@ private fun UniversalHistoryBottomSheet(
                                         color = OmniColors.TextPrimary
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${formatRelativeTime(file.lastOpened)}${if (file.fileSize > 0) " • ${formatFileSize(file.fileSize)}" else ""}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = OmniColors.TextMuted
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = file.mimeType.substringAfterLast('/').take(4).uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = typeColor,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp
+                                        )
+                                        if (file.fileSize > 0) {
+                                            Text(
+                                                text = " • ${formatFileSize(file.fileSize)}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = OmniColors.TextMuted
+                                            )
+                                        }
+                                        Text(
+                                            text = " • ${formatRelativeTime(file.lastOpened)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = OmniColors.TextMuted
+                                        )
+                                    }
                                 }
                                 IconButton(
                                     onClick = { onDeleteFile(file) },

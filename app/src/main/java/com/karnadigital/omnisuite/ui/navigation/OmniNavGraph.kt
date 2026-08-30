@@ -102,6 +102,7 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToXlsxToCsv -> navController.navigate(Screen.XlsxToCsv.createRoute())
                         is NavigationEvent.NavigateToPptxToTxt -> navController.navigate(Screen.PptxToTxt.createRoute())
                         is NavigationEvent.NavigateToTarTools -> navController.navigate(Screen.TarTools.route)
+                        is NavigationEvent.NavigateToHistory -> navController.navigate(Screen.History.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -701,6 +702,16 @@ fun OmniNavGraph(
             com.karnadigital.omnisuite.feature.viewer.SequentialImageViewerScreen(
                 imageUris = decodedUris,
                 title = titleParam,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // History Screen (Full Page)
+        composable(route = Screen.History.route) {
+            com.karnadigital.omnisuite.feature.history.HistoryScreen(
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                },
                 onBack = { navController.popBackStack() }
             )
         }

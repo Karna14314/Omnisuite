@@ -277,6 +277,11 @@ sealed class Screen(val route: String) {
     object TarTools : Screen("tar_tools")
 
     /**
+     * Dedicated full-page history screen for browsing all recent files.
+     */
+    object History : Screen("history")
+
+    /**
      * Sequential Image Viewer Screen for multiple images
      */
     object SequentialImageViewer : Screen("sequential_image_viewer?uris={uris}&title={title}") {

@@ -38,6 +38,7 @@ sealed class NavigationEvent {
     data object NavigateToXlsxToCsv : NavigationEvent()
     data object NavigateToPptxToTxt : NavigationEvent()
     data object NavigateToTarTools : NavigationEvent()
+    data object NavigateToHistory : NavigationEvent()
     data class OpenFile(val fileUri: String) : NavigationEvent()
     data class OpenSequentialImages(val imageUris: List<String>, val title: String = "Extracted Images") : NavigationEvent()
     data class SelectFileForType(val type: String) : NavigationEvent()

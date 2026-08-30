@@ -18,7 +18,8 @@ class RecentFileRepository @Inject constructor(
     val recentFiles: Flow<List<RecentFile>> = recentFileDao.getRecentFilesFlow()
 
     /**
-     * Inserts or replaces a recent file reference in the persistence cache.
+     * Inserts a new recent file reference or updates the timestamp if the file already exists.
+     * Each file has only one unique record identified by its URI.
      */
     suspend fun insertRecentFile(recentFile: RecentFile) {
         val mime = recentFile.mimeType.lowercase()
@@ -45,7 +46,15 @@ class RecentFileRepository @Inject constructor(
                 mime.startsWith("application/x-")
 
         val modified = recentFile.copy(isOperation = isOp)
-        recentFileDao.insertRecentFile(modified)
+
+        // Check if file already exists by URI
+        val existing = recentFileDao.getRecentFileByUri(modified.fileUri)
+        if (existing != null) {
+            // Update timestamp instead of creating duplicate
+            recentFileDao.updateLastOpened(modified.fileUri, modified.lastOpened)
+        } else {
+            recentFileDao.insertRecentFile(modified)
+        }
     }
 
     /**
