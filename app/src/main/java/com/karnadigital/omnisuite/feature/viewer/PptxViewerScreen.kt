@@ -125,20 +125,6 @@ fun PptxViewerScreen(
 
     LaunchedEffect(fileUri) {
         viewModel.loadPptxFile(fileUri)
-        try {
-            val uri = Uri.parse(fileUri)
-            val name = uri.lastPathSegment ?: "presentation.pptx"
-            val coreRepo = coreEntryPoint(context).recentFileRepository()
-            coreRepo.insertRecentFile(
-                com.karnadigital.omnisuite.core.model.RecentFile(
-                    fileUri = fileUri,
-                    fileName = name,
-                    mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    fileSize = 0L,
-                    lastOpened = System.currentTimeMillis()
-                )
-            )
-        } catch (e: Exception) {}
     }
 
     LaunchedEffect(Unit) {

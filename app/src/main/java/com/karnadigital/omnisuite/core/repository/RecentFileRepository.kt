@@ -20,6 +20,7 @@ class RecentFileRepository @Inject constructor(
     /**
      * Inserts a new recent file reference or updates the timestamp if the file already exists.
      * Each file has only one unique record identified by its URI.
+     * Cleans up any existing duplicates before insert/update.
      */
     suspend fun insertRecentFile(recentFile: RecentFile) {
         val mime = recentFile.mimeType.lowercase()
@@ -47,14 +48,10 @@ class RecentFileRepository @Inject constructor(
 
         val modified = recentFile.copy(isOperation = isOp)
 
-        // Check if file already exists by URI
-        val existing = recentFileDao.getRecentFileByUri(modified.fileUri)
-        if (existing != null) {
-            // Update timestamp instead of creating duplicate
-            recentFileDao.updateLastOpened(modified.fileUri, modified.lastOpened)
-        } else {
-            recentFileDao.insertRecentFile(modified)
-        }
+        // Delete all existing records for this URI to clean up duplicates
+        recentFileDao.deleteRecentFileByUri(modified.fileUri)
+        // Insert fresh record (always single entry per URI)
+        recentFileDao.insertRecentFile(modified)
     }
 
     /**

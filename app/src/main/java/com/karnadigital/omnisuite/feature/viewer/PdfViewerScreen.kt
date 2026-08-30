@@ -108,20 +108,6 @@ fun PdfViewerScreen(
 
     LaunchedEffect(fileUri) {
         viewModel.loadPdf(fileUri)
-        try {
-            val uri = Uri.parse(fileUri)
-            val name = uri.lastPathSegment ?: "document.pdf"
-            val coreRepo = coreEntryPoint(context).recentFileRepository()
-            coreRepo.insertRecentFile(
-                com.karnadigital.omnisuite.core.model.RecentFile(
-                    fileUri = fileUri,
-                    fileName = name,
-                    mimeType = "application/pdf",
-                    fileSize = 0L,
-                    lastOpened = System.currentTimeMillis()
-                )
-            )
-        } catch (e: Exception) {}
     }
 
     val state by viewModel.loadState.collectAsState()
