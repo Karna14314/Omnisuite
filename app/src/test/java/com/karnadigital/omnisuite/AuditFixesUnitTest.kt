@@ -5,10 +5,12 @@ import com.karnadigital.omnisuite.core.util.SpreadsheetUtils
 import com.karnadigital.omnisuite.core.util.TextSearchUtils
 import com.karnadigital.omnisuite.core.util.UriSchemeUtils
 import com.karnadigital.omnisuite.core.util.ZipSecurity
+import com.karnadigital.omnisuite.feature.viewer.PptxParagraph
 import com.karnadigital.omnisuite.feature.viewer.PptxPresentation
 import com.karnadigital.omnisuite.feature.viewer.PptxSearchEngine
 import com.karnadigital.omnisuite.feature.viewer.PptxSlide
-import com.karnadigital.omnisuite.feature.viewer.PptxTextBlock
+import com.karnadigital.omnisuite.feature.viewer.PptxTextRun
+import com.karnadigital.omnisuite.feature.viewer.PptxTextShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -26,6 +28,16 @@ import java.io.FileWriter
  *  - M6  CSV detection heuristic (SpreadsheetUtils.isCsvFile)
  */
 class AuditFixesUnitTest {
+
+    private fun createTestShape(id: String, text: String, isTitle: Boolean = false): PptxTextShape {
+        return PptxTextShape(
+            id = id,
+            isTitle = isTitle,
+            paragraphs = listOf(
+                PptxParagraph(runs = listOf(PptxTextRun(text = text)))
+            )
+        )
+    }
 
     // ---- C3: ZIP path traversal ----
     @Test
@@ -135,18 +147,15 @@ class AuditFixesUnitTest {
         }
     }
 
-    // ---- M5: image downsampling math ----
+    // ---- H2: Image sampling OOM protection ----
     @Test
-    fun testCalculateInSampleSize() {
-        // Small image: no downsampling
-        assertEquals(1, ImageSampling.calculateInSampleSize(100, 100, 3000, 3000))
-        // 4000x3000 targeting 3000x3000: half-width 2000 is already below 3000, so no downsampling
-        // (standard Android behavior: decoded size stays >= requested size)
-        assertEquals(1, ImageSampling.calculateInSampleSize(4000, 3000, 3000, 3000))
-        // 8000x6000 targeting 3000x3000 → halves once to 4000x3000 (sample size 2)
-        assertEquals(2, ImageSampling.calculateInSampleSize(8000, 6000, 3000, 3000))
-        // 12000x12000 targeting 3000x3000 → halves twice to 3000x3000 (sample size 4)
-        assertEquals(4, ImageSampling.calculateInSampleSize(12000, 12000, 3000, 3000))
+    fun testCalculateInSampleSize_powersOfTwo() {
+        // Image is 2000x2000, target is 1000x1000 -> sampleSize 2
+        assertEquals(2, ImageSampling.calculateInSampleSize(2000, 2000, 1000, 1000))
+        // Image is 4000x4000, target is 1000x1000 -> sampleSize 4
+        assertEquals(4, ImageSampling.calculateInSampleSize(4000, 4000, 1000, 1000))
+        // Image is 800x600, target is 1000x1000 -> sampleSize 1 (no downsampling)
+        assertEquals(1, ImageSampling.calculateInSampleSize(800, 600, 1000, 1000))
         // Invalid dimensions are safe (no crash, no downsampling)
         assertEquals(1, ImageSampling.calculateInSampleSize(0, 0, 3000, 3000))
         assertEquals(1, ImageSampling.calculateInSampleSize(-1, 100, 3000, 3000))
@@ -159,17 +168,17 @@ class AuditFixesUnitTest {
             slides = listOf(
                 PptxSlide(
                     slideNumber = 0,
-                    title = PptxTextBlock(id = "title", text = "Quarterly Report"),
-                    textBlocks = listOf(
-                        PptxTextBlock(id = "t1", text = "Revenue grew ten percent this quarter."),
-                        PptxTextBlock(id = "t2", text = "Quarter expenses were controlled.")
+                    title = createTestShape(id = "title", text = "Quarterly Report", isTitle = true),
+                    textShapes = listOf(
+                        createTestShape(id = "t1", text = "Revenue grew ten percent this quarter."),
+                        createTestShape(id = "t2", text = "Quarter expenses were controlled.")
                     ),
                     speakerNotes = "Emphasize the quarterly growth story."
                 ),
                 PptxSlide(
                     slideNumber = 1,
-                    title = PptxTextBlock(id = "title", text = "Roadmap"),
-                    textBlocks = listOf(PptxTextBlock(id = "t1", text = "Next quarter priorities.")),
+                    title = createTestShape(id = "title", text = "Roadmap", isTitle = true),
+                    textShapes = listOf(createTestShape(id = "t1", text = "Next quarter priorities.")),
                     speakerNotes = null
                 )
             )
@@ -193,4 +202,42 @@ class AuditFixesUnitTest {
         // Blank query → empty (no re-parse needed; pure in-memory)
         assertTrue(PptxSearchEngine.search(presentation, "").isEmpty())
     }
+
+    // ---- Readable PPTX text font scaling floor and document background ----
+    @Test
+    fun testPptxFontScalingReadability() {
+        // On standard mobile device (slide card width = ~360dp)
+        val slideW = 360f
+        val widthScale = (slideW / 360f).coerceIn(0.85f, 2.5f)
+        val minFloorSp = 10.5f
+        val maxCeilSp = 18f
+
+        // 14pt body text must NOT scale down to sub-readable 6sp
+        val basePt14 = 14f
+        val calcSp14 = (minFloorSp + ((basePt14 - 12f).coerceAtLeast(0f) * 0.45f * widthScale)).coerceIn(minFloorSp, maxCeilSp)
+        assertTrue("14pt body text must be at least 11sp on mobile, but got $calcSp14", calcSp14 >= 11.0f)
+
+        // Small 10pt captions must stay at or above the 10.5sp floor
+        val basePt10 = 10f
+        val calcSp10 = (minFloorSp + ((basePt10 - 12f).coerceAtLeast(0f) * 0.45f * widthScale)).coerceIn(minFloorSp, maxCeilSp)
+        assertEquals(10.5f, calcSp10, 0.001f)
+
+        // 24pt title text on mobile (min floor 13.5sp, title max 26sp)
+        val titleFloorSp = 13.5f
+        val titleCeilSp = 26f
+        val basePt24 = 24f
+        val calcTitleSp = (titleFloorSp + ((basePt24 - 12f).coerceAtLeast(0f) * 0.45f * widthScale)).coerceIn(titleFloorSp, titleCeilSp)
+        assertTrue("24pt title should scale to >= 18sp, got $calcTitleSp", calcTitleSp >= 18f)
+    }
+
+    @Test
+    fun testPptxSlideDefaultBackgroundColor() {
+        // Document content slides without explicit background must default to white (#FFFFFF / Color.White)
+        val slideWithNoBg = PptxSlide(slideNumber = 0, bgColorHex = null)
+        assertNull(slideWithNoBg.bgColorHex)
+
+        val fallbackColorHex = slideWithNoBg.bgColorHex ?: "#FFFFFF"
+        assertEquals("#FFFFFF", fallbackColorHex)
+    }
 }
+

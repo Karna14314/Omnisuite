@@ -29,6 +29,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     signingConfigs {
         create("release") {
             val ciKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
