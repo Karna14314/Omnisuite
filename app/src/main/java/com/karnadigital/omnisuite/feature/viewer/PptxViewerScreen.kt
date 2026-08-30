@@ -1305,7 +1305,10 @@ fun SlideCardItem(
             // LAYER 1: Background Image (bottom layer, full slide coverage)
             slide.backgroundImage?.let { bgImg ->
                 AsyncImage(
-                    model = File(bgImg.filePath),
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(File(bgImg.filePath))
+                        .crossfade(true)
+                        .build(),
                     contentDescription = "Slide Background",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds
@@ -1315,7 +1318,10 @@ fun SlideCardItem(
             // LAYER 2: Foreground Images - positioned with exact normalized coordinates
             slide.images.forEach { img ->
                 AsyncImage(
-                    model = File(img.filePath),
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(File(img.filePath))
+                        .crossfade(true)
+                        .build(),
                     contentDescription = "Slide Image",
                     modifier = Modifier
                         .offset(x = (img.left * slideW).dp, y = (img.top * slideH).dp)
@@ -1363,7 +1369,7 @@ fun TextShapeItem(
     onClick: () -> Unit
 ) {
     val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
-    // Dampened font scale: prevents large titles from being too big, small body from being too small
+    // Proportional font scale: reference 720dp slide width
     val fontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
 
     Box(
@@ -1400,6 +1406,7 @@ fun TextShapeItem(
                 }
 
                 val bulletLevel = paragraph.bulletLevel
+                val showBullet = paragraph.hasBullet || bulletLevel > 0
                 val defaultFontSize = if (isTitle) 20f else 12f
                 val bulletSp = (defaultFontSize * fontScale).coerceIn(5f, 18f).sp
 
@@ -1409,10 +1416,12 @@ fun TextShapeItem(
                         .padding(bottom = 1.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    if (bulletLevel > 0) {
-                        Spacer(modifier = Modifier.width((bulletLevel * 6 * fontScale).coerceAtLeast(2f).dp))
+                    if (showBullet) {
+                        if (bulletLevel > 0) {
+                            Spacer(modifier = Modifier.width((bulletLevel * 6 * fontScale).coerceAtLeast(2f).dp))
+                        }
                         Text(
-                            text = "• ",
+                            text = if (paragraph.bulletChar.isNotBlank()) "${paragraph.bulletChar} " else "• ",
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = bulletSp

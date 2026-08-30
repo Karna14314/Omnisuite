@@ -533,34 +533,51 @@ class OfficeConverter @Inject constructor(
                 }
                 try { collectBitmapShapes(slide.shapes) } catch (_: Throwable) { }
 
-                // Draw all shapes — check PictureShape BEFORE TextShape/SimpleShape
+                // Draw all shapes — check PictureShape / blipFill FIRST
                 for (shape in allSlideShapes) {
-                    val normBounds = getShapeNormalizedBounds(shape, slideWidthEmu, slideHeightEmu)
+                    val normBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
 
-                    // Check if this is a picture shape FIRST (XSLFPictureShape extends XSLFTextShape extends XSLFSimpleShape)
+                    // Check if this shape is a picture (XSLFPictureShape or shape with blipFill)
+                    var dataBytes: ByteArray? = null
                     if (shape is org.apache.poi.xslf.usermodel.XSLFPictureShape) {
+                        try { dataBytes = shape.pictureData?.data } catch (_: Throwable) { }
+                        if (dataBytes == null) {
+                            try {
+                                val pd = shape.javaClass.getMethod("getPictureData").invoke(shape)
+                                if (pd != null) dataBytes = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
+                            } catch (_: Throwable) { }
+                        }
+                    }
+                    if (dataBytes == null) {
                         try {
-                            var dataBytes: ByteArray? = null
-                            // Strategy A: direct cast
-                            try { dataBytes = shape.pictureData?.data } catch (_: Throwable) { }
-                            // Strategy B: reflection
-                            if (dataBytes == null) {
-                                try {
-                                    val pd = shape.javaClass.getMethod("getPictureData").invoke(shape)
-                                    if (pd != null) dataBytes = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
-                                } catch (_: Throwable) { }
-                            }
-                            if (dataBytes != null && dataBytes.isNotEmpty()) {
-                                val bmp = BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size)
-                                if (bmp != null) {
-                                    val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
-                                    val destRect = android.graphics.Rect(
-                                        (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
-                                        ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
-                                    )
-                                    canvas.drawBitmap(bmp, null, destRect, null)
-                                    bmp.recycle()
+                            val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+                            if (xml != null) {
+                                val xmlStr = xml.toString()
+                                val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
+                                if (match != null) {
+                                    val rId = match.groupValues[1]
+                                    val rel = slide.packagePart?.getRelationship(rId)
+                                    if (rel != null) {
+                                        val targetUri = org.apache.poi.openxml4j.opc.PackagingURIHelper.resolvePartUri(slide.packagePart.partName, rel.targetURI)
+                                        val part = slide.packagePart.getPackage().getPart(targetUri)
+                                        dataBytes = part?.inputStream?.use { it.readBytes() }
+                                    }
                                 }
+                            }
+                        } catch (_: Throwable) { }
+                    }
+
+                    if (dataBytes != null && dataBytes.isNotEmpty()) {
+                        try {
+                            val bmp = BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size)
+                            if (bmp != null) {
+                                val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
+                                val destRect = android.graphics.Rect(
+                                    (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
+                                    ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
+                                )
+                                canvas.drawBitmap(bmp, null, destRect, null)
+                                bmp.recycle()
                             }
                         } catch (_: Throwable) { }
                         continue
@@ -993,16 +1010,59 @@ class OfficeConverter @Inject constructor(
      * Extracts normalized shape bounds (left, top, width, height: 0.0f..1.0f)
      * using getAnchor() reflection with fallback to XMLBeans without java.awt compile dependencies.
      */
+    private fun extractLongValueOC(obj: Any?): Long? {
+        if (obj == null) return null
+        if (obj is Number) return obj.toLong()
+        try {
+            val longValMethod = obj.javaClass.getMethod("getLongValue")
+            val v = longValMethod.invoke(obj)
+            if (v is Number) return v.toLong()
+        } catch (_: Throwable) { }
+        try {
+            val str = obj.toString().trim()
+            val num = str.toLongOrNull()
+            if (num != null) return num
+            val doubleNum = str.toDoubleOrNull()
+            if (doubleNum != null) return doubleNum.toLong()
+        } catch (_: Throwable) { }
+        return null
+    }
+
     private fun getShapeNormalizedBounds(
         shape: Any,
+        slide: Any?,
         slideWidthEmu: Long,
         slideHeightEmu: Long
     ): FloatArray? {
-        // Strategy 1: XMLBeans direct EMU extraction (most reliable on Android)
-        val xmlResult = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
-        if (xmlResult != null) return xmlResult
+        // Strategy 1: XMLBeans direct EMU extraction
+        val directXml = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
+        if (directXml != null) return directXml
 
-        // Strategy 2: Try getAnchor() via reflection
+        // Strategy 2: If placeholder, resolve from Slide Layout / Master
+        if (slide is XSLFSlide && shape is XSLFShape) {
+            try {
+                val phDetails = try { shape.placeholderDetails } catch (_: Throwable) { null }
+                val phType = phDetails?.placeholder
+                if (phType != null) {
+                    val layoutShapes = try { slide.slideLayout?.shapes } catch (_: Throwable) { emptyList() }
+                    for (lShape in layoutShapes) {
+                        if (lShape.placeholderDetails?.placeholder == phType) {
+                            val lBounds = getXmlShapeBoundsNormalized(lShape, slideWidthEmu, slideHeightEmu)
+                            if (lBounds != null) return lBounds
+                        }
+                    }
+                    val masterShapes = try { slide.slideLayout?.slideMaster?.shapes } catch (_: Throwable) { emptyList() }
+                    for (mShape in masterShapes) {
+                        if (mShape.placeholderDetails?.placeholder == phType) {
+                            val mBounds = getXmlShapeBoundsNormalized(mShape, slideWidthEmu, slideHeightEmu)
+                            if (mBounds != null) return mBounds
+                        }
+                    }
+                }
+            } catch (_: Throwable) { }
+        }
+
+        // Strategy 3: Try getAnchor() via reflection
         try {
             val anchor = shape.javaClass.getMethod("getAnchor").invoke(shape)
             if (anchor != null) {
@@ -1045,24 +1105,15 @@ class OfficeConverter @Inject constructor(
                 } catch (t2: Throwable) { null }
             } ?: return null
 
-            // Try multiple paths to find xfrm transform
             var xfrm: Any? = null
-
-            // Path 1: xml.getSpPr().getXfrm() — works for CTShape, CTPicture, CTConnector
             xfrm = tryGetXfrmOC(xmlObj, "getSpPr")
-
-            // Path 2: xml.getGrpSpPr().getXfrm() — works for CTGroupShape
             if (xfrm == null) xfrm = tryGetXfrmOC(xmlObj, "getGrpSpPr")
-
-            // Path 3: Try other property accessors
             if (xfrm == null) {
                 for (methodName in listOf("getCxnSpPr", "getNvSpPr", "getNvPicPr", "getNvCxnSpPr")) {
                     xfrm = tryGetXfrmOC(xmlObj, methodName)
                     if (xfrm != null) break
                 }
             }
-
-            // Path 4: Direct xfrm on the xml object itself
             if (xfrm == null) {
                 xfrm = try { xmlObj.javaClass.getMethod("getXfrm").invoke(xmlObj) } catch (_: Throwable) { null }
             }
@@ -1072,10 +1123,15 @@ class OfficeConverter @Inject constructor(
             val off = try { xfrm.javaClass.getMethod("getOff").invoke(xfrm) } catch (_: Throwable) { null }
             val ext = try { xfrm.javaClass.getMethod("getExt").invoke(xfrm) } catch (_: Throwable) { null }
 
-            val x = (try { off?.javaClass?.getMethod("getX")?.invoke(off) as? Number } catch (_: Throwable) { null })?.toLong()
-            val y = (try { off?.javaClass?.getMethod("getY")?.invoke(off) as? Number } catch (_: Throwable) { null })?.toLong()
-            val cx = (try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) as? Number } catch (_: Throwable) { null })?.toLong()
-            val cy = (try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) as? Number } catch (_: Throwable) { null })?.toLong()
+            val rawX = try { off?.javaClass?.getMethod("getX")?.invoke(off) } catch (_: Throwable) { null }
+            val rawY = try { off?.javaClass?.getMethod("getY")?.invoke(off) } catch (_: Throwable) { null }
+            val rawCx = try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) } catch (_: Throwable) { null }
+            val rawCy = try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) } catch (_: Throwable) { null }
+
+            val x = extractLongValueOC(rawX)
+            val y = extractLongValueOC(rawY)
+            val cx = extractLongValueOC(rawCx)
+            val cy = extractLongValueOC(rawCy)
 
             if (x != null && y != null && cx != null && cy != null && cx > 0 && cy > 0) {
                 return floatArrayOf(
