@@ -22,6 +22,7 @@ fun ZoomableBox(
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
     var size by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
@@ -34,32 +35,34 @@ fun ZoomableBox(
                         if (scale > 1f) {
                             scale = 1f
                             offsetX = 0f
+                            offsetY = 0f
                         } else {
                             scale = 2.5f
                             offsetX = 0f
+                            offsetY = 0f
                         }
                         onScaleChanged(scale)
                     }
                 )
             }
             .pointerInput(Unit) {
-                // Pinch-to-zoom and pan when zoomed
+                // Pinch-to-zoom using detectTransformGestures
+                // This only activates for multi-touch and doesn't block scrolling
                 detectTransformGestures { _, pan, zoom, _ ->
-                    if (scale > 1f || zoom != 1f) {
-                        scale = (scale * zoom).coerceIn(minScale, maxScale)
+                    val newScale = (scale * zoom).coerceIn(minScale, maxScale)
+                    if (newScale != scale) {
+                        scale = newScale
                         onScaleChanged(scale)
                     }
 
                     if (scale > 1f) {
                         val maxOffsetX = (size.width * (scale - 1f)) / 2f
+                        val maxOffsetY = (size.height * (scale - 1f)) / 2f
                         offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
-
-                        // Forward vertical pan to LazyColumn for scrolling when zoomed
-                        if (pan.y != 0f) {
-                            lazyListState?.dispatchRawDelta(-pan.y)
-                        }
+                        offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
                     } else {
                         offsetX = 0f
+                        offsetY = 0f
                     }
                 }
             }
@@ -67,8 +70,7 @@ fun ZoomableBox(
                 scaleX = scale,
                 scaleY = scale,
                 translationX = offsetX,
-                translationY = 0f,
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                translationY = offsetY
             )
     ) {
         content()

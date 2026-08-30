@@ -1158,9 +1158,8 @@ fun InteractivePdfPageItem(
                                 .pointerInput(pageIndex, bitmap, pageSize) {
                                     detectTapGestures(
                                         onTap = {
-                                            if (selectPageIndex != -1) {
-                                                onSelectionChange(-1, -1, -1)
-                                            }
+                                            // Clear selection when tapping anywhere on the page
+                                            onSelectionChange(-1, -1, -1)
                                         },
                                         onLongPress = { touchOffset ->
                                             coroutineScope.launch {
@@ -1237,24 +1236,19 @@ fun InteractivePdfPageItem(
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onTap = {
-                                            onSelectionChange(-1, -1, -1)
-                                        }
-                                    )
-                                }
                                 .pointerInput(pageIndex) {
                                     detectDragGestures(
                                         onDragStart = { offset ->
                                             val startDist = (offset - Offset(handleStartX, handleStartY)).getDistance()
                                             val endDist = (offset - Offset(handleEndX, handleEndY)).getDistance()
-                                            val threshold = 40.dp.toPx()
+                                            val threshold = 48.dp.toPx()
                                             if (startDist < threshold && startDist < endDist) {
                                                 draggingHandle = "start"
                                             } else if (endDist < threshold) {
                                                 draggingHandle = "end"
                                             } else {
+                                                // Tapped outside handles - clear selection
+                                                onSelectionChange(-1, -1, -1)
                                                 draggingHandle = null
                                             }
                                         },
@@ -1262,7 +1256,7 @@ fun InteractivePdfPageItem(
                                             val handle = draggingHandle ?: return@detectDragGestures
                                             change.consume()
                                             val positions = currentPositionsState
-                                            val closestIndex = findClosestCharIndex(
+                                            val closestIndex = findClosestCharIndexForDrag(
                                                 change.position.x, change.position.y,
                                                 positions, currentScaleX, currentScaleY
                                             )
@@ -1285,6 +1279,7 @@ fun InteractivePdfPageItem(
                                 }
                         ) {
                             Canvas(modifier = Modifier.matchParentSize()) {
+                                // Draw selection highlight
                                 rects.forEach { rect ->
                                     drawRoundRect(
                                         color = Color(0xFF2196F3).copy(alpha = 0.3f),
@@ -1293,26 +1288,28 @@ fun InteractivePdfPageItem(
                                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
                                     )
                                 }
-                                drawCircle(
-                                    color = Color(0xFF2196F3),
-                                    radius = 8.dp.toPx(),
-                                    center = Offset(handleStartX, handleStartY)
+                                // Draw start handle (teardrop pointing down at selection)
+                                drawSelectionHandle(
+                                    centerX = handleStartX,
+                                    centerY = handleStartY,
+                                    pointUp = false
                                 )
-                                drawCircle(
-                                    color = Color(0xFF2196F3),
-                                    radius = 8.dp.toPx(),
-                                    center = Offset(handleEndX, handleEndY)
+                                // Draw end handle (teardrop pointing up at selection)
+                                drawSelectionHandle(
+                                    centerX = handleEndX,
+                                    centerY = handleEndY,
+                                    pointUp = true
                                 )
                             }
 
-                            // Floating context menu
+                            // Floating context menu - minimalist design
                             val menuWidth = 180.dp
-                            val menuHeight = 44.dp
+                            val menuHeight = 36.dp
                             val menuLeft = with(density) {
                                 (handleStartX + handleEndX) / 2f - menuWidth.toPx() / 2f
                             }
                             val menuTop = with(density) {
-                                (rects.minOfOrNull { it.top } ?: 0f) - 60.dp.toPx()
+                                (rects.minOfOrNull { it.top } ?: 0f) - 52.dp.toPx()
                             }
 
                             Box(
@@ -1328,10 +1325,15 @@ fun InteractivePdfPageItem(
                                     }
                                     .width(menuWidth)
                                     .height(menuHeight)
-                                    .shadow(6.dp, RoundedCornerShape(8.dp))
+                                    .shadow(4.dp, RoundedCornerShape(16.dp))
                                     .background(
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                                        shape = RoundedCornerShape(8.dp)
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(16.dp)
                                     )
                                     .clickable(enabled = false) {},
                                 contentAlignment = Alignment.Center
@@ -1343,43 +1345,64 @@ fun InteractivePdfPageItem(
                                 ) {
                                     val clipboardManager = LocalClipboardManager.current
 
+                                    // Copy button - icon only for minimalist look
                                     TextButton(
                                         onClick = {
                                             val selectedText = currentPositions.subList(
                                                 selectStartCharIndex, selectEndCharIndex
                                             ).joinToString("") { it.unicode }
                                             clipboardManager.setText(AnnotatedString(selectedText))
-                                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                                             onSelectionChange(-1, -1, -1)
                                         },
-                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Copy", style = MaterialTheme.typography.bodySmall)
+                                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(20.dp))
                                     }
 
                                     Box(
                                         modifier = Modifier
                                             .width(1.dp)
-                                            .height(20.dp)
-                                            .background(MaterialTheme.colorScheme.outlineVariant)
+                                            .height(18.dp)
+                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                     )
 
+                                    // Select All button - icon only
+                                    TextButton(
+                                        onClick = {
+                                            onSelectionChange(pageIndex, 0, currentPositions.size)
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Default.SelectAll, contentDescription = "Select All", modifier = Modifier.size(20.dp))
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .width(1.dp)
+                                            .height(18.dp)
+                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    )
+
+                                    // Search button - icon only, opens web search
                                     TextButton(
                                         onClick = {
                                             val selectedText = currentPositions.subList(
                                                 selectStartCharIndex, selectEndCharIndex
                                             ).joinToString("") { it.unicode }
-                                            clipboardManager.setText(AnnotatedString(selectedText))
-                                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                                             onSelectionChange(-1, -1, -1)
+                                            try {
+                                                val encodedQuery = java.net.URLEncoder.encode(selectedText, "UTF-8")
+                                                val searchUri = Uri.parse("https://www.google.com/search?q=$encodedQuery")
+                                                val browserIntent = Intent(Intent.ACTION_VIEW, searchUri)
+                                                context.startActivity(browserIntent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not open browser", Toast.LENGTH_SHORT).show()
+                                            }
                                         },
-                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.BorderColor, contentDescription = "Highlight", modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Copy", style = MaterialTheme.typography.bodySmall)
+                                        Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }
@@ -1461,6 +1484,48 @@ fun InteractivePdfPageItem(
 }
 
 /**
+ * Draws a professional blue teardrop selection handle.
+ * The handle points directly at the selected text.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionHandle(
+    centerX: Float,
+    centerY: Float,
+    pointUp: Boolean
+) {
+    val handleRadius = 12.dp.toPx()
+    val stemLength = 18.dp.toPx()
+    val stemWidth = 6.dp.toPx()
+
+    val stemTop = if (pointUp) centerY - stemLength else centerY
+    val stemBottom = if (pointUp) centerY else centerY + stemLength
+
+    // Draw stem (triangle pointing toward text)
+    val path = Path().apply {
+        moveTo(centerX - stemWidth / 2, stemTop)
+        lineTo(centerX + stemWidth / 2, stemTop)
+        lineTo(centerX, stemBottom)
+        close()
+    }
+    drawPath(
+        path = path,
+        color = Color(0xFF2196F3)
+    )
+
+    // Draw main circle (solid blue fill)
+    drawCircle(
+        color = Color(0xFF2196F3),
+        radius = handleRadius,
+        center = Offset(centerX, centerY)
+    )
+    // Draw subtle highlight for depth
+    drawCircle(
+        color = Color.White.copy(alpha = 0.3f),
+        radius = handleRadius * 0.5f,
+        center = Offset(centerX - handleRadius * 0.2f, centerY - handleRadius * 0.2f)
+    )
+}
+
+/**
  * Finds the closest character index to the touch point.
  */
 private fun findClosestCharIndex(
@@ -1494,6 +1559,41 @@ private fun findClosestCharIndex(
     val maxAllowedDistSq = maxAllowedDistancePx * maxAllowedDistancePx
     if (minDistance > maxAllowedDistSq) {
         return -1
+    }
+
+    return closestIndex
+}
+
+/**
+ * Finds the closest character index for handle dragging.
+ * Unlike findClosestCharIndex, this has no max distance threshold so the
+ * selection can be extended across multiple words by dragging the handle.
+ */
+private fun findClosestCharIndexForDrag(
+    touchX: Float,
+    touchY: Float,
+    positions: List<TextPosition>,
+    scaleX: Float,
+    scaleY: Float
+): Int {
+    if (positions.isEmpty()) return -1
+
+    var closestIndex = -1
+    var minDistance = Float.MAX_VALUE
+
+    for (i in positions.indices) {
+        val tp = positions[i]
+        val charCenterX = (tp.xDirAdj + tp.widthDirAdj / 2f) * 1.5f * scaleX
+        val charCenterY = (tp.yDirAdj + tp.heightDir / 2f) * 1.5f * scaleY
+
+        val dx = touchX - charCenterX
+        val dy = (touchY - charCenterY) * 2f
+
+        val distance = dx * dx + dy * dy
+        if (distance < minDistance) {
+            minDistance = distance
+            closestIndex = i
+        }
     }
 
     return closestIndex
@@ -1554,54 +1654,60 @@ fun DrawingCanvasOverlay(
 
     Box(
         modifier = modifier
-            .pointerInput(annotationMode) {
+            .then(
                 if (annotationMode == AnnotationMode.MARKER || annotationMode == AnnotationMode.HIGHLIGHT) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val normX = offset.x / size.width.toFloat()
-                            val normY = offset.y / size.height.toFloat()
-                            currentPathPoints.add(DrawingPoint(normX, normY))
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val offset = change.position
-                            val normX = offset.x / size.width.toFloat()
-                            val normY = offset.y / size.height.toFloat()
-                            currentPathPoints.add(DrawingPoint(normX, normY))
-                        },
-                        onDragEnd = {
-                            if (currentPathPoints.isNotEmpty()) {
-                                val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
-                                val color = if (isHighlight) Color.Yellow else selectedColor
-                                val width = if (isHighlight) 24f else selectedStrokeWidth
-                                val newPath = DrawingPath(
-                                    points = currentPathPoints.toList(),
-                                    color = color,
-                                    strokeWidth = width,
-                                    isHighlight = isHighlight
-                                )
-                                onPathFinished(newPath)
-                                currentPathPoints.clear()
+                    Modifier.pointerInput(annotationMode) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                val normX = offset.x / size.width.toFloat()
+                                val normY = offset.y / size.height.toFloat()
+                                currentPathPoints.add(DrawingPoint(normX, normY))
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val offset = change.position
+                                val normX = offset.x / size.width.toFloat()
+                                val normY = offset.y / size.height.toFloat()
+                                currentPathPoints.add(DrawingPoint(normX, normY))
+                            },
+                            onDragEnd = {
+                                if (currentPathPoints.isNotEmpty()) {
+                                    val isHighlight = annotationMode == AnnotationMode.HIGHLIGHT
+                                    val color = if (isHighlight) Color.Yellow else selectedColor
+                                    val width = if (isHighlight) 24f else selectedStrokeWidth
+                                    val newPath = DrawingPath(
+                                        points = currentPathPoints.toList(),
+                                        color = color,
+                                        strokeWidth = width,
+                                        isHighlight = isHighlight
+                                    )
+                                    onPathFinished(newPath)
+                                    currentPathPoints.clear()
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 } else if (annotationMode == AnnotationMode.ERASER) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val normX = offset.x / size.width.toFloat()
-                            val normY = offset.y / size.height.toFloat()
-                            onErasePaths(DrawingPoint(normX, normY))
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val offset = change.position
-                            val normX = offset.x / size.width.toFloat()
-                            val normY = offset.y / size.height.toFloat()
-                            onErasePaths(DrawingPoint(normX, normY))
-                        }
-                    )
+                    Modifier.pointerInput(annotationMode) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                val normX = offset.x / size.width.toFloat()
+                                val normY = offset.y / size.height.toFloat()
+                                onErasePaths(DrawingPoint(normX, normY))
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val offset = change.position
+                                val normX = offset.x / size.width.toFloat()
+                                val normY = offset.y / size.height.toFloat()
+                                onErasePaths(DrawingPoint(normX, normY))
+                            }
+                        )
+                    }
+                } else {
+                    Modifier
                 }
-            }
+            )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
