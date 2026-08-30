@@ -349,8 +349,7 @@ class PptxViewerViewModel @Inject constructor(
             val sheetPart = slide.packagePart
             val rel = sheetPart.getRelationship(blipId)
             if (rel != null) {
-                val targetUri = org.apache.poi.openxml4j.opc.PackagingURIHelper.resolvePartUri(sheetPart.partName, rel.targetURI)
-                val part = sheetPart.getPackage().getPart(targetUri)
+                val part = sheetPart.getRelatedPart(rel) ?: sheetPart.getPackage().getPart(rel)
                 val bytes = part?.inputStream?.use { stream -> stream.readBytes() }
                 if (bytes != null && bytes.isNotEmpty()) {
                     return Pair(bytes, part.contentType)

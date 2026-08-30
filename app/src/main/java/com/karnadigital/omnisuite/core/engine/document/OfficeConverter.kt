@@ -558,9 +558,8 @@ class OfficeConverter @Inject constructor(
                                     val rId = match.groupValues[1]
                                     val rel = slide.packagePart?.getRelationship(rId)
                                     if (rel != null) {
-                                        val targetUri = org.apache.poi.openxml4j.opc.PackagingURIHelper.resolvePartUri(slide.packagePart.partName, rel.targetURI)
-                                        val part = slide.packagePart.getPackage().getPart(targetUri)
-                                        dataBytes = part?.inputStream?.use { it.readBytes() }
+                                        val part = slide.packagePart?.getRelatedPart(rel) ?: slide.packagePart?.getPackage()?.getPart(rel)
+                                        dataBytes = part?.inputStream?.use { stream -> stream.readBytes() }
                                     }
                                 }
                             }
