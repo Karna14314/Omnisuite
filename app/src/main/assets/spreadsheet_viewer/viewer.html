@@ -91,100 +91,14 @@
             transform-origin: 0 0;
         }
 
-        /* Floating in-place charts & images strictly bounded to cells */
-        #charts-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
+        /* Cell-embedded images/charts: render inside merged cell area */
+        .x-spreadsheet-cell img.cell-embedded-image {
             width: 100%;
             height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 5;
-        }
-        .floating-visual-item {
-            position: absolute;
-            pointer-events: auto;
-            box-sizing: border-box;
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-            overflow: hidden;
-            display: none;
-            touch-action: none;
-        }
-        .floating-visual-item.selected {
-            border: 2px solid #107c41;
-            box-shadow: 0 4px 12px rgba(16, 124, 65, 0.25);
-        }
-        .floating-chart-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 4px 8px;
-            border-bottom: 1px solid #e0e0e0;
-            background: #f9fbf9;
-            cursor: move;
-            user-select: none;
-            -webkit-user-select: none;
-            height: 27px;
-        }
-        .floating-chart-title {
-            font-size: 12px;
-            font-weight: bold;
-            color: #1a1a1a;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .floating-chart-badge {
-            font-size: 9px;
-            font-weight: bold;
-            background: #e8f5e9;
-            color: #107c41;
-            padding: 2px 5px;
-            border-radius: 3px;
-            text-transform: uppercase;
-            flex-shrink: 0;
-            margin-left: 6px;
-        }
-        .floating-visual-content {
-            width: 100%;
-            height: calc(100% - 27px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-        .floating-visual-content img {
-            max-width: 100%;
-            max-height: 100%;
             object-fit: contain;
-        }
-        /* Selection handles for resize - positioned at corners and edges */
-        .resize-handle {
-            position: absolute;
-            width: 12px;
-            height: 12px;
-            background: #107c41;
-            border: 2px solid #ffffff;
-            border-radius: 2px;
-            pointer-events: auto;
-            z-index: 20;
-            display: none;
-        }
-        .floating-visual-item.selected .resize-handle {
             display: block;
+            pointer-events: none;
         }
-        .resize-handle.nw { top: -6px; left: -6px; cursor: nw-resize; }
-        .resize-handle.ne { top: -6px; right: -6px; cursor: ne-resize; }
-        .resize-handle.sw { bottom: -6px; left: -6px; cursor: sw-resize; }
-        .resize-handle.se { bottom: -6px; right: -6px; cursor: se-resize; }
-        .resize-handle.n { top: -6px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
-        .resize-handle.s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
-        .resize-handle.w { top: 50%; left: -6px; transform: translateY(-50%); cursor: w-resize; }
-        .resize-handle.e { top: 50%; right: -6px; transform: translateY(-50%); cursor: e-resize; }
 
         /* Floating Zoom Controls Pill */
         #zoom-controls {
@@ -239,8 +153,6 @@
     <div id="xspreadsheet-viewport">
         <div id="xspreadsheet"></div>
     </div>
-
-    <div id="charts-overlay"></div>
 
     <div id="zoom-controls">
         <button class="zoom-btn" onclick="zoomOut()">−</button>
@@ -323,300 +235,11 @@
         }
 
         /**
-         * Create a floating overlay element for a chart or image.
-         * Positioned absolutely based on cell coordinates from x-spreadsheet data.
-         */
-        function createFloatingVisual(itemData) {
-            var overlay = document.getElementById('charts-overlay');
-            if (!overlay || !xs || !xs.datas || !xs.datas[currentSheetIndex]) return null;
-
-            var d = xs.datas[currentSheetIndex];
-            var indexW = d.cols.indexWidth || 42;
-            var headerH = d.rows.height || 26;
-
-            // Calculate pixel position from cell coordinates
-            var cellX = indexW + d.cols.sumWidth(0, itemData.fromCol) - d.scroll.x;
-            var cellY = headerH + d.rows.sumHeight(0, itemData.fromRow) - d.scroll.y;
-
-            // Calculate size from cell spans
-            var cellW = 0;
-            for (var c = itemData.fromCol; c < itemData.fromCol + itemData.colSpan; c++) {
-                cellW += d.cols.getWidth(c);
-            }
-            var cellH = 0;
-            for (var r = itemData.fromRow; r < itemData.fromRow + itemData.rowSpan; r++) {
-                cellH += d.rows.getHeight(r);
-            }
-
-            // Apply scale
-            var dispX = cellX * currentScale;
-            var dispY = cellY * currentScale;
-            var dispW = cellW * currentScale;
-            var dispH = cellH * currentScale;
-
-            // Minimum display sizes
-            dispW = Math.max(dispW, 200 * currentScale);
-            dispH = Math.max(dispH, 150 * currentScale);
-
-            var el = document.createElement('div');
-            el.className = 'floating-visual-item';
-            el.style.left = dispX + 'px';
-            el.style.top = dispY + 'px';
-            el.style.width = dispW + 'px';
-            el.style.height = dispH + 'px';
-            el.style.display = 'block';
-            el.dataset.sheetIndex = currentSheetIndex;
-            el.dataset.fromRow = itemData.fromRow;
-            el.dataset.fromCol = itemData.fromCol;
-            el.dataset.rowSpan = itemData.rowSpan;
-            el.dataset.colSpan = itemData.colSpan;
-
-            // Header bar (drag handle for moving)
-            var header = document.createElement('div');
-            header.className = 'floating-chart-header';
-            var titleSpan = document.createElement('span');
-            titleSpan.className = 'floating-chart-title';
-            titleSpan.textContent = itemData.title || 'Chart';
-            var badgeSpan = document.createElement('span');
-            badgeSpan.className = 'floating-chart-badge';
-            badgeSpan.textContent = itemData.badge || 'CHART';
-            header.appendChild(titleSpan);
-            header.appendChild(badgeSpan);
-            el.appendChild(header);
-
-            // Content area
-            var content = document.createElement('div');
-            content.className = 'floating-visual-content';
-            if (itemData.imgSrc) {
-                var img = document.createElement('img');
-                img.src = itemData.imgSrc;
-                img.style.width = '100%';
-                img.style.height = '100%';
-                img.style.objectFit = 'contain';
-                content.appendChild(img);
-            }
-            el.appendChild(content);
-
-            // Resize handles at corners and edges (properly positioned flush with edges)
-            var handlePositions = ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'];
-            handlePositions.forEach(function(pos) {
-                var handle = document.createElement('div');
-                handle.className = 'resize-handle ' + pos;
-                handle.dataset.handle = pos;
-                el.appendChild(handle);
-            });
-
-            overlay.appendChild(el);
-
-            // Attach interaction handlers
-            attachFloatingItemHandlers(el);
-
-            return el;
-        }
-
-        /**
-         * Attach drag-to-move and resize handlers to a floating visual item.
-         * Handles are positioned flush with the item edges/corners.
-         */
-        function attachFloatingItemHandlers(el) {
-            var header = el.querySelector('.floating-chart-header');
-            var isDragging = false;
-            var isResizing = false;
-            var dragOffsetX = 0, dragOffsetY = 0;
-            var resizeHandle = null;
-            var resizeStartX = 0, resizeStartY = 0;
-            var resizeStartW = 0, resizeStartH = 0, resizeStartLeft = 0, resizeStartTop = 0;
-
-            // Move via header drag
-            header.addEventListener('touchstart', function(e) {
-                if (e.target.classList.contains('resize-handle')) return;
-                var touch = e.touches[0];
-                isDragging = true;
-                selectFloatingItem(el);
-                var rect = el.getBoundingClientRect();
-                dragOffsetX = touch.clientX - rect.left;
-                dragOffsetY = touch.clientY - rect.top;
-                e.preventDefault();
-            }, { passive: false });
-
-            // Resize via handle touch
-            var handles = el.querySelectorAll('.resize-handle');
-            handles.forEach(function(handle) {
-                handle.addEventListener('touchstart', function(e) {
-                    var touch = e.touches[0];
-                    isResizing = true;
-                    resizeHandle = handle.dataset.handle;
-                    resizeStartX = touch.clientX;
-                    resizeStartY = touch.clientY;
-                    var rect = el.getBoundingClientRect();
-                    resizeStartW = rect.width;
-                    resizeStartH = rect.height;
-                    resizeStartLeft = rect.left;
-                    resizeStartTop = rect.top;
-                    selectFloatingItem(el);
-                    e.preventDefault();
-                    e.stopPropagation();
-                }, { passive: false });
-            });
-
-            // Single tap to select (not drag)
-            el.addEventListener('touchstart', function(e) {
-                if (e.target.classList.contains('resize-handle') || e.target.closest('.floating-chart-header')) return;
-                selectFloatingItem(el);
-            }, { passive: true });
-        }
-
-        /**
-         * Select a floating item (show handles) and deselect others.
-         */
-        function selectFloatingItem(el) {
-            var allItems = document.querySelectorAll('.floating-visual-item.selected');
-            allItems.forEach(function(item) {
-                if (item !== el) item.classList.remove('selected');
-            });
-            el.classList.add('selected');
-        }
-
-        /**
-         * Deselect all floating items.
-         */
-        function deselectAllFloatingItems() {
-            var allItems = document.querySelectorAll('.floating-visual-item.selected');
-            allItems.forEach(function(item) {
-                item.classList.remove('selected');
-            });
-        }
-
-        // Global touch move/end for floating item drag and resize
-        var activeDragItem = null;
-        var activeDragOffsetX = 0, activeDragOffsetY = 0;
-        var activeResizeItem = null;
-        var activeResizeHandle = '';
-        var activeResizeStartX = 0, activeResizeStartY = 0;
-        var activeResizeStartW = 0, activeResizeStartH = 0, activeResizeStartLeft = 0, activeResizeStartTop = 0;
-
-        document.addEventListener('touchstart', function(e) {
-            // Check if touching a floating item header (move) or handle (resize)
-            var target = e.target;
-            var floatingItem = target.closest('.floating-visual-item');
-            if (floatingItem) {
-                selectFloatingItem(floatingItem);
-                if (target.classList.contains('resize-handle')) {
-                    var touch = e.touches[0];
-                    activeResizeItem = floatingItem;
-                    activeResizeHandle = target.dataset.handle;
-                    activeResizeStartX = touch.clientX;
-                    activeResizeStartY = touch.clientY;
-                    var rect = floatingItem.getBoundingClientRect();
-                    activeResizeStartW = rect.width;
-                    activeResizeStartH = rect.height;
-                    activeResizeStartLeft = rect.left;
-                    activeResizeStartTop = rect.top;
-                } else if (target.closest('.floating-chart-header')) {
-                    var touch = e.touches[0];
-                    activeDragItem = floatingItem;
-                    var rect = floatingItem.getBoundingClientRect();
-                    activeDragOffsetX = touch.clientX - rect.left;
-                    activeDragOffsetY = touch.clientY - rect.top;
-                }
-            } else if (!target.closest('#zoom-controls') && !target.closest('.x-spreadsheet-bottombar')) {
-                // Deselect when tapping empty space
-                deselectAllFloatingItems();
-            }
-        }, { passive: true });
-
-        document.addEventListener('touchmove', function(e) {
-            if (activeDragItem && e.touches.length === 1) {
-                var touch = e.touches[0];
-                var overlay = document.getElementById('charts-overlay');
-                var overlayRect = overlay ? overlay.getBoundingClientRect() : { left: 0, top: 0 };
-                var newX = (touch.clientX - overlayRect.left - activeDragOffsetX) / currentScale;
-                var newY = (touch.clientY - overlayRect.top - activeDragOffsetY) / currentScale;
-                activeDragItem.style.left = (newX * currentScale) + 'px';
-                activeDragItem.style.top = (newY * currentScale) + 'px';
-                e.preventDefault();
-            }
-            if (activeResizeItem && e.touches.length === 1) {
-                var touch = e.touches[0];
-                var dx = (touch.clientX - activeResizeStartX) / currentScale;
-                var dy = (touch.clientY - activeResizeStartY) / currentScale;
-                var minSize = 40;
-                var newW = activeResizeStartW, newH = activeResizeStartH;
-                var newLeft = activeResizeStartLeft, newTop = activeResizeStartTop;
-
-                var handle = activeResizeHandle;
-                if (handle.indexOf('e') !== -1) {
-                    newW = Math.max(minSize, activeResizeStartW + dx);
-                }
-                if (handle.indexOf('w') !== -1) {
-                    var wDelta = Math.min(dx, activeResizeStartW - minSize);
-                    newW = activeResizeStartW - wDelta;
-                    newLeft = activeResizeStartLeft + wDelta;
-                }
-                if (handle.indexOf('s') !== -1) {
-                    newH = Math.max(minSize, activeResizeStartH + dy);
-                }
-                if (handle.indexOf('n') !== -1) {
-                    var hDelta = Math.min(dy, activeResizeStartH - minSize);
-                    newH = activeResizeStartH - hDelta;
-                    newTop = activeResizeStartTop + hDelta;
-                }
-
-                var overlay = document.getElementById('charts-overlay');
-                var overlayRect = overlay ? overlay.getBoundingClientRect() : { left: 0, top: 0 };
-                activeResizeItem.style.width = (newW) + 'px';
-                activeResizeItem.style.height = (newH) + 'px';
-                if (handle.indexOf('w') !== -1 || handle.indexOf('n') !== -1) {
-                    activeResizeItem.style.left = ((newLeft - overlayRect.left) / currentScale) * currentScale + 'px';
-                    activeResizeItem.style.top = ((newTop - overlayRect.top) / currentScale) * currentScale + 'px';
-                }
-                e.preventDefault();
-            }
-        }, { passive: false });
-
-        document.addEventListener('touchend', function(e) {
-            activeDragItem = null;
-            activeResizeItem = null;
-            activeResizeHandle = '';
-        });
-
-        /**
-         * Reposition all floating visual items based on current scroll/zoom.
-         * Called after spreadsheet renders or zoom changes.
-         */
-        function repositionFloatingVisuals() {
-            if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
-            var d = xs.datas[currentSheetIndex];
-            var indexW = d.cols.indexWidth || 42;
-            var headerH = d.rows.height || 26;
-            var overlay = document.getElementById('charts-overlay');
-            if (!overlay) return;
-
-            var items = overlay.querySelectorAll('.floating-visual-item');
-            items.forEach(function(el) {
-                var fromRow = parseInt(el.dataset.fromRow);
-                var fromCol = parseInt(el.dataset.fromCol);
-                var colSpan = parseInt(el.dataset.colSpan);
-                var rowSpan = parseInt(el.dataset.rowSpan);
-
-                var cellX = indexW + d.cols.sumWidth(0, fromCol) - d.scroll.x;
-                var cellY = headerH + d.rows.sumHeight(0, fromRow) - d.scroll.y;
-                el.style.left = (cellX * currentScale) + 'px';
-                el.style.top = (cellY * currentScale) + 'px';
-            });
-        }
-
-        /**
-         * Clear all floating visual items from the overlay.
-         */
-        function clearFloatingVisuals() {
-            var overlay = document.getElementById('charts-overlay');
-            if (overlay) overlay.innerHTML = '';
-        }
-
-        /**
          * Render full workbook from POI-extracted JSON structure with complete font formatting,
-         * colors, merged cells, and column dimensions.
+         * colors, merged cells, column dimensions, and cell-embedded images/charts.
+         * 
+         * Charts and images are embedded directly within cells using cell merging.
+         * They scroll with the grid and span multiple rows/columns like in Excel.
          */
         function renderSpreadsheetData(jsonData, base64Fallback) {
             try {
@@ -682,8 +305,9 @@
                         });
                     }
 
-                    // Track drawings (images & charts) for floating overlay - NOT bound to cells
-                    var floatingDrawings = [];
+                    // Track images and charts for cell embedding
+                    // Each entry: { fromRow, fromCol, rowSpan, colSpan, imgSrc, isChart }
+                    var cellEmbeddings = [];
 
                     if (sheet.images) {
                         sheet.images.forEach(function(img) {
@@ -692,6 +316,7 @@
                             var rSpan = img.rowSpan || 14;
                             var cSpan = img.colSpan || 4;
 
+                            // Ensure rows exist for the span area
                             for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
                                 if (!sheetObj.rows[rowIdx]) {
                                     sheetObj.rows[rowIdx] = { height: 24, cells: {} };
@@ -699,15 +324,13 @@
                             }
 
                             if (img.dataUrl) {
-                                floatingDrawings.push({
-                                    type: 'image',
+                                cellEmbeddings.push({
                                     fromRow: r,
                                     fromCol: c,
                                     rowSpan: rSpan,
                                     colSpan: cSpan,
                                     imgSrc: img.dataUrl,
-                                    title: 'Image',
-                                    badge: 'IMG'
+                                    isChart: false
                                 });
                             }
                         });
@@ -720,6 +343,7 @@
                             var rSpan = 12;
                             var cSpan = 4;
 
+                            // Ensure rows exist for the span area
                             for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
                                 if (!sheetObj.rows[rowIdx]) {
                                     sheetObj.rows[rowIdx] = { height: 24, cells: {} };
@@ -728,20 +352,16 @@
 
                             var svgStr = generateChartSvg(chart, 380, 260);
                             var imgSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgStr);
-                            floatingDrawings.push({
-                                type: 'chart',
+                            cellEmbeddings.push({
                                 fromRow: r,
                                 fromCol: c,
                                 rowSpan: rSpan,
                                 colSpan: cSpan,
                                 imgSrc: imgSrc,
-                                title: chart.title || (chart.chartType + ' Chart'),
-                                badge: chart.chartType || 'CHART'
+                                isChart: true
                             });
                         });
                     }
-
-                    sheetObj._floatingDrawings = floatingDrawings;
 
                     // Rows and cells
                     if (sheet.rows && sheet.rows.length > 0) {
@@ -792,6 +412,62 @@
                         });
                     }
 
+                    // Now embed images/charts into cells using merging
+                    // For each embedding, create a merge region and set _img on the anchor cell
+                    cellEmbeddings.forEach(function(emb) {
+                        var r = emb.fromRow;
+                        var c = emb.fromCol;
+                        var rSpan = emb.rowSpan;
+                        var cSpan = emb.colSpan;
+
+                        // Ensure the anchor row/cell exists
+                        if (!sheetObj.rows[r]) {
+                            sheetObj.rows[r] = { height: 26, cells: {} };
+                        }
+                        if (!sheetObj.rows[r].cells[c]) {
+                            sheetObj.rows[r].cells[c] = { text: '' };
+                        }
+
+                        // Set the image on the anchor cell
+                        var im = new Image();
+                        im.src = emb.imgSrc;
+                        im.className = 'cell-embedded-image';
+                        sheetObj.rows[r].cells[c]._img = im;
+                        sheetObj.rows[r].cells[c].text = '';
+
+                        // Create merge region for multi-cell spanning
+                        if (rSpan > 1 || cSpan > 1) {
+                            sheetObj.rows[r].cells[c].merge = [rSpan - 1, cSpan - 1];
+                            var rangeStr = XLSX.utils.encode_range({
+                                s: { r: r, c: c },
+                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
+                            });
+                            sheetObj.merges.push(rangeStr);
+
+                            // Mark covered cells as non-anchors (empty)
+                            for (var mr = r; mr < r + rSpan; mr++) {
+                                for (var mc = c; mc < c + cSpan; mc++) {
+                                    if (mr === r && mc === c) continue;
+                                    if (!sheetObj.rows[mr]) {
+                                        sheetObj.rows[mr] = { height: 24, cells: {} };
+                                    }
+                                    if (!sheetObj.rows[mr].cells[mc]) {
+                                        sheetObj.rows[mr].cells[mc] = { text: '' };
+                                    }
+                                    // Mark as covered by merge
+                                    sheetObj.rows[mr].cells[mc]._coveredByMerge = true;
+                                }
+                            }
+                        }
+
+                        // Re-render when image loads
+                        im.onload = function() {
+                            if (xs && xs.sheet && xs.sheet.table) {
+                                xs.sheet.table.render();
+                            }
+                        };
+                    });
+
                     xData.push(sheetObj);
                     allSheetCharts.push(sheet.charts || []);
                     allSheetImages.push(sheet.images || []);
@@ -819,15 +495,6 @@
                 });
 
                 xs.loadData(xData);
-
-                // Clear and recreate floating visuals for current sheet
-                clearFloatingVisuals();
-                var currentFloating = xData[currentSheetIndex]._floatingDrawings;
-                if (currentFloating) {
-                    currentFloating.forEach(function(fd) {
-                        createFloatingVisual(fd);
-                    });
-                }
 
                 // Runtime rendering patches: search highlighting + resize handles
                 (function patchSpreadsheetRendering() {
@@ -1069,7 +736,6 @@
                             underline = !!cell.s.font.underline;
                             if (cell.s.font.sz) fontSizePx = ptToPx(cell.s.font.sz);
                             if (cell.s.font.color && cell.s.font.color.rgb) fg = '#' + cell.s.font.color.rgb.substring(2);
-                            if (cell.s.font.name) { /* font family captured but x-spreadsheet uses Arial */ }
                         }
                         if (cell.s.alignment && cell.s.alignment.horizontal) {
                             align = cell.s.alignment.horizontal.toLowerCase();
@@ -1194,16 +860,6 @@
          */
         function switchSheet(index) {
             currentSheetIndex = index;
-            // Recreate floating visuals for the new sheet
-            if (xs && xs.datas && xs.datas[currentSheetIndex]) {
-                clearFloatingVisuals();
-                var d = xs.datas[currentSheetIndex];
-                if (d._floatingDrawings) {
-                    d._floatingDrawings.forEach(function(fd) {
-                        createFloatingVisual(fd);
-                    });
-                }
-            }
             if (xs && xs.sheet && xs.sheet.table) {
                 xs.sheet.table.render();
             }
@@ -1232,9 +888,6 @@
             if (xs && xs.sheet) {
                 xs.sheet.reload();
             }
-
-            // Reposition floating visuals after zoom
-            repositionFloatingVisuals();
         }
 
         function zoomIn() { updateZoom(currentScale + 0.15); }
@@ -1277,9 +930,6 @@
         document.addEventListener('touchstart', function(e) {
             if (e.touches.length === 1 && xs && xs.datas && xs.datas[currentSheetIndex]) {
                 var touch = e.touches[0];
-                // Don't intercept if touching a floating item
-                if (touch.target.closest('.floating-visual-item')) return;
-
                 var d = xs.datas[currentSheetIndex];
                 var indexW = d.cols.indexWidth || 42;
                 var headerH = d.rows.height || 26;
