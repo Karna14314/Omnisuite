@@ -40,7 +40,7 @@
             width: 36px;
             height: 36px;
             border: 3px solid #dadce0;
-            border-top-color: #107c41; /* Excel green */
+            border-top-color: #107c41;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin-bottom: 16px;
@@ -55,7 +55,6 @@
             font-size: 14px;
         }
 
-        /* Mobile styling for x-spreadsheet toolbar and bottom tabs */
         .x-spreadsheet-toolbar {
             display: none !important;
         }
@@ -76,7 +75,6 @@
             border-bottom: 2px solid #107c41 !important;
         }
 
-        /* Viewport container for uniform zoom */
         #xspreadsheet-viewport {
             width: 100vw;
             height: 100vh;
@@ -91,13 +89,28 @@
             transform-origin: 0 0;
         }
 
-        /* Cell-embedded images/charts: render inside merged cell area */
-        .x-spreadsheet-cell img.cell-embedded-image {
+        /* Floating visual overlay - contains only the image, no chrome */
+        #visuals-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+        }
+        .floating-visual {
+            position: absolute;
+            pointer-events: none;
+            overflow: hidden;
+            display: none;
+        }
+        .floating-visual img {
             width: 100%;
             height: 100%;
             object-fit: contain;
             display: block;
-            pointer-events: none;
         }
 
         /* Floating Zoom Controls Pill */
@@ -154,6 +167,8 @@
         <div id="xspreadsheet"></div>
     </div>
 
+    <div id="visuals-overlay"></div>
+
     <div id="zoom-controls">
         <button class="zoom-btn" onclick="zoomOut()">−</button>
         <span id="zoom-label" onclick="resetZoom()">100%</span>
@@ -169,10 +184,10 @@
         var currentScale = 1.0;
         var allSheetCharts = [];
         var allSheetImages = [];
+        var sheetVisuals = {};
 
         /**
          * Convert font size from points (pt) to pixels (px).
-         * 1pt = 1.33px (at 96dpi). x-spreadsheet expects px.
          */
         function ptToPx(pt) {
             return Math.round((pt || 10) * 4 / 3);
@@ -235,11 +250,95 @@
         }
 
         /**
-         * Render full workbook from POI-extracted JSON structure with complete font formatting,
-         * colors, merged cells, column dimensions, and cell-embedded images/charts.
-         * 
-         * Charts and images are embedded directly within cells using cell merging.
-         * They scroll with the grid and span multiple rows/columns like in Excel.
+         * Create a floating visual element containing only an image.
+         * Positioned absolutely over the target cells.
+         */
+        function createFloatingVisual(overlay, v) {
+            var el = document.createElement('div');
+            el.className = 'floating-visual';
+            el.dataset.sheetIndex = currentSheetIndex;
+            el.dataset.fromRow = v.fromRow;
+            el.dataset.fromCol = v.fromCol;
+            el.dataset.rowSpan = v.rowSpan;
+            el.dataset.colSpan = v.colSpan;
+
+            var img = document.createElement('img');
+            img.src = v.imgSrc;
+            el.appendChild(img);
+
+            overlay.appendChild(el);
+            v._el = el;
+            v._imgEl = img;
+
+            // When image loads, reposition to ensure correct placement
+            img.onload = function() {
+                repositionFloatingVisual(v);
+            };
+
+            return el;
+        }
+
+        /**
+         * Reposition a single floating visual based on current grid state.
+         * Calculates fixed dimensions from cell spans.
+         */
+        function repositionFloatingVisual(v) {
+            if (!xs || !xs.datas || !xs.datas[currentSheetIndex] || !v._el) return;
+            var d = xs.datas[currentSheetIndex];
+            var indexW = d.cols.indexWidth || 42;
+            var headerH = d.rows.height || 26;
+
+            // Calculate pixel position from cell coordinates
+            var cellX = indexW + d.cols.sumWidth(0, v.fromCol) - d.scroll.x;
+            var cellY = headerH + d.rows.sumHeight(0, v.fromRow) - d.scroll.y;
+
+            // Calculate fixed pixel size from cell spans
+            var cellW = 0;
+            for (var c = v.fromCol; c < v.fromCol + v.colSpan; c++) {
+                cellW += d.cols.getWidth(c);
+            }
+            var cellH = 0;
+            for (var r = v.fromRow; r < v.fromRow + v.rowSpan; r++) {
+                cellH += d.rows.getHeight(r);
+            }
+
+            // Apply scale
+            var dispX = cellX * currentScale;
+            var dispY = cellY * currentScale;
+            var dispW = cellW * currentScale;
+            var dispH = cellH * currentScale;
+
+            // Set fixed dimensions on the floating element
+            v._el.style.left = dispX + 'px';
+            v._el.style.top = dispY + 'px';
+            v._el.style.width = dispW + 'px';
+            v._el.style.height = dispH + 'px';
+            v._el.style.display = 'block';
+        }
+
+        /**
+         * Reposition all floating visuals for the current sheet.
+         * Called on scroll, zoom, resize, and render.
+         */
+        function repositionAllVisuals() {
+            var visuals = sheetVisuals[currentSheetIndex];
+            if (!visuals) return;
+            visuals.forEach(function(v) {
+                repositionFloatingVisual(v);
+            });
+        }
+
+        /**
+         * Clear all floating visuals from the overlay.
+         */
+        function clearFloatingVisuals() {
+            var overlay = document.getElementById('visuals-overlay');
+            if (overlay) overlay.innerHTML = '';
+        }
+
+        /**
+         * Render full workbook from POI-extracted JSON structure.
+         * Charts and images are rendered as floating overlays mapped to target cells.
          */
         function renderSpreadsheetData(jsonData, base64Fallback) {
             try {
@@ -257,6 +356,7 @@
                 var xData = [];
                 allSheetCharts = [];
                 allSheetImages = [];
+                sheetVisuals = {};
 
                 wbData.sheets.forEach(function(sheet, sIdx) {
                     var sheetObj = {
@@ -305,8 +405,7 @@
                         });
                     }
 
-                    // Track images and charts for cell embedding
-                    // Each entry: { fromRow, fromCol, rowSpan, colSpan, imgSrc, isChart }
+                    // Track images and charts for floating overlay rendering
                     var cellEmbeddings = [];
 
                     if (sheet.images) {
@@ -316,7 +415,6 @@
                             var rSpan = img.rowSpan || 14;
                             var cSpan = img.colSpan || 4;
 
-                            // Ensure rows exist for the span area
                             for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
                                 if (!sheetObj.rows[rowIdx]) {
                                     sheetObj.rows[rowIdx] = { height: 24, cells: {} };
@@ -330,7 +428,9 @@
                                     rowSpan: rSpan,
                                     colSpan: cSpan,
                                     imgSrc: img.dataUrl,
-                                    isChart: false
+                                    isChart: false,
+                                    _el: null,
+                                    _imgEl: null
                                 });
                             }
                         });
@@ -343,7 +443,6 @@
                             var rSpan = 12;
                             var cSpan = 4;
 
-                            // Ensure rows exist for the span area
                             for (var rowIdx = r; rowIdx < r + rSpan; rowIdx++) {
                                 if (!sheetObj.rows[rowIdx]) {
                                     sheetObj.rows[rowIdx] = { height: 24, cells: {} };
@@ -358,17 +457,21 @@
                                 rowSpan: rSpan,
                                 colSpan: cSpan,
                                 imgSrc: imgSrc,
-                                isChart: true
+                                isChart: true,
+                                _el: null,
+                                _imgEl: null
                             });
                         });
                     }
+
+                    // Store embeddings for this sheet
+                    sheetVisuals[sIdx] = cellEmbeddings;
 
                     // Rows and cells
                     if (sheet.rows && sheet.rows.length > 0) {
                         sheet.rows.forEach(function(rowCells, rIdx) {
                             var rHeight = (sheet.rowHeights && sheet.rowHeights[rIdx]) ? Math.max(sheet.rowHeights[rIdx], 26) : 26;
 
-                            // Calculate multi-line expansion so summary headers never clip
                             rowCells.forEach(function(c) {
                                 if (c && c.text && c.text.indexOf('\n') !== -1) {
                                     var lineCount = c.text.split('\n').length;
@@ -390,12 +493,10 @@
                                     cellData.f = cell.formula.startsWith('=') ? cell.formula : ('=' + cell.formula);
                                 }
 
-                                // Apply Font & Style
                                 if (cell.bold || cell.italic || cell.underline || cell.bgColor || cell.textColor || (cell.fontSize && cell.fontSize !== 10) || (cell.align && cell.align !== 'LEFT') || (cell.text && cell.text.indexOf('\n') !== -1)) {
                                     cellData.style = getStyleIdx(cell);
                                 }
 
-                                // Merged cells spanning
                                 var rSpan = cell.rowSpan || 1;
                                 var cSpan = cell.colSpan || 1;
                                 if (rSpan > 1 || cSpan > 1) {
@@ -411,62 +512,6 @@
                             });
                         });
                     }
-
-                    // Now embed images/charts into cells using merging
-                    // For each embedding, create a merge region and set _img on the anchor cell
-                    cellEmbeddings.forEach(function(emb) {
-                        var r = emb.fromRow;
-                        var c = emb.fromCol;
-                        var rSpan = emb.rowSpan;
-                        var cSpan = emb.colSpan;
-
-                        // Ensure the anchor row/cell exists
-                        if (!sheetObj.rows[r]) {
-                            sheetObj.rows[r] = { height: 26, cells: {} };
-                        }
-                        if (!sheetObj.rows[r].cells[c]) {
-                            sheetObj.rows[r].cells[c] = { text: '' };
-                        }
-
-                        // Set the image on the anchor cell
-                        var im = new Image();
-                        im.src = emb.imgSrc;
-                        im.className = 'cell-embedded-image';
-                        sheetObj.rows[r].cells[c]._img = im;
-                        sheetObj.rows[r].cells[c].text = '';
-
-                        // Create merge region for multi-cell spanning
-                        if (rSpan > 1 || cSpan > 1) {
-                            sheetObj.rows[r].cells[c].merge = [rSpan - 1, cSpan - 1];
-                            var rangeStr = XLSX.utils.encode_range({
-                                s: { r: r, c: c },
-                                e: { r: r + rSpan - 1, c: c + cSpan - 1 }
-                            });
-                            sheetObj.merges.push(rangeStr);
-
-                            // Mark covered cells as non-anchors (empty)
-                            for (var mr = r; mr < r + rSpan; mr++) {
-                                for (var mc = c; mc < c + cSpan; mc++) {
-                                    if (mr === r && mc === c) continue;
-                                    if (!sheetObj.rows[mr]) {
-                                        sheetObj.rows[mr] = { height: 24, cells: {} };
-                                    }
-                                    if (!sheetObj.rows[mr].cells[mc]) {
-                                        sheetObj.rows[mr].cells[mc] = { text: '' };
-                                    }
-                                    // Mark as covered by merge
-                                    sheetObj.rows[mr].cells[mc]._coveredByMerge = true;
-                                }
-                            }
-                        }
-
-                        // Re-render when image loads
-                        im.onload = function() {
-                            if (xs && xs.sheet && xs.sheet.table) {
-                                xs.sheet.table.render();
-                            }
-                        };
-                    });
 
                     xData.push(sheetObj);
                     allSheetCharts.push(sheet.charts || []);
@@ -495,6 +540,16 @@
                 });
 
                 xs.loadData(xData);
+
+                // Create floating visuals for current sheet
+                clearFloatingVisuals();
+                var overlay = document.getElementById('visuals-overlay');
+                var currentVisuals = sheetVisuals[currentSheetIndex];
+                if (currentVisuals) {
+                    currentVisuals.forEach(function(v) {
+                        createFloatingVisual(overlay, v);
+                    });
+                }
 
                 // Runtime rendering patches: search highlighting + resize handles
                 (function patchSpreadsheetRendering() {
@@ -582,6 +637,9 @@
                                 ctx.fillText("↕", indexW / 2, y + rowH - 7);
                             });
                             ctx.restore();
+
+                            // Reposition floating visuals on every render (includes scroll)
+                            repositionAllVisuals();
                         } catch(e) { /* ignore render patch errors */ }
                     };
                 })();
@@ -720,12 +778,11 @@
                     });
                 }
 
-                // Build a style map for font formatting from cell metadata
                 var styleMap = {};
                 function getStyleIdx(cell) {
                     var bg = '', fg = '', align = 'left';
                     var bold = false, italic = false, underline = false;
-                    var fontSizePx = 13; // default ~10pt
+                    var fontSizePx = 13;
                     if (cell.s && typeof cell.s === 'object') {
                         if (cell.s.fill && cell.s.fill.fgColor && cell.s.fill.fgColor.rgb) {
                             bg = '#' + cell.s.fill.fgColor.rgb.substring(2);
@@ -778,7 +835,6 @@
                             cellData.merge = mergeMap[mKey];
                         }
 
-                        // Apply font styling from cell style
                         if (cell.s !== undefined) {
                             cellData.style = getStyleIdx(cell);
                         }
@@ -791,17 +847,11 @@
             return out;
         }
 
-        /**
-         * Update a cell value programmatically from Android.
-         */
         function updateCellFromAndroid(row, col, value) {
             if (!xs) return;
             xs.cellText(row, col, value, currentSheetIndex).reRender();
         }
 
-        /**
-         * Set custom row height programmatically
-         */
         function setRowHeight(rIdx, h) {
             if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
             var height = Math.max(parseInt(h) || 24, 15);
@@ -809,9 +859,6 @@
             xs.sheet.reload();
         }
 
-        /**
-         * Set custom column width programmatically
-         */
         function setColWidth(cIdx, w) {
             if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
             var width = Math.max(parseInt(w) || 60, 20);
@@ -819,9 +866,6 @@
             xs.sheet.reload();
         }
 
-        /**
-         * Auto-fit row height to cell contents
-         */
         function autofitRow(rIdx) {
             if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
             var d = xs.datas[currentSheetIndex];
@@ -836,9 +880,6 @@
             xs.sheet.reload();
         }
 
-        /**
-         * Auto-fit column width to cell contents
-         */
         function autofitCol(cIdx) {
             if (!xs || !xs.datas || !xs.datas[currentSheetIndex]) return;
             var d = xs.datas[currentSheetIndex];
@@ -860,6 +901,15 @@
          */
         function switchSheet(index) {
             currentSheetIndex = index;
+            // Recreate floating visuals for the new sheet
+            clearFloatingVisuals();
+            var overlay = document.getElementById('visuals-overlay');
+            var currentVisuals = sheetVisuals[currentSheetIndex];
+            if (currentVisuals) {
+                currentVisuals.forEach(function(v) {
+                    createFloatingVisual(overlay, v);
+                });
+            }
             if (xs && xs.sheet && xs.sheet.table) {
                 xs.sheet.table.render();
             }
@@ -867,7 +917,6 @@
 
         /**
          * Zoom Engine: Clean proportional viewport zoom (35% to 200%)
-         * Scales fonts, cells, borders, and visual items in exact mathematical ratio.
          */
         function updateZoom(newScale) {
             currentScale = Math.min(Math.max(newScale, 0.35), 2.5);
@@ -888,6 +937,9 @@
             if (xs && xs.sheet) {
                 xs.sheet.reload();
             }
+
+            // Reposition floating visuals after zoom
+            repositionAllVisuals();
         }
 
         function zoomIn() { updateZoom(currentScale + 0.15); }
@@ -1119,10 +1171,17 @@
             return currentSearchIndex;
         }
 
+        /**
+         * Window resize handler - repositions floating visuals to match new dimensions.
+         */
         window.addEventListener('resize', function() {
             if (xs) {
                 xs.reRender();
             }
+            // Reposition floating visuals after resize
+            setTimeout(function() {
+                repositionAllVisuals();
+            }, 100);
         });
     </script>
 </body>
