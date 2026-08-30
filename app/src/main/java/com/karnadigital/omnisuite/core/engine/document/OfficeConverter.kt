@@ -194,16 +194,6 @@ class OfficeConverter @Inject constructor(
                     // Check if paragraph has text or images
                     val hasTextOrImage = paragraph.runs.any { (it.getText(0) ?: "").isNotEmpty() || it.embeddedPictures.isNotEmpty() }
                     if (!hasTextOrImage) {
-                        val actualFontSize = if (isHeading) fontSizeHeading else fontSizeNormal
-                        val leading = actualFontSize * 1.4f
-                        yPosition -= leading
-                        if (yPosition < margin) {
-                            contentStream?.close()
-                            currentPage = PDPage(pageBounds)
-                            pdf.addPage(currentPage)
-                            contentStream = PDPageContentStream(pdf, currentPage)
-                            yPosition = pageBounds.height - margin
-                        }
                         continue
                     }
 

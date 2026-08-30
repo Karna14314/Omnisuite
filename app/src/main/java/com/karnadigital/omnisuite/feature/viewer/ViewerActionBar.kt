@@ -92,7 +92,8 @@ fun handleViewerToolAction(
     fileUri: String,
     context: Context,
     onNavigate: (String) -> Unit = {},
-    onNavigateImageTool: (String, Int) -> Unit = { _, _ -> }
+    onNavigateImageTool: (String, Int) -> Unit = { _, _ -> },
+    officeConverter: com.karnadigital.omnisuite.core.engine.document.OfficeConverter? = null
 ) {
     when (tool) {
         is ViewerTool.OpenIn -> {
@@ -119,11 +120,16 @@ fun handleViewerToolAction(
                     Uri.parse(fileUri)
                 }
                 val docName = file.name
-                printManager.print(
-                    "OmniSuite Print",
-                    GenericDocumentAdapter(context, uri, docName, getMimeTypeForFile(fileUri)),
-                    null
-                )
+                val mimeType = getMimeTypeForFile(fileUri)
+                val isOfficeDoc = mimeType.contains("word") || mimeType.contains("excel") ||
+                        mimeType.contains("powerpoint") || mimeType.contains("spreadsheet") ||
+                        mimeType.contains("presentation") || mimeType.contains("officedocument")
+                val adapter = if (isOfficeDoc && officeConverter != null) {
+                    OfficeDocumentPrintAdapter(context, file, docName, officeConverter)
+                } else {
+                    GenericDocumentAdapter(context, uri, docName, mimeType)
+                }
+                printManager.print("OmniSuite Print", adapter, null)
             } catch (e: Exception) {
                 Toast.makeText(context, "Print failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
@@ -209,6 +215,61 @@ class GenericDocumentAdapter(
         } finally {
             try { input?.close() } catch (_: Exception) {}
             try { output?.close() } catch (_: Exception) {}
+        }
+    }
+}
+
+class OfficeDocumentPrintAdapter(
+    private val context: Context,
+    private val file: File,
+    private val documentName: String,
+    private val officeConverter: com.karnadigital.omnisuite.core.engine.document.OfficeConverter
+) : PrintDocumentAdapter() {
+    override fun onLayout(
+        oldAttributes: PrintAttributes?,
+        newAttributes: PrintAttributes?,
+        cancellationSignal: CancellationSignal?,
+        callback: LayoutResultCallback?,
+        extras: Bundle?
+    ) {
+        if (cancellationSignal?.isCanceled == true) {
+            callback?.onLayoutCancelled()
+            return
+        }
+        val info = PrintDocumentInfo.Builder(documentName)
+            .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+            .build()
+        callback?.onLayoutFinished(info, true)
+    }
+
+    override fun onWrite(
+        pages: Array<out PageRange>?,
+        destination: ParcelFileDescriptor?,
+        cancellationSignal: CancellationSignal?,
+        callback: WriteResultCallback?
+    ) {
+        var input: InputStream? = null
+        var output: OutputStream? = null
+        var pdfFile: File? = null
+        try {
+            pdfFile = File(context.cacheDir, "print_temp_${System.currentTimeMillis()}.pdf")
+            val lower = file.name.lowercase()
+            when {
+                lower.endsWith(".docx") -> kotlinx.coroutines.runBlocking { officeConverter.convertDocxToPdf(file, pdfFile) }
+                lower.endsWith(".xlsx") -> kotlinx.coroutines.runBlocking { officeConverter.convertXlsxToPdf(file, pdfFile) }
+                lower.endsWith(".pptx") -> kotlinx.coroutines.runBlocking { officeConverter.convertPptxToPdf(file, pdfFile, "text") }
+                else -> kotlinx.coroutines.runBlocking { officeConverter.convertDocxToPdf(file, pdfFile) }
+            }
+            input = FileInputStream(pdfFile)
+            output = FileOutputStream(destination?.fileDescriptor)
+            input.copyTo(output)
+            callback?.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+        } catch (e: Exception) {
+            callback?.onWriteFailed(e.localizedMessage)
+        } finally {
+            try { input?.close() } catch (_: Exception) {}
+            try { output?.close() } catch (_: Exception) {}
+            try { pdfFile?.delete() } catch (_: Exception) {}
         }
     }
 }

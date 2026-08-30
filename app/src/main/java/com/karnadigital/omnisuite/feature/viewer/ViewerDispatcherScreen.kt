@@ -78,6 +78,7 @@ fun ViewerDispatcherScreen(
 
     val context = LocalContext.current
     val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
+    val officeConverter = coreEntryPoint(context).officeConverter()
     var state by remember { mutableStateOf<DispatcherState>(DispatcherState.Loading) }
 
     LaunchedEffect(fileUri) {
@@ -132,7 +133,7 @@ fun ViewerDispatcherScreen(
             is ViewerTool.Navigate -> onNavigate(tool.route)
             is ViewerTool.NavigateImageTool -> onNavigateImageTool(tool.fileUri, tool.tab)
             is ViewerTool.ExportPdf -> { /* handled by caller via SAF launcher */ }
-            else -> handleViewerToolAction(tool, currentPath, context, onNavigate, onNavigateImageTool)
+            else -> handleViewerToolAction(tool, currentPath, context, onNavigate, onNavigateImageTool, officeConverter)
         }
     }
 
