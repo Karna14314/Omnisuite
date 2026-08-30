@@ -46,7 +46,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -735,18 +736,10 @@ fun PdfViewerScreen(
                     ZoomableBox(
                         modifier = Modifier
                             .fillMaxSize()
-                            .onSizeChanged { viewportHeight = it.height.toFloat() }
-                            .pointerInput(isPdfEditingActive) {
-                                if (!isPdfEditingActive) {
-                                    detectTapGestures(
-                                        onTap = {
-                                            showControls = !showControls
-                                        }
-                                    )
-                                }
-                            },
+                            .onSizeChanged { viewportHeight = it.height.toFloat() },
                         lazyListState = lazyListState,
-                        onScaleChanged = { currentScale = it }
+                        onScaleChanged = { currentScale = it },
+                        onTap = { showControls = !showControls }
                     ) {
                         val density = LocalDensity.current
                         val extraBottomPadding = if (currentScale > 1f && viewportHeight > 0f) {
@@ -1236,49 +1229,73 @@ fun InteractivePdfPageItem(
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .pointerInput(pageIndex) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            val startDist = (offset - Offset(handleStartX, handleStartY)).getDistance()
-                                            val endDist = (offset - Offset(handleEndX, handleEndY)).getDistance()
+                                .pointerInput(pageIndex, handleStartX, handleStartY, handleEndX, handleEndY) {
+                                    // Custom gesture handler that consumes events IMMEDIATELY on handle touch
+                                    // This prevents ZoomableBox from intercepting for pan-zoom
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val down = awaitPointerEvent(PointerEventPass.Initial)
+                                            val downChange = down.changes.firstOrNull() ?: continue
+                                            val downPos = downChange.position
+                                            val startDist = (downPos - Offset(handleStartX, handleStartY)).getDistance()
+                                            val endDist = (downPos - Offset(handleEndX, handleEndY)).getDistance()
                                             val threshold = 48.dp.toPx()
-                                            if (startDist < threshold && startDist < endDist) {
-                                                draggingHandle = "start"
-                                            } else if (endDist < threshold) {
-                                                draggingHandle = "end"
-                                            } else {
-                                                // Tapped outside handles - clear selection
-                                                onSelectionChange(-1, -1, -1)
+                                            val onStartHandle = startDist < threshold && startDist < endDist
+                                            val onEndHandle = endDist < threshold && !onStartHandle
+
+                                            if (onStartHandle || onEndHandle) {
+                                                // Consume immediately to block ZoomableBox panning
+                                                downChange.consume()
+                                                val handle = if (onStartHandle) "start" else "end"
+                                                draggingHandle = handle
+
+                                                // Track drag
+                                                do {
+                                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                                    val change = event.changes.firstOrNull { it.id == downChange.id }
+                                                    if (change != null && change.pressed) {
+                                                        change.consume()
+                                                        val positions = currentPositionsState
+                                                        val closestIndex = findClosestCharIndexForDrag(
+                                                            change.position.x, change.position.y,
+                                                            positions, currentScaleX, currentScaleY
+                                                        )
+                                                        if (closestIndex != -1) {
+                                                            if (handle == "start") {
+                                                                if (closestIndex < currentEnd) {
+                                                                    onSelectionChange(pageIndex, closestIndex, currentEnd)
+                                                                }
+                                                            } else {
+                                                                if (closestIndex > currentStart) {
+                                                                    onSelectionChange(pageIndex, currentStart, closestIndex + 1)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } while (event.changes.any { it.id == downChange.id && it.pressed })
                                                 draggingHandle = null
                                             }
-                                        },
-                                        onDrag = { change, _ ->
-                                            val handle = draggingHandle ?: return@detectDragGestures
-                                            change.consume()
-                                            val positions = currentPositionsState
-                                            val closestIndex = findClosestCharIndexForDrag(
-                                                change.position.x, change.position.y,
-                                                positions, currentScaleX, currentScaleY
-                                            )
-                                            if (closestIndex != -1) {
-                                                if (handle == "start") {
-                                                    if (closestIndex < currentEnd) {
-                                                        onSelectionChange(pageIndex, closestIndex, currentEnd)
-                                                    }
-                                                } else {
-                                                    if (closestIndex > currentStart) {
-                                                        onSelectionChange(pageIndex, currentStart, closestIndex + 1)
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            draggingHandle = null
                                         }
-                                    )
+                                    }
                                 }
                         ) {
-                            Canvas(modifier = Modifier.matchParentSize()) {
+                            Canvas(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .pointerInput(handleStartX, handleStartY, handleEndX, handleEndY) {
+                                        // Handle simple taps outside handles to clear selection
+                                        detectTapGestures(
+                                            onTap = { offset ->
+                                                val startDist = (offset - Offset(handleStartX, handleStartY)).getDistance()
+                                                val endDist = (offset - Offset(handleEndX, handleEndY)).getDistance()
+                                                val threshold = 48.dp.toPx()
+                                                if (startDist >= threshold && endDist >= threshold) {
+                                                    onSelectionChange(-1, -1, -1)
+                                                }
+                                            }
+                                        )
+                                    }
+                            ) {
                                 // Draw selection highlight
                                 rects.forEach { rect ->
                                     drawRoundRect(
@@ -1484,44 +1501,68 @@ fun InteractivePdfPageItem(
 }
 
 /**
- * Draws a professional blue teardrop selection handle.
- * The handle points directly at the selected text.
+ * Draws a teardrop selection handle like Google Drive / WPS Office.
+ * The sharp tip points directly at the selected text for precise positioning.
+ * Shape: circle body + triangular pointer extending toward text.
  */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionHandle(
     centerX: Float,
     centerY: Float,
     pointUp: Boolean
 ) {
-    val handleRadius = 12.dp.toPx()
-    val stemLength = 18.dp.toPx()
-    val stemWidth = 6.dp.toPx()
+    val radius = 10.dp.toPx()
+    val tipLength = 14.dp.toPx()
 
-    val stemTop = if (pointUp) centerY - stemLength else centerY
-    val stemBottom = if (pointUp) centerY else centerY + stemLength
+    // The tip extends from the circle edge toward the text
+    val tipX = centerX
+    val tipY = if (pointUp) centerY - tipLength else centerY + tipLength
+    val circleCenterY = centerY
 
-    // Draw stem (triangle pointing toward text)
+    // Draw shadow
+    drawCircle(
+        color = Color.Black.copy(alpha = 0.12f),
+        radius = radius + 1.dp.toPx(),
+        center = Offset(centerX + 1.dp.toPx(), circleCenterY + 2.dp.toPx())
+    )
+
+    // Build teardrop path: circle body + pointed tip
     val path = Path().apply {
-        moveTo(centerX - stemWidth / 2, stemTop)
-        lineTo(centerX + stemWidth / 2, stemTop)
-        lineTo(centerX, stemBottom)
+        // Start at the tip
+        moveTo(tipX, tipY)
+
+        // Right side of teardrop: from tip around the circle
+        val rightBaseX = centerX + radius * 0.5f
+        val rightBaseY = if (pointUp) circleCenterY + radius * 0.866f else circleCenterY - radius * 0.866f
+        lineTo(rightBaseX, rightBaseY)
+
+        // Arc around the bottom of the circle (clockwise)
+        addArc(
+            oval = androidx.compose.ui.geometry.Rect(
+                centerX - radius,
+                circleCenterY - radius,
+                centerX + radius,
+                circleCenterY + radius
+            ),
+            startAngleDegrees = if (pointUp) 60f else -60f,
+            sweepAngleDegrees = if (pointUp) 240f else 240f
+        )
+
+        // Left side: from circle back to tip
+        val leftBaseX = centerX - radius * 0.5f
+        val leftBaseY = if (pointUp) circleCenterY + radius * 0.866f else circleCenterY - radius * 0.866f
+        lineTo(leftBaseX, leftBaseY)
+        lineTo(tipX, tipY)
         close()
     }
-    drawPath(
-        path = path,
-        color = Color(0xFF2196F3)
-    )
 
-    // Draw main circle (solid blue fill)
+    // Fill teardrop with solid blue
+    drawPath(path = path, color = Color(0xFF1565C0))
+
+    // Inner highlight circle for depth
     drawCircle(
-        color = Color(0xFF2196F3),
-        radius = handleRadius,
-        center = Offset(centerX, centerY)
-    )
-    // Draw subtle highlight for depth
-    drawCircle(
-        color = Color.White.copy(alpha = 0.3f),
-        radius = handleRadius * 0.5f,
-        center = Offset(centerX - handleRadius * 0.2f, centerY - handleRadius * 0.2f)
+        color = Color(0xFF42A5F5),
+        radius = radius * 0.55f,
+        center = Offset(centerX - radius * 0.15f, circleCenterY - radius * 0.15f)
     )
 }
 
