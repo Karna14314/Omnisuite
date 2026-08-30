@@ -1214,10 +1214,19 @@ fun InteractivePdfPageItem(
 
                         val firstChar = currentPositions[selectStartCharIndex]
                         val lastChar = currentPositions[selectEndCharIndex - 1]
-                        val handleStartX = firstChar.xDirAdj * 1.5f * scaleX
-                        val handleStartY = firstChar.yDirAdj * 1.5f * scaleY
-                        val handleEndX = (lastChar.xDirAdj + lastChar.widthDirAdj) * 1.5f * scaleX
-                        val handleEndY = lastChar.yDirAdj * 1.5f * scaleY
+                        // Tip positions - these align exactly with the text
+                        val tipStartX = firstChar.xDirAdj * 1.5f * scaleX
+                        val tipStartY = firstChar.yDirAdj * 1.5f * scaleY
+                        val tipEndX = (lastChar.xDirAdj + lastChar.widthDirAdj) * 1.5f * scaleX
+                        val tipEndY = lastChar.yDirAdj * 1.5f * scaleY
+                        // Handle circle centers - offset so tip aligns with text
+                        val handleOffset = with(density) { 12.dp.toPx() }
+                        // Start handle points down: circle is above the tip
+                        val handleStartX = tipStartX
+                        val handleStartY = tipStartY - handleOffset
+                        // End handle points up: circle is below the tip
+                        val handleEndX = tipEndX
+                        val handleEndY = tipEndY + handleOffset
 
                         var draggingHandle by remember { mutableStateOf<String?>(null) }
                         val currentStart by rememberUpdatedState(selectStartCharIndex)
@@ -1501,68 +1510,50 @@ fun InteractivePdfPageItem(
 }
 
 /**
- * Draws a teardrop selection handle like Google Drive / WPS Office.
- * The sharp tip points directly at the selected text for precise positioning.
- * Shape: circle body + triangular pointer extending toward text.
+ * Draws a simple, clean text selection handle.
+ * Circle body with a sharp triangular pointer extending toward the text.
+ * The tip of the pointer indicates the exact character position.
  */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionHandle(
     centerX: Float,
     centerY: Float,
     pointUp: Boolean
 ) {
-    val radius = 10.dp.toPx()
-    val tipLength = 14.dp.toPx()
+    val radius = 9.dp.toPx()
+    val pointerLength = 12.dp.toPx()
+    val pointerWidth = 5.dp.toPx()
 
-    // The tip extends from the circle edge toward the text
-    val tipX = centerX
-    val tipY = if (pointUp) centerY - tipLength else centerY + tipLength
-    val circleCenterY = centerY
+    // Pointer tip position (this is the exact point that touches the text)
+    val tipY = if (pointUp) centerY - pointerLength else centerY + pointerLength
 
-    // Draw shadow
-    drawCircle(
-        color = Color.Black.copy(alpha = 0.12f),
-        radius = radius + 1.dp.toPx(),
-        center = Offset(centerX + 1.dp.toPx(), circleCenterY + 2.dp.toPx())
-    )
-
-    // Build teardrop path: circle body + pointed tip
-    val path = Path().apply {
-        // Start at the tip
-        moveTo(tipX, tipY)
-
-        // Right side of teardrop: from tip around the circle
-        val rightBaseX = centerX + radius * 0.5f
-        val rightBaseY = if (pointUp) circleCenterY + radius * 0.866f else circleCenterY - radius * 0.866f
-        lineTo(rightBaseX, rightBaseY)
-
-        // Arc around the bottom of the circle (clockwise)
-        addArc(
-            oval = androidx.compose.ui.geometry.Rect(
-                centerX - radius,
-                circleCenterY - radius,
-                centerX + radius,
-                circleCenterY + radius
-            ),
-            startAngleDegrees = if (pointUp) 60f else -60f,
-            sweepAngleDegrees = if (pointUp) 240f else 240f
-        )
-
-        // Left side: from circle back to tip
-        val leftBaseX = centerX - radius * 0.5f
-        val leftBaseY = if (pointUp) circleCenterY + radius * 0.866f else circleCenterY - radius * 0.866f
-        lineTo(leftBaseX, leftBaseY)
-        lineTo(tipX, tipY)
+    // Draw pointer triangle (from circle edge to tip)
+    val pointerPath = Path().apply {
+        // Base of triangle at circle edge
+        if (pointUp) {
+            moveTo(centerX - pointerWidth, centerY - radius * 0.5f)
+            lineTo(centerX + pointerWidth, centerY - radius * 0.5f)
+            lineTo(centerX, tipY)
+        } else {
+            moveTo(centerX - pointerWidth, centerY + radius * 0.5f)
+            lineTo(centerX + pointerWidth, centerY + radius * 0.5f)
+            lineTo(centerX, tipY)
+        }
         close()
     }
+    drawPath(path = pointerPath, color = Color(0xFF1565C0))
 
-    // Fill teardrop with solid blue
-    drawPath(path = path, color = Color(0xFF1565C0))
-
-    // Inner highlight circle for depth
+    // Draw circle body
     drawCircle(
-        color = Color(0xFF42A5F5),
-        radius = radius * 0.55f,
-        center = Offset(centerX - radius * 0.15f, circleCenterY - radius * 0.15f)
+        color = Color(0xFF1565C0),
+        radius = radius,
+        center = Offset(centerX, centerY)
+    )
+
+    // Small white dot in center for grip indication
+    drawCircle(
+        color = Color.White.copy(alpha = 0.6f),
+        radius = radius * 0.3f,
+        center = Offset(centerX, centerY)
     )
 }
 
