@@ -3,8 +3,6 @@
 package com.karnadigital.omnisuite.feature.viewer
 
 import android.app.Activity
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.SpeakerNotes
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -35,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -46,13 +44,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.karnadigital.omnisuite.core.engine.document.NormalizedBounds
+import com.karnadigital.omnisuite.core.engine.document.ParsedBackground
+import com.karnadigital.omnisuite.core.engine.document.ParsedParagraph
+import com.karnadigital.omnisuite.core.engine.document.ParsedPresentation
+import com.karnadigital.omnisuite.core.engine.document.ParsedShape
+import com.karnadigital.omnisuite.core.engine.document.ParsedSlide
+import com.karnadigital.omnisuite.core.engine.document.PptxShapeExtractor
+import com.karnadigital.omnisuite.core.engine.document.TextAlignment
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -71,15 +76,8 @@ private fun safeParseColor(colorHex: String?, fallback: Color = Color.White): Co
 }
 
 /**
- * Modern High-Fidelity Slide-Deck Presentation Viewer (PPTX) with WPS & Google Slides UX.
- * Features:
- * - 4 Viewing Modes: Continuous Vertical Scroll, Pager (Horizontal Deck), 2-Column Grid, Fullscreen Presenter Slideshow
- * - 100% High-Fidelity 2D Vector & Canvas slide bitmap rendering
- * - Smooth Pinch-to-Zoom and Pan
- * - In-Memory Fast Presentation Search with match navigation
- * - Expandable Speaker Notes sheet
- * - Interactive Text & Background Color Editor
- * - Export to PDF, Image Deck, and Outline TXT
+ * Modern High-Fidelity Slide-Deck Presentation Viewer (PPTX).
+ * Powered by a single decoupled Compose-native slide rendering engine.
  */
 @Composable
 fun PptxViewerScreen(
@@ -106,7 +104,7 @@ fun PptxViewerScreen(
     var editingSlideIndex by remember { mutableIntStateOf(0) }
     var editingShapeIndex by remember { mutableIntStateOf(0) }
     var editingIsTitle by remember { mutableStateOf(false) }
-    var blockToEdit by remember { mutableStateOf<PptxTextShape?>(null) }
+    var blockToEdit by remember { mutableStateOf<ParsedShape.TextShape?>(null) }
 
     // Search query & results
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -377,7 +375,7 @@ fun PptxViewerScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Rendering presentation slides...",
+                            text = "Parsing presentation slides...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -561,11 +559,12 @@ fun PptxViewerScreen(
                     // Text & Formatting Dialog
                     if (showFormatter && blockToEdit != null) {
                         val slide = presentation.slides[editingSlideIndex]
+                        val bgHex = (slide.background as? ParsedBackground.SolidColor)?.colorHex
                         PptxTextFormatterDialog(
                             textBlock = blockToEdit!!,
                             isTitle = editingIsTitle,
                             initialNotes = slide.speakerNotes,
-                            initialBgColorHex = slide.bgColorHex,
+                            initialBgColorHex = bgHex,
                             onDismiss = { showFormatter = false },
                             onSave = { newText, isBold, isItalic, isUnderline, textColorHex, notes, fontSize, bgColor ->
                                 viewModel.updateSlideTextShape(
@@ -599,11 +598,11 @@ fun PptxViewerScreen(
 
 @Composable
 fun ContinuousView(
-    presentation: PptxPresentation,
+    presentation: ParsedPresentation,
     renderPaths: List<String?>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isEditMode: Boolean,
-    onEditShapeClick: (slideIdx: Int, shape: PptxTextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
+    onEditShapeClick: (slideIdx: Int, shape: ParsedShape.TextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
 ) {
     LazyColumn(
         state = listState,
@@ -633,11 +632,11 @@ fun ContinuousView(
 
 @Composable
 fun PagerView(
-    presentation: PptxPresentation,
+    presentation: ParsedPresentation,
     renderPaths: List<String?>,
     pagerState: androidx.compose.foundation.pager.PagerState,
     isEditMode: Boolean,
-    onEditShapeClick: (slideIdx: Int, shape: PptxTextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
+    onEditShapeClick: (slideIdx: Int, shape: ParsedShape.TextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
 
@@ -685,7 +684,6 @@ fun PagerView(
             ) {
                 itemsIndexed(presentation.slides) { index, slide ->
                     val isActive = pagerState.currentPage == index
-                    val renderPath = renderPaths.getOrNull(index)
 
                     Card(
                         shape = RoundedCornerShape(8.dp),
@@ -702,20 +700,10 @@ fun PagerView(
                             .graphicsLayer { this.alpha = if (isActive) 1f else 0.65f }
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (renderPath != null && File(renderPath).exists()) {
-                                AsyncImage(
-                                    model = File(renderPath),
-                                    contentDescription = "Slide ${index + 1}",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Text(
-                                    text = "${index + 1}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                            }
+                            ParsedSlideView(
+                                slide = slide,
+                                modifier = Modifier.fillMaxSize()
+                            )
 
                             Surface(
                                 shape = RoundedCornerShape(topStart = 4.dp),
@@ -744,7 +732,7 @@ fun PagerView(
 
 @Composable
 fun GridView(
-    presentation: PptxPresentation,
+    presentation: ParsedPresentation,
     renderPaths: List<String?>,
     onSlideClick: (Int) -> Unit
 ) {
@@ -758,8 +746,6 @@ fun GridView(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         itemsIndexed(presentation.slides) { index, slide ->
-            val renderPath = renderPaths.getOrNull(index)
-
             Card(
                 shape = RoundedCornerShape(10.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
@@ -771,22 +757,10 @@ fun GridView(
                     .clickable { onSlideClick(index) }
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    if (renderPath != null && File(renderPath).exists()) {
-                        AsyncImage(
-                            model = File(renderPath),
-                            contentDescription = "Slide ${index + 1}",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Text(
-                            text = slide.title.fullText.ifBlank { "Slide ${index + 1}" },
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(8.dp)
-                        )
-                    }
+                    ParsedSlideView(
+                        slide = slide,
+                        modifier = Modifier.fillMaxSize()
+                    )
 
                     Surface(
                         shape = RoundedCornerShape(topStart = 6.dp),
@@ -813,7 +787,7 @@ fun GridView(
 
 @Composable
 fun SlideshowView(
-    presentation: PptxPresentation,
+    presentation: ParsedPresentation,
     renderPaths: List<String?>,
     pagerState: androidx.compose.foundation.pager.PagerState,
     onExit: () -> Unit
@@ -830,7 +804,6 @@ fun SlideshowView(
             modifier = Modifier.fillMaxSize()
         ) { pageIndex ->
             val slide = presentation.slides[pageIndex]
-            val renderPath = renderPaths.getOrNull(pageIndex)
 
             Box(
                 modifier = Modifier
@@ -851,22 +824,10 @@ fun SlideshowView(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (renderPath != null && File(renderPath).exists()) {
-                    AsyncImage(
-                        model = File(renderPath),
-                        contentDescription = "Slide ${pageIndex + 1}",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    SlideCardItem(
-                        slide = slide,
-                        slideRenderPath = renderPath,
-                        slideIndex = pageIndex,
-                        isEditMode = false,
-                        onEditShapeClick = { _, _, _ -> }
-                    )
-                }
+                ParsedSlideView(
+                    slide = slide,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
 
@@ -909,15 +870,15 @@ fun SlideshowView(
 
 @Composable
 fun SlideCardItem(
-    slide: PptxSlide,
+    slide: ParsedSlide,
     slideRenderPath: String?,
     slideIndex: Int,
     isEditMode: Boolean,
-    onEditShapeClick: (shape: PptxTextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
+    onEditShapeClick: (shape: ParsedShape.TextShape, isTitle: Boolean, shapeIdx: Int) -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = safeParseColor(slide.bgColorHex, Color.White)),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -928,47 +889,20 @@ fun SlideCardItem(
             val slideW = maxWidth.value
             val slideH = maxHeight.value
 
-            // 1. High-Fidelity Canvas Pre-Rendered Slide Image
-            if (slideRenderPath != null && File(slideRenderPath).exists()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(File(slideRenderPath))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Slide ${slideIndex + 1}",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Fallback direct layers if render is loading
-                slide.backgroundImage?.let { bg ->
-                    AsyncImage(
-                        model = File(bg.filePath),
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                slide.images.forEach { img ->
-                    AsyncImage(
-                        model = File(img.filePath),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .offset(x = (img.left * slideW).dp, y = (img.top * slideH).dp)
-                            .size((img.width * slideW).dp, (img.height * slideH).dp)
-                    )
-                }
-            }
+            // 1. Compose-native Slide Renderer consuming pure ParsedSlide
+            ParsedSlideView(
+                slide = slide,
+                modifier = Modifier.fillMaxSize()
+            )
 
             // 2. Interactive Editing Overlays (Active when user enters Edit Mode)
             if (isEditMode) {
                 slide.textShapes.forEachIndexed { shapeIdx, shape ->
                     Box(
                         modifier = Modifier
-                            .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
-                            .width((shape.shapeWidth * slideW).dp)
-                            .heightIn(min = (shape.shapeHeight * slideH).dp)
+                            .offset(x = (shape.bounds.left * slideW).dp, y = (shape.bounds.top * slideH).dp)
+                            .width((shape.bounds.width * slideW).dp)
+                            .heightIn(min = (shape.bounds.height * slideH).dp)
                             .clickable { onEditShapeClick(shape, shape.isTitle, shapeIdx) }
                             .background(
                                 if (shape.isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -983,6 +917,212 @@ fun SlideCardItem(
                 }
             }
         }
+    }
+}
+
+// =============================================================================
+// UNIFIED COMPOSE-NATIVE SLIDE RENDERER
+// =============================================================================
+
+@Composable
+fun ParsedSlideView(
+    slide: ParsedSlide,
+    modifier: Modifier = Modifier
+) {
+    // Default background is fixed WHITE (independent of dark/light theme surface color)
+    val bgColor = when (val bg = slide.background) {
+        is ParsedBackground.SolidColor -> safeParseColor(bg.colorHex, Color.White)
+        else -> Color.White
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .background(bgColor)
+            .clipToBounds()
+    ) {
+        val slideWidthPx = maxWidth.value
+        val slideHeightPx = maxHeight.value
+
+        // 1. Background image fill if present
+        if (slide.background is ParsedBackground.ImageFill) {
+            val bgImg = slide.background as ParsedBackground.ImageFill
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(bgImg.imageBytes)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = "Background Image",
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 2. Render shapes sorted by z-index
+        slide.shapes.sortedBy { it.zIndex }.forEach { shape ->
+            ParsedShapeItem(
+                shape = shape,
+                slideWidthPx = slideWidthPx,
+                slideHeightPx = slideHeightPx
+            )
+        }
+    }
+}
+
+@Composable
+fun ParsedShapeItem(
+    shape: ParsedShape,
+    slideWidthPx: Float,
+    slideHeightPx: Float
+) {
+    val xDp = (shape.bounds.left * slideWidthPx).dp
+    val yDp = (shape.bounds.top * slideHeightPx).dp
+    val wDp = (shape.bounds.width * slideWidthPx).dp
+    val hDp = (shape.bounds.height * slideHeightPx).dp
+
+    val shapeModifier = Modifier
+        .offset(x = xDp, y = yDp)
+        .size(width = wDp, height = hDp)
+
+    when (shape) {
+        is ParsedShape.TextShape -> {
+            Box(
+                modifier = shapeModifier
+                    .background(safeParseColor(shape.backgroundColorHex, Color.Transparent))
+                    .padding(horizontal = (wDp.value * 0.02f).coerceIn(2f, 12f).dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    shape.paragraphs.forEach { p ->
+                        ParsedParagraphItem(paragraph = p, isTitle = shape.isTitle, slideWidthPx = slideWidthPx)
+                    }
+                }
+            }
+        }
+
+        is ParsedShape.ImageShape -> {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(shape.imageBytes)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = shapeModifier
+            )
+        }
+
+        is ParsedShape.VectorShape -> {
+            val fill = safeParseColor(shape.fillColorHex, Color.Transparent)
+            val stroke = safeParseColor(shape.strokeColorHex, Color.Transparent)
+
+            Canvas(modifier = shapeModifier) {
+                val size = this.size
+                if (shape.fillColorHex != null) {
+                    drawRect(color = fill, size = size)
+                }
+                if (shape.strokeColorHex != null) {
+                    drawRect(
+                        color = stroke,
+                        size = size,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = shape.strokeWidthDp.dp.toPx())
+                    )
+                }
+            }
+        }
+
+        is ParsedShape.TableShape -> {
+            Column(
+                modifier = shapeModifier
+                    .border(1.dp, Color.LightGray)
+            ) {
+                shape.cells.forEach { row ->
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        row.forEach { cell ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, Color.LightGray)
+                                    .background(safeParseColor(cell.backgroundColorHex, Color.Transparent))
+                                    .padding(2.dp)
+                            ) {
+                                cell.textShape?.paragraphs?.forEach { p ->
+                                    ParsedParagraphItem(paragraph = p, isTitle = false, slideWidthPx = slideWidthPx)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        is ParsedShape.GroupShape -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                shape.children.sortedBy { it.zIndex }.forEach { child ->
+                    ParsedShapeItem(
+                        shape = child,
+                        slideWidthPx = slideWidthPx,
+                        slideHeightPx = slideHeightPx
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ParsedParagraphItem(
+    paragraph: ParsedParagraph,
+    isTitle: Boolean,
+    slideWidthPx: Float
+) {
+    val textAlign = when (paragraph.alignment) {
+        TextAlignment.CENTER -> TextAlign.Center
+        TextAlignment.RIGHT -> TextAlign.Right
+        TextAlignment.JUSTIFY -> TextAlign.Justify
+        else -> TextAlign.Left
+    }
+
+    // Dynamic scaling based on slide width px budget (ensuring legible minimum readable size)
+    val scaleFactor = (slideWidthPx / 400f).coerceIn(0.6f, 2.5f)
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (paragraph.hasBullet) {
+            val bullet = if (paragraph.bulletChar.isNotBlank()) paragraph.bulletChar else "•"
+            Text(
+                text = "$bullet ",
+                fontSize = (14f * scaleFactor).sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray
+            )
+        }
+
+        val annotatedString = androidx.compose.ui.text.buildAnnotatedString {
+            paragraph.runs.forEach { run ->
+                val runColor = safeParseColor(run.textColorHex, if (isTitle) Color.Black else Color.DarkGray)
+                val fontSize = (run.fontSizePt * scaleFactor).coerceAtLeast(10f).sp
+
+                pushStyle(
+                    androidx.compose.ui.text.SpanStyle(
+                        color = runColor,
+                        fontSize = fontSize,
+                        fontWeight = if (run.isBold || isTitle) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if (run.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                        textDecoration = if (run.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None
+                    )
+                )
+                append(run.text)
+                pop()
+            }
+        }
+
+        Text(
+            text = annotatedString,
+            textAlign = textAlign,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -1046,7 +1186,7 @@ private fun sizeHeight(scale: Float): Float = 1920f * scale
 
 @Composable
 fun PptxTextFormatterDialog(
-    textBlock: PptxTextShape,
+    textBlock: ParsedShape.TextShape,
     isTitle: Boolean,
     initialNotes: String?,
     initialBgColorHex: String?,

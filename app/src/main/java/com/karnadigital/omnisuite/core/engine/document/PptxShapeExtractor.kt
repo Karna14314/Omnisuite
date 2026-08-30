@@ -16,6 +16,171 @@ import org.apache.poi.xslf.usermodel.XSLFTextParagraph
 import org.apache.poi.xslf.usermodel.XSLFTextRun
 
 /**
+ * Decoupled Kotlin data model for PPTX presentations independent of Apache POI and Java AWT.
+ */
+data class NormalizedBounds(
+    val left: Float,   // 0.0f..1.0f
+    val top: Float,    // 0.0f..1.0f
+    val width: Float,  // 0.001f..1.0f
+    val height: Float  // 0.001f..1.0f
+)
+
+sealed class ParsedBackground {
+    object DefaultWhite : ParsedBackground()
+    data class SolidColor(val colorHex: String) : ParsedBackground()
+    data class ImageFill(val imageBytes: ByteArray, val contentType: String? = null) : ParsedBackground() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as ImageFill
+            if (!imageBytes.contentEquals(other.imageBytes)) return false
+            if (contentType != other.contentType) return false
+            return true
+        }
+        override fun hashCode(): Int {
+            var result = imageBytes.contentHashCode()
+            result = 31 * result + (contentType?.hashCode() ?: 0)
+            return result
+        }
+    }
+}
+
+enum class TextAlignment { LEFT, CENTER, RIGHT, JUSTIFY }
+
+data class ParsedTextRun(
+    val text: String,
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val textColorHex: String? = null,
+    val fontSizePt: Float = 14f,
+    val fontFamily: String? = null
+)
+
+data class ParsedParagraph(
+    val runs: List<ParsedTextRun> = emptyList(),
+    val bulletLevel: Int = 0,
+    val hasBullet: Boolean = false,
+    val bulletChar: String = "",
+    val alignment: TextAlignment = TextAlignment.LEFT
+) {
+    val fullText: String get() = runs.joinToString("") { it.text }
+}
+
+sealed class ParsedShape {
+    abstract val id: String
+    abstract val bounds: NormalizedBounds
+    abstract val zIndex: Int
+
+    data class TextShape(
+        override val id: String,
+        override val bounds: NormalizedBounds,
+        override val zIndex: Int,
+        val isTitle: Boolean = false,
+        val paragraphs: List<ParsedParagraph> = emptyList(),
+        val backgroundColorHex: String? = null
+    ) : ParsedShape() {
+        val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
+        val primaryText: String get() = paragraphs.firstOrNull()?.fullText ?: ""
+        val isBold: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isBold ?: isTitle
+        val isItalic: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isItalic ?: false
+        val isUnderline: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isUnderline ?: false
+        val textColorHex: String? get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.textColorHex
+        val fontSizePt: Float get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.fontSizePt ?: (if (isTitle) 24f else 14f)
+    }
+
+    data class ImageShape(
+        override val id: String,
+        override val bounds: NormalizedBounds,
+        override val zIndex: Int,
+        val imageBytes: ByteArray,
+        val contentType: String? = null
+    ) : ParsedShape() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as ImageShape
+            if (id != other.id) return false
+            if (bounds != other.bounds) return false
+            if (zIndex != other.zIndex) return false
+            if (!imageBytes.contentEquals(other.imageBytes)) return false
+            if (contentType != other.contentType) return false
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = id.hashCode()
+            result = 31 * result + bounds.hashCode()
+            result = 31 * result + zIndex
+            result = 31 * result + imageBytes.contentHashCode()
+            result = 31 * result + (contentType?.hashCode() ?: 0)
+            return result
+        }
+    }
+
+    data class VectorShape(
+        override val id: String,
+        override val bounds: NormalizedBounds,
+        override val zIndex: Int,
+        val shapeType: String = "rect",
+        val fillColorHex: String? = null,
+        val strokeColorHex: String? = null,
+        val strokeWidthDp: Float = 1f
+    ) : ParsedShape()
+
+    data class TableShape(
+        override val id: String,
+        override val bounds: NormalizedBounds,
+        override val zIndex: Int,
+        val rows: Int,
+        val cols: Int,
+        val cells: List<List<ParsedTableCell>>
+    ) : ParsedShape()
+
+    data class GroupShape(
+        override val id: String,
+        override val bounds: NormalizedBounds,
+        override val zIndex: Int,
+        val children: List<ParsedShape>
+    ) : ParsedShape()
+}
+
+data class ParsedTableCell(
+    val textShape: ParsedShape.TextShape?,
+    val backgroundColorHex: String? = null
+)
+
+data class ParsedSlide(
+    val slideNumber: Int,
+    val background: ParsedBackground = ParsedBackground.DefaultWhite,
+    val shapes: List<ParsedShape> = emptyList(),
+    val speakerNotes: String? = null,
+    val aspectRatio: Float = 16f / 9f
+) {
+    val title: ParsedShape.TextShape
+        get() = shapes.filterIsInstance<ParsedShape.TextShape>().firstOrNull { it.isTitle }
+            ?: shapes.filterIsInstance<ParsedShape.TextShape>().firstOrNull()
+            ?: ParsedShape.TextShape(
+                id = "empty_title",
+                bounds = NormalizedBounds(0f, 0f, 0f, 0f),
+                zIndex = 0,
+                isTitle = false
+            )
+
+    val textShapes: List<ParsedShape.TextShape>
+        get() = shapes.filterIsInstance<ParsedShape.TextShape>()
+}
+
+data class ParsedPresentation(
+    val slides: List<ParsedSlide>,
+    val slideWidthEmu: Long = 9144000L,
+    val slideHeightEmu: Long = 5143500L
+) {
+    val aspectRatio: Float
+        get() = if (slideHeightEmu > 0) slideWidthEmu.toFloat() / slideHeightEmu.toFloat() else (16f / 9f)
+}
+
+/**
  * Shared engine for OOXML PPTX shape coordinate transforms, image extraction,
  * and text styling without compile-time java.awt dependencies.
  */
@@ -666,6 +831,316 @@ object PptxShapeExtractor {
             )
         }
 
+        return null
+    }
+
+    /**
+     * Complete presentation parser that produces a pure Kotlin [ParsedPresentation] model.
+     * Decouples presentation document parsing from rendering.
+     */
+    fun parsePresentation(slideShow: SlideShow<*, *>): ParsedPresentation {
+        val (widthEmu, heightEmu) = getSlideDimensionsEmu(slideShow)
+        val slideAspectRatio = if (heightEmu > 0) widthEmu.toFloat() / heightEmu.toFloat() else (16f / 9f)
+
+        val parsedSlides = slideShow.slides.mapIndexed { index, slide ->
+            parseSlide(slide, index + 1, widthEmu, heightEmu, slideAspectRatio)
+        }
+
+        return ParsedPresentation(parsedSlides, widthEmu, heightEmu)
+    }
+
+    /**
+     * Parses an individual slide into a decoupled [ParsedSlide] instance.
+     */
+    fun parseSlide(
+        slide: Slide<*, *>,
+        slideNumber: Int,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long,
+        aspectRatio: Float
+    ): ParsedSlide {
+        // 1. Background parsing
+        var background: ParsedBackground = ParsedBackground.DefaultWhite
+
+        val bgPicPair = extractSlideBackgroundPicture(slide)
+        if (bgPicPair != null && bgPicPair.first.isNotEmpty()) {
+            background = ParsedBackground.ImageFill(bgPicPair.first, bgPicPair.second)
+        } else {
+            val bgColorHex = getSlideBgColorHex(slide)
+            if (bgColorHex != null) {
+                background = ParsedBackground.SolidColor(bgColorHex)
+            }
+        }
+
+        // 2. Speaker Notes parsing
+        val speakerNotes: String? = try {
+            val notesObj = try { slide.notes } catch (_: Throwable) { null }
+            if (notesObj != null) {
+                val shapes = try { notesObj.shapes } catch (_: Throwable) { emptyList() }
+                var noteText: String? = null
+                for (sh in shapes) {
+                    if (sh is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                        val t = try { sh.text } catch (_: Throwable) { null }
+                        if (!t.isNullOrBlank()) {
+                            noteText = t
+                            break
+                        }
+                    }
+                }
+                noteText
+            } else null
+        } catch (_: Throwable) { null }
+
+        // 3. Shape Tree parsing (Recursive group handling & failure mode bounds enforcement)
+        val zIndexCounter = java.util.concurrent.atomic.AtomicInteger(0)
+        val rootShapes = try { slide.shapes } catch (_: Throwable) { emptyList() }
+        val parsedShapes = parseShapesRecursive(rootShapes, slide, slideWidthEmu, slideHeightEmu, emptyList(), zIndexCounter)
+
+        return ParsedSlide(
+            slideNumber = slideNumber,
+            background = background,
+            shapes = parsedShapes,
+            speakerNotes = speakerNotes,
+            aspectRatio = aspectRatio
+        )
+    }
+
+    private fun parseShapesRecursive(
+        shapes: List<Any>,
+        slide: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long,
+        groupAncestors: List<GroupTransform>,
+        zIndexCounter: java.util.concurrent.atomic.AtomicInteger
+    ): List<ParsedShape> {
+        val result = mutableListOf<ParsedShape>()
+
+        for (shape in shapes) {
+            val zIndex = zIndexCounter.getAndIncrement()
+            val shapeName = getShapeName(shape)
+
+            // Group shape recursion
+            if (shape is org.apache.poi.sl.usermodel.GroupShape<*, *>) {
+                val gt = extractGroupTransform(shape)
+                val nextAncestry = if (gt != null) groupAncestors + gt else groupAncestors
+                val childShapes = try { shape.shapes } catch (_: Throwable) { emptyList() }
+
+                val groupBoundsArray = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu, groupAncestors)
+                val groupBounds = if (groupBoundsArray != null) {
+                    NormalizedBounds(groupBoundsArray[0], groupBoundsArray[1], groupBoundsArray[2], groupBoundsArray[3])
+                } else {
+                    NormalizedBounds(0f, 0f, 1f, 1f)
+                }
+
+                val children = parseShapesRecursive(childShapes, slide, slideWidthEmu, slideHeightEmu, nextAncestry, zIndexCounter)
+                if (children.isNotEmpty()) {
+                    result.add(ParsedShape.GroupShape("group_$zIndex", groupBounds, zIndex, children))
+                }
+                continue
+            }
+
+            // FAILURE MODE POLICY: Strictly omit any shape whose bounds cannot be resolved through full inheritance chain
+            val normBoundsArray = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu, groupAncestors)
+                ?: continue // OMIT SHAPE, NO HARDCODED FALLBACK RECTS
+
+            val bounds = NormalizedBounds(normBoundsArray[0], normBoundsArray[1], normBoundsArray[2], normBoundsArray[3])
+
+            // 1. Picture shape / blip fill
+            val picPair = extractPictureDataFromShape(shape, slide)
+            if (picPair != null && picPair.first.isNotEmpty()) {
+                result.add(
+                    ParsedShape.ImageShape(
+                        id = "img_$zIndex",
+                        bounds = bounds,
+                        zIndex = zIndex,
+                        imageBytes = picPair.first,
+                        contentType = picPair.second
+                    )
+                )
+                continue
+            }
+
+            // 2. Table shape
+            if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
+                val numRows = try { shape.numberOfRows } catch (_: Throwable) { 0 }
+                val numCols = try { shape.numberOfColumns } catch (_: Throwable) { 0 }
+                if (numRows > 0 && numCols > 0) {
+                    val cells = mutableListOf<List<ParsedTableCell>>()
+                    for (r in 0 until numRows) {
+                        val rowCells = mutableListOf<ParsedTableCell>()
+                        for (c in 0 until numCols) {
+                            val cell = try { shape.getCell(r, c) } catch (_: Throwable) { null }
+                            val cellTextShape = if (cell != null) {
+                                val cellParagraphs = extractParagraphsFromTextShape(cell, false)
+                                if (cellParagraphs.isNotEmpty()) {
+                                    ParsedShape.TextShape(
+                                        id = "cell_${r}_${c}_$zIndex",
+                                        bounds = bounds,
+                                        zIndex = zIndex,
+                                        isTitle = false,
+                                        paragraphs = cellParagraphs
+                                    )
+                                } else null
+                            } else null
+                            rowCells.add(ParsedTableCell(cellTextShape))
+                        }
+                        cells.add(rowCells)
+                    }
+                    result.add(ParsedShape.TableShape("table_$zIndex", bounds, zIndex, numRows, numCols, cells))
+                    continue
+                }
+            }
+
+            // 3. Text shape
+            if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                val shapeText = try { shape.text ?: "" } catch (_: Throwable) { "" }
+                if (shapeText.isNotBlank()) {
+                    val isTitle = try {
+                        shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
+                    } catch (_: Throwable) {
+                        shapeName.lowercase().contains("title")
+                    }
+
+                    val paragraphs = extractParagraphsFromTextShape(shape, isTitle)
+                    if (paragraphs.isNotEmpty()) {
+                        result.add(
+                            ParsedShape.TextShape(
+                                id = "text_$zIndex",
+                                bounds = bounds,
+                                zIndex = zIndex,
+                                isTitle = isTitle,
+                                paragraphs = paragraphs
+                            )
+                        )
+                        continue
+                    }
+                }
+            }
+
+            // 4. Simple vector shape
+            if (shape is org.apache.poi.xslf.usermodel.XSLFSimpleShape) {
+                val shapeType = try { shape.shapeType?.name?.lowercase() ?: "rect" } catch (_: Throwable) { "rect" }
+                val fillColor = extractShapeFillColorHex(shape)
+                val strokeColor = extractShapeStrokeColorHex(shape)
+                val strokeW = try { (shape.lineWidth * 2f).toFloat() } catch (_: Throwable) { 1f }
+
+                if (fillColor != null || strokeColor != null) {
+                    result.add(
+                        ParsedShape.VectorShape(
+                            id = "vector_$zIndex",
+                            bounds = bounds,
+                            zIndex = zIndex,
+                            shapeType = shapeType,
+                            fillColorHex = fillColor,
+                            strokeColorHex = strokeColor,
+                            strokeWidthDp = strokeW
+                        )
+                    )
+                }
+            }
+        }
+
+        return result
+    }
+
+    private fun extractParagraphsFromTextShape(
+        textShape: org.apache.poi.sl.usermodel.TextShape<*, *>,
+        isTitle: Boolean
+    ): List<ParsedParagraph> {
+        val paragraphs = try { textShape.textParagraphs } catch (_: Throwable) { emptyList() }
+        val result = mutableListOf<ParsedParagraph>()
+
+        for (p in paragraphs) {
+            val runs = try { p.textRuns } catch (_: Throwable) { emptyList() }
+            val parsedRuns = mutableListOf<ParsedTextRun>()
+
+            for (r in runs) {
+                val text = getTextFromRun(r)
+                if (text.isNotBlank()) {
+                    val isBold = try { r.isBold } catch (_: Throwable) { false }
+                    val isItalic = try { r.isItalic } catch (_: Throwable) { false }
+                    val isUnderline = try { r.isUnderlined } catch (_: Throwable) { false }
+                    val colorHex = extractTextRunColorHex(r)
+                    val fSize = try { r.fontSize } catch (_: Throwable) { null }
+                    val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else (if (isTitle) 24f else 14f)
+                    val fontFam = try { r.fontFamily } catch (_: Throwable) { null }
+
+                    parsedRuns.add(ParsedTextRun(text, isBold, isItalic, isUnderline, colorHex, fontSizePt, fontFam))
+                }
+            }
+
+            if (parsedRuns.isNotEmpty()) {
+                val alignStr = try { p.textAlign?.name ?: "LEFT" } catch (_: Throwable) { "LEFT" }
+                val alignment = when (alignStr.uppercase()) {
+                    "CENTER" -> TextAlignment.CENTER
+                    "RIGHT" -> TextAlignment.RIGHT
+                    "JUSTIFY" -> TextAlignment.JUSTIFY
+                    else -> TextAlignment.LEFT
+                }
+
+                val bulletLevel = try { p.indentLevel } catch (_: Throwable) { 0 }
+                val hasBullet = try {
+                    if (p is XSLFTextParagraph) {
+                        p.bulletCharacter != null || p.indentLevel > 0
+                    } else {
+                        p.indentLevel > 0
+                    }
+                } catch (_: Throwable) { false }
+
+                val bulletChar = try {
+                    if (p is XSLFTextParagraph) p.bulletCharacter ?: "" else ""
+                } catch (_: Throwable) { "" }
+
+                result.add(ParsedParagraph(parsedRuns, bulletLevel, hasBullet, bulletChar, alignment))
+            }
+        }
+        return result
+    }
+
+    private fun extractShapeFillColorHex(shape: org.apache.poi.xslf.usermodel.XSLFSimpleShape): String? {
+        try {
+            val colorObj = shape.javaClass.getMethod("getFillColor").invoke(shape)
+            if (colorObj != null) {
+                val rgb = colorObj.javaClass.getMethod("getRGB").invoke(colorObj) as? Int
+                if (rgb != null) return String.format("#%06X", 0xFFFFFF and rgb)
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+            val spPr = invokeMethod(xml, "getSpPr") ?: return null
+            val solidFill = invokeMethod(spPr, "getSolidFill") ?: return null
+            val srgbClr = invokeMethod(solidFill, "getSrgbClr") ?: return null
+            val hexBytes = invokeMethod(srgbClr, "getVal") as? ByteArray
+            if (hexBytes != null && hexBytes.size >= 3) {
+                val hex = hexBytes.joinToString("") { String.format("%02X", it) }
+                return "#$hex"
+            }
+        } catch (_: Throwable) { }
+        return null
+    }
+
+    private fun extractShapeStrokeColorHex(shape: org.apache.poi.xslf.usermodel.XSLFSimpleShape): String? {
+        try {
+            val colorObj = shape.javaClass.getMethod("getLineColor").invoke(shape)
+            if (colorObj != null) {
+                val rgb = colorObj.javaClass.getMethod("getRGB").invoke(colorObj) as? Int
+                if (rgb != null) return String.format("#%06X", 0xFFFFFF and rgb)
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+            val spPr = invokeMethod(xml, "getSpPr") ?: return null
+            val ln = invokeMethod(spPr, "getLn") ?: return null
+            val solidFill = invokeMethod(ln, "getSolidFill") ?: return null
+            val srgbClr = invokeMethod(solidFill, "getSrgbClr") ?: return null
+            val hexBytes = invokeMethod(srgbClr, "getVal") as? ByteArray
+            if (hexBytes != null && hexBytes.size >= 3) {
+                val hex = hexBytes.joinToString("") { String.format("%02X", it) }
+                return "#$hex"
+            }
+        } catch (_: Throwable) { }
         return null
     }
 

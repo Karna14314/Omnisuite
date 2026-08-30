@@ -7,8 +7,15 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.engine.SearchResult
+import com.karnadigital.omnisuite.core.engine.document.NormalizedBounds
+import com.karnadigital.omnisuite.core.engine.document.ParsedBackground
+import com.karnadigital.omnisuite.core.engine.document.ParsedParagraph
+import com.karnadigital.omnisuite.core.engine.document.ParsedPresentation
+import com.karnadigital.omnisuite.core.engine.document.ParsedShape
+import com.karnadigital.omnisuite.core.engine.document.ParsedSlide
+import com.karnadigital.omnisuite.core.engine.document.ParsedTextRun
 import com.karnadigital.omnisuite.core.engine.document.PptxShapeExtractor
-import com.karnadigital.omnisuite.core.engine.document.PptxSlideRenderer
+import com.karnadigital.omnisuite.core.engine.document.TextAlignment
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -32,74 +39,10 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import javax.inject.Inject
 
-data class PptxTextRun(
-    val text: String,
-    val isBold: Boolean = false,
-    val isItalic: Boolean = false,
-    val isUnderline: Boolean = false,
-    val textColorHex: String? = null,
-    val fontSizePt: Float = 14f
-)
-
-data class PptxParagraph(
-    val runs: List<PptxTextRun> = emptyList(),
-    val bulletLevel: Int = 0,
-    val hasBullet: Boolean = false,
-    val bulletChar: String = "",
-    val alignment: String = "LEFT"
-) {
-    val fullText: String get() = runs.joinToString("") { it.text }
-}
-
-data class PptxTextShape(
-    val id: String,
-    val isTitle: Boolean = false,
-    val paragraphs: List<PptxParagraph> = emptyList(),
-    val shapeLeft: Float = 0.05f,
-    val shapeTop: Float = 0.05f,
-    val shapeWidth: Float = 0.9f,
-    val shapeHeight: Float = 0.15f,
-    val backgroundColorHex: String? = null
-) {
-    val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
-    val primaryText: String get() = paragraphs.firstOrNull()?.fullText ?: ""
-    val isBold: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isBold ?: isTitle
-    val isItalic: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isItalic ?: false
-    val isUnderline: Boolean get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.isUnderline ?: false
-    val textColorHex: String? get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.textColorHex
-    val fontSizePt: Float get() = paragraphs.firstOrNull()?.runs?.firstOrNull()?.fontSizePt ?: (if (isTitle) 24f else 14f)
-}
-
-data class PptxImage(
-    val filePath: String,
-    val left: Float = 0f,
-    val top: Float = 0f,
-    val width: Float = 1f,
-    val height: Float = 1f
-)
-
-data class PptxSlide(
-    val slideNumber: Int,
-    val title: PptxTextShape = PptxTextShape(id = "title", isTitle = true),
-    val textShapes: List<PptxTextShape> = emptyList(),
-    val images: List<PptxImage> = emptyList(),
-    val backgroundImage: PptxImage? = null,
-    val speakerNotes: String? = null,
-    val bgColorHex: String? = null,
-    val aspectRatio: Float = 16f / 9f,
-    val imagePath: String? = null
-)
-
-data class PptxPresentation(
-    val slides: List<PptxSlide>,
-    val slideWidthEmu: Long = 9144000L,
-    val slideHeightEmu: Long = 5143500L
-)
-
 sealed class PptxLoadState {
     object Loading : PptxLoadState()
     data class Success(
-        val presentation: PptxPresentation,
+        val presentation: ParsedPresentation,
         val fileName: String,
         val slideRenderPaths: List<String?>
     ) : PptxLoadState()
@@ -164,25 +107,12 @@ class PptxViewerViewModel @Inject constructor(
                     activeWidthEmu = widthEmu
                     activeHeightEmu = heightEmu
 
-                    // 1. Parse slide content models
-                    val slides = parseAllSlides(ppt, widthEmu, heightEmu)
+                    // 1. Parse slide content models using PptxShapeExtractor
+                    val presentation = PptxShapeExtractor.parsePresentation(ppt)
 
-                    // 2. High-Fidelity Canvas Rendering Pipeline for all slides
-                    val renderDir = File(context.cacheDir, "pptx_slides_${file.nameWithoutExtension}_${System.currentTimeMillis()}")
-                    renderDir.mkdirs()
+                    // 2. Generate slide thumbnail paths using OfficeConverter walking ParsedSlide model
+                    val renderPaths = officeConverter.renderParsedPresentationToSlideImages(presentation)
 
-                    val renderPaths = ppt.slides.mapIndexed { index, slide ->
-                        try {
-                            val outFile = File(renderDir, "slide_${index + 1}.jpg")
-                            PptxSlideRenderer.renderSlideToFile(slide, outFile, widthEmu, heightEmu, targetWidth = 1920)
-                            outFile.absolutePath
-                        } catch (t: Throwable) {
-                            PptxShapeExtractor.logWarn("PptxViewerViewModel", "Slide $index render error", t)
-                            null
-                        }
-                    }
-
-                    val presentation = PptxPresentation(slides, widthEmu, heightEmu)
                     _loadState.value = PptxLoadState.Success(presentation, file.name, renderPaths)
 
                 } catch (t: Throwable) {
@@ -195,181 +125,6 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
-    private fun parseAllSlides(ppt: SlideShow<*, *>, slideWidthEmu: Long, slideHeightEmu: Long): List<PptxSlide> {
-        val slideAspectRatio = if (slideHeightEmu > 0) slideWidthEmu.toFloat() / slideHeightEmu.toFloat() else (16f / 9f)
-        val slides = mutableListOf<PptxSlide>()
-
-        for ((index, slide) in ppt.slides.withIndex()) {
-            val textShapes = mutableListOf<PptxTextShape>()
-            val images = mutableListOf<PptxImage>()
-            var backgroundImage: PptxImage? = null
-            val bgColorHex = PptxShapeExtractor.getSlideBgColorHex(slide)
-
-            // Extract Slide Background Picture
-            try {
-                val bgPicPair = PptxShapeExtractor.extractSlideBackgroundPicture(slide)
-                if (bgPicPair != null && bgPicPair.first.isNotEmpty()) {
-                    val bgFile = savePicBytesToCache(index, bgPicPair.first, bgPicPair.second)
-                    backgroundImage = PptxImage(bgFile.absolutePath, 0f, 0f, 1f, 1f)
-                }
-            } catch (_: Throwable) { }
-
-            // Extract Speaker Notes safely
-            val speakerNotes: String? = try {
-                val notesObj = try { slide.notes } catch (_: Throwable) { null }
-                if (notesObj != null) {
-                    val shapes = try { notesObj.shapes } catch (_: Throwable) { emptyList() }
-                    var noteText: String? = null
-                    for (sh in shapes) {
-                        if (sh is org.apache.poi.sl.usermodel.TextShape<*, *>) {
-                            val t = try { sh.text } catch (_: Throwable) { null }
-                            if (!t.isNullOrBlank()) {
-                                noteText = t
-                                break
-                            }
-                        }
-                    }
-                    noteText
-                } else null
-            } catch (_: Throwable) { null }
-
-            var titleShape: PptxTextShape? = null
-            var bodyCount = 0
-
-            val rootShapes = try { slide.shapes } catch (_: Throwable) { emptyList() }
-
-            for (shape in rootShapes) {
-                try {
-                    // 1. Picture extraction
-                    val picPair = PptxShapeExtractor.extractPictureDataFromShape(shape, slide)
-                    if (picPair != null && picPair.first.isNotEmpty()) {
-                        val file = savePicBytesToCache(index, picPair.first, picPair.second)
-                        val bounds = PptxShapeExtractor.getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                        val left = bounds?.get(0) ?: 0f
-                        val top = bounds?.get(1) ?: 0f
-                        val width = bounds?.get(2) ?: 1f
-                        val height = bounds?.get(3) ?: 1f
-
-                        val isFullBleed = (width * height >= 0.75f && left <= 0.08f && top <= 0.08f) || (rootShapes.size == 1 && width * height >= 0.50f)
-                        if (isFullBleed && backgroundImage == null) {
-                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f)
-                        } else {
-                            images.add(PptxImage(file.absolutePath, left, top, width, height))
-                        }
-                    }
-
-                    // 2. Text shape extraction
-                    if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
-                        val shapeText = try { shape.text ?: "" } catch (_: Throwable) { "" }
-                        if (shapeText.isNotBlank()) {
-                            val isTitle = try {
-                                shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
-                            } catch (_: Throwable) {
-                                shape.shapeName.lowercase().contains("title")
-                            }
-
-                            val bounds = PptxShapeExtractor.getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                            val shapeLeft = bounds?.get(0) ?: 0.05f
-                            val shapeTop = bounds?.get(1) ?: (0.08f + bodyCount * 0.14f).coerceAtMost(0.85f)
-                            val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                            val shapeHeightVal = bounds?.get(3) ?: 0.15f
-
-                            val paragraphs = try { shape.textParagraphs } catch (_: Throwable) { emptyList() }
-                            val shapeParagraphs = mutableListOf<PptxParagraph>()
-
-                            for (p in paragraphs) {
-                                val runs = try { p.textRuns } catch (_: Throwable) { emptyList() }
-                                val pRuns = mutableListOf<PptxTextRun>()
-
-                                for (r in runs) {
-                                    val text = PptxShapeExtractor.getTextFromRun(r)
-                                    if (text.isNotBlank()) {
-                                        val isBold = try { r.isBold } catch (_: Throwable) { false }
-                                        val isItalic = try { r.isItalic } catch (_: Throwable) { false }
-                                        val isUnderline = try { r.isUnderlined } catch (_: Throwable) { false }
-                                        val colorHex = PptxShapeExtractor.extractTextRunColorHex(r)
-                                        val fSize = try { r.fontSize } catch (_: Throwable) { null }
-                                        val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else (if (isTitle) 24f else 14f)
-
-                                        pRuns.add(PptxTextRun(text, isBold, isItalic, isUnderline, colorHex, fontSizePt))
-                                    }
-                                }
-
-                                if (pRuns.isNotEmpty()) {
-                                    val alignStr = try { p.textAlign?.name ?: "LEFT" } catch (_: Throwable) { "LEFT" }
-                                    val bulletLevel = try { p.indentLevel } catch (_: Throwable) { 0 }
-                                    val hasBullet = try {
-                                        if (p is org.apache.poi.xslf.usermodel.XSLFTextParagraph) {
-                                            p.bulletCharacter != null || p.indentLevel > 0
-                                        } else {
-                                            p.indentLevel > 0
-                                        }
-                                    } catch (_: Throwable) { false }
-
-                                    val bulletChar = try {
-                                        if (p is org.apache.poi.xslf.usermodel.XSLFTextParagraph) p.bulletCharacter ?: "" else ""
-                                    } catch (_: Throwable) { "" }
-
-                                    shapeParagraphs.add(PptxParagraph(pRuns, bulletLevel, hasBullet, bulletChar, alignStr))
-                                }
-                            }
-
-                            if (shapeParagraphs.isNotEmpty()) {
-                                val parsedShape = PptxTextShape(
-                                    id = "shape_$bodyCount",
-                                    isTitle = isTitle,
-                                    paragraphs = shapeParagraphs,
-                                    shapeLeft = shapeLeft,
-                                    shapeTop = shapeTop,
-                                    shapeWidth = shapeWidthVal,
-                                    shapeHeight = shapeHeightVal
-                                )
-                                if (isTitle && titleShape == null) {
-                                    titleShape = parsedShape
-                                }
-                                textShapes.add(parsedShape)
-                                bodyCount++
-                            }
-                        }
-                    }
-                } catch (_: Throwable) { }
-            }
-
-            val finalTitle = titleShape ?: textShapes.firstOrNull { it.isTitle } ?: PptxTextShape(
-                id = "empty_title",
-                isTitle = false,
-                paragraphs = emptyList(),
-                shapeLeft = 0f,
-                shapeTop = 0f,
-                shapeWidth = 0f,
-                shapeHeight = 0f
-            )
-
-            slides.add(
-                PptxSlide(
-                    slideNumber = index + 1,
-                    title = finalTitle,
-                    textShapes = textShapes,
-                    images = images,
-                    backgroundImage = backgroundImage,
-                    speakerNotes = speakerNotes,
-                    bgColorHex = bgColorHex,
-                    aspectRatio = slideAspectRatio
-                )
-            )
-        }
-        return slides
-    }
-
-    private fun savePicBytesToCache(slideIndex: Int, dataBytes: ByteArray, contentType: String?): File {
-        val hash = dataBytes.contentHashCode().toString()
-        val suggestExt = contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
-        val tempFile = File(context.cacheDir, "pptx_pic_${slideIndex}_$hash.$suggestExt")
-        if (!tempFile.exists() || tempFile.length() == 0L) {
-            tempFile.outputStream().use { it.write(dataBytes) }
-        }
-        return tempFile
-    }
 
     // =========================================================================
     // SEARCH ENGINE
@@ -467,19 +222,8 @@ class PptxViewerViewModel @Inject constructor(
                         } catch (_: Throwable) { }
                     }
 
-                    // Re-render modified slide immediately
-                    val renderDir = File(context.cacheDir, "pptx_edits_${System.currentTimeMillis()}")
-                    renderDir.mkdirs()
-                    val outFile = File(renderDir, "slide_${slideIndex + 1}.jpg")
-                    PptxSlideRenderer.renderSlideToFile(slide, outFile, activeWidthEmu, activeHeightEmu, targetWidth = 1920)
-
-                    val updatedRenderPaths = currentState.slideRenderPaths.toMutableList()
-                    if (slideIndex in updatedRenderPaths.indices) {
-                        updatedRenderPaths[slideIndex] = outFile.absolutePath
-                    }
-
-                    val updatedSlides = parseAllSlides(ppt, activeWidthEmu, activeHeightEmu)
-                    val updatedPres = PptxPresentation(updatedSlides, activeWidthEmu, activeHeightEmu)
+                    val updatedPres = PptxShapeExtractor.parsePresentation(ppt)
+                    val updatedRenderPaths = officeConverter.renderParsedPresentationToSlideImages(updatedPres)
 
                     _loadState.value = currentState.copy(
                         presentation = updatedPres,
@@ -559,19 +303,8 @@ class PptxViewerViewModel @Inject constructor(
                         }
                     }
 
-                    // Re-render modified slide
-                    val renderDir = File(context.cacheDir, "pptx_bg_${System.currentTimeMillis()}")
-                    renderDir.mkdirs()
-                    val outFile = File(renderDir, "slide_${slideIndex + 1}.jpg")
-                    PptxSlideRenderer.renderSlideToFile(slide, outFile, activeWidthEmu, activeHeightEmu, targetWidth = 1920)
-
-                    val updatedRenderPaths = currentState.slideRenderPaths.toMutableList()
-                    if (slideIndex in updatedRenderPaths.indices) {
-                        updatedRenderPaths[slideIndex] = outFile.absolutePath
-                    }
-
-                    val updatedSlides = parseAllSlides(ppt, activeWidthEmu, activeHeightEmu)
-                    val updatedPres = PptxPresentation(updatedSlides, activeWidthEmu, activeHeightEmu)
+                    val updatedPres = PptxShapeExtractor.parsePresentation(ppt)
+                    val updatedRenderPaths = officeConverter.renderParsedPresentationToSlideImages(updatedPres)
 
                     _loadState.value = currentState.copy(
                         presentation = updatedPres,

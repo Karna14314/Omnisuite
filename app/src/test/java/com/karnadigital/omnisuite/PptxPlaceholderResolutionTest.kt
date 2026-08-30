@@ -420,5 +420,78 @@ class PptxPlaceholderResolutionTest {
         val blipId = PptxShapeExtractor.extractBlipEmbedId(DummyXml(xmlWithEmbed))
         assertEquals("rId99", blipId)
     }
+
+    @Test
+    fun testNon169AspectRatioCalculation() {
+        // Standard 4:3 slide (9144000 x 6858000 EMU = 10 x 7.5 inches)
+        val presentation43 = com.karnadigital.omnisuite.core.engine.document.ParsedPresentation(
+            slides = emptyList(),
+            slideWidthEmu = 9144000L,
+            slideHeightEmu = 6858000L
+        )
+        assertEquals(4f / 3f, presentation43.aspectRatio, 0.001f)
+
+        // Standard 16:9 slide (9144000 x 5143500 EMU)
+        val presentation169 = com.karnadigital.omnisuite.core.engine.document.ParsedPresentation(
+            slides = emptyList(),
+            slideWidthEmu = 9144000L,
+            slideHeightEmu = 5143500L
+        )
+        assertEquals(16f / 9f, presentation169.aspectRatio, 0.001f)
+    }
+
+    @Test
+    fun testNestedGroupShapeTransformComposition() {
+        val slideW = 9144000L
+        val slideH = 5143500L
+
+        // Level 1 Group: (0,0) -> (914400, 514350) scale 2x
+        val outerGroup = PptxShapeExtractor.GroupTransform(
+            offX = 914400L,
+            offY = 514350L,
+            extCx = 4572000L,
+            extCy = 2571750L,
+            chOffX = 0L,
+            chOffY = 0L,
+            chExtCx = 1000L,
+            chExtCy = 1000L
+        )
+
+        // Level 2 Group: offset inside outer group (100, 100) -> 500x500
+        val innerGroup = PptxShapeExtractor.GroupTransform(
+            offX = 100L,
+            offY = 100L,
+            extCx = 500L,
+            extCy = 500L,
+            chOffX = 0L,
+            chOffY = 0L,
+            chExtCx = 100L,
+            chExtCy = 100L
+        )
+
+        val childShapeXml = MockXmlShape(
+            nvPr = null,
+            xfrm = MockXmlXfrm(
+                off = MockXmlPoint(10L, 10L),
+                ext = MockXmlDimension(50L, 50L)
+            )
+        )
+        val childShape = MockShape("Nested Group Child", childShapeXml)
+
+        val bounds = PptxShapeExtractor.getShapeNormalizedBounds(
+            childShape,
+            null,
+            slideW,
+            slideH,
+            listOf(outerGroup, innerGroup)
+        )
+
+        assertNotNull(bounds)
+        // Verified composed transforms down 2 levels
+        assertTrue(bounds!![0] > 0f && bounds[0] < 1f)
+        assertTrue(bounds[1] > 0f && bounds[1] < 1f)
+        assertTrue(bounds[2] > 0f && bounds[2] <= 1f)
+        assertTrue(bounds[3] > 0f && bounds[3] <= 1f)
+    }
 }
 
