@@ -18,6 +18,8 @@ import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xslf.usermodel.XMLSlideShow
+import org.apache.poi.xslf.usermodel.XSLFSlide
+import org.apache.poi.xslf.usermodel.XSLFShape
 import org.apache.poi.xslf.usermodel.XSLFTextShape
 import org.apache.poi.xslf.usermodel.XSLFSimpleShape
 import org.apache.poi.sl.usermodel.Placeholder
@@ -539,6 +541,8 @@ class OfficeConverter @Inject constructor(
 
                     // Check if this shape is a picture (XSLFPictureShape or shape with blipFill)
                     var dataBytes: ByteArray? = null
+
+                    // Strategy 1: Direct XSLFPictureShape
                     if (shape is org.apache.poi.xslf.usermodel.XSLFPictureShape) {
                         try { dataBytes = shape.pictureData?.data } catch (_: Throwable) { }
                         if (dataBytes == null) {
@@ -548,7 +552,9 @@ class OfficeConverter @Inject constructor(
                             } catch (_: Throwable) { }
                         }
                     }
-                    if (dataBytes == null) {
+
+                    // Strategy 2: XML blip extraction (handles blipFill on AutoShape, graphicFrame, etc.)
+                    if (dataBytes == null || dataBytes.isEmpty()) {
                         try {
                             val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
                             if (xml != null) {
@@ -556,10 +562,39 @@ class OfficeConverter @Inject constructor(
                                 val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
                                 if (match != null) {
                                     val rId = match.groupValues[1]
+                                    // Resolve the relationship to get image bytes
                                     val rel = slide.packagePart?.getRelationship(rId)
                                     if (rel != null) {
                                         val part = slide.packagePart?.getRelatedPart(rel) ?: slide.packagePart?.getPackage()?.getPart(rel)
                                         dataBytes = part?.inputStream?.use { stream -> stream.readBytes() }
+                                    }
+                                }
+                            }
+                        } catch (_: Throwable) { }
+                    }
+
+                    // Strategy 3: For graphicFrame shapes - navigate to pic > blipFill > blip
+                    if ((dataBytes == null || dataBytes.isNotEmpty().not()) ) {
+                        try {
+                            val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+                            if (xml != null) {
+                                val graphic = try { xml.javaClass.getMethod("getGraphic").invoke(xml) } catch (_: Throwable) { null }
+                                if (graphic != null) {
+                                    val graphicData = try { graphic.javaClass.getMethod("getGraphicData").invoke(graphic) } catch (_: Throwable) { null }
+                                    if (graphicData != null) {
+                                        val pic = try { graphicData.javaClass.getMethod("getPic").invoke(graphicData) } catch (_: Throwable) { null }
+                                        if (pic != null) {
+                                            val picStr = pic.toString()
+                                            val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(picStr)
+                                            if (match != null) {
+                                                val rId = match.groupValues[1]
+                                                val rel = slide.packagePart?.getRelationship(rId)
+                                                if (rel != null) {
+                                                    val part = slide.packagePart?.getRelatedPart(rel) ?: slide.packagePart?.getPackage()?.getPart(rel)
+                                                    dataBytes = part?.inputStream?.use { stream -> stream.readBytes() }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -785,6 +820,41 @@ class OfficeConverter @Inject constructor(
                             val py = bounds[1] * scaleY
                             val pw = bounds[2] * scaleX
                             val ph = bounds[3] * scaleY
+
+                            // Check if this shape is a picture (XSLFPictureShape or shape with blipFill)
+                            var imgBytes: ByteArray? = null
+                            if (shape is org.apache.poi.xslf.usermodel.XSLFPictureShape) {
+                                try { imgBytes = shape.pictureData?.data } catch (_: Throwable) { }
+                            }
+                            if (imgBytes == null) {
+                                try {
+                                    val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+                                    if (xml != null) {
+                                        val xmlStr = xml.toString()
+                                        val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
+                                        if (match != null) {
+                                            val rId = match.groupValues[1]
+                                            val rel = slide.packagePart?.getRelationship(rId)
+                                            if (rel != null) {
+                                                val part = slide.packagePart?.getRelatedPart(rel) ?: slide.packagePart?.getPackage()?.getPart(rel)
+                                                imgBytes = part?.inputStream?.use { stream -> stream.readBytes() }
+                                            }
+                                        }
+                                    }
+                                } catch (_: Throwable) { }
+                            }
+
+                            if (imgBytes != null && imgBytes.isNotEmpty()) {
+                                try {
+                                    val bmp = BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.size)
+                                    if (bmp != null) {
+                                        val destRect = android.graphics.Rect(px.toInt(), py.toInt(), (px + pw).toInt(), (py + ph).toInt())
+                                        canvas.drawBitmap(bmp, null, destRect, null)
+                                        bmp.recycle()
+                                    }
+                                } catch (_: Throwable) { }
+                                continue
+                            }
 
                             if (shape is XSLFSimpleShape) {
                                 // Draw shape fill
@@ -1043,14 +1113,14 @@ class OfficeConverter @Inject constructor(
                 val phDetails = try { shape.placeholderDetails } catch (_: Throwable) { null }
                 val phType = phDetails?.placeholder
                 if (phType != null) {
-                    val layoutShapes = try { slide.slideLayout?.shapes } catch (_: Throwable) { emptyList() }
+                    val layoutShapes = try { slide.slideLayout?.shapes } catch (_: Throwable) { null } ?: emptyList()
                     for (lShape in layoutShapes) {
                         if (lShape.placeholderDetails?.placeholder == phType) {
                             val lBounds = getXmlShapeBoundsNormalized(lShape, slideWidthEmu, slideHeightEmu)
                             if (lBounds != null) return lBounds
                         }
                     }
-                    val masterShapes = try { slide.slideLayout?.slideMaster?.shapes } catch (_: Throwable) { emptyList() }
+                    val masterShapes = try { slide.slideLayout?.slideMaster?.shapes } catch (_: Throwable) { null } ?: emptyList()
                     for (mShape in masterShapes) {
                         if (mShape.placeholderDetails?.placeholder == phType) {
                             val mBounds = getXmlShapeBoundsNormalized(mShape, slideWidthEmu, slideHeightEmu)

@@ -17,9 +17,12 @@ import kotlinx.coroutines.withContext
 import org.apache.poi.sl.usermodel.Placeholder
 import org.apache.poi.xslf.usermodel.XMLSlideShow
 import org.apache.poi.xslf.usermodel.XSLFSlide
+import org.apache.poi.xslf.usermodel.XSLFShape
 import org.apache.poi.xslf.usermodel.XSLFTextParagraph
 import org.apache.poi.xslf.usermodel.XSLFTextRun
 import org.apache.poi.xslf.usermodel.XSLFTextShape
+import org.apache.poi.xslf.usermodel.XSLFPictureData
+import org.apache.poi.xslf.usermodel.XSLFPictureShape
 import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
@@ -184,7 +187,7 @@ class PptxViewerViewModel @Inject constructor(
                 val phType = phDetails?.placeholder
                 if (phType != null) {
                     // Check slide layout
-                    val layoutShapes = try { slide.slideLayout?.shapes } catch (_: Throwable) { emptyList() }
+                    val layoutShapes = try { slide.slideLayout?.shapes } catch (_: Throwable) { null } ?: emptyList()
                     for (lShape in layoutShapes) {
                         if (lShape.placeholderDetails?.placeholder == phType) {
                             val lBounds = getXmlShapeBoundsNormalized(lShape, slideWidthEmu, slideHeightEmu)
@@ -192,7 +195,7 @@ class PptxViewerViewModel @Inject constructor(
                         }
                     }
                     // Check slide master
-                    val masterShapes = try { slide.slideLayout?.slideMaster?.shapes } catch (_: Throwable) { emptyList() }
+                    val masterShapes = try { slide.slideLayout?.slideMaster?.shapes } catch (_: Throwable) { null } ?: emptyList()
                     for (mShape in masterShapes) {
                         if (mShape.placeholderDetails?.placeholder == phType) {
                             val mBounds = getXmlShapeBoundsNormalized(mShape, slideWidthEmu, slideHeightEmu)
@@ -293,27 +296,73 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     /**
+     * Recursively searches for a blip embed ID in the XML object tree.
+     * Handles nested structures like graphicFrame > graphic > graphicData > pic > blipFill > blip.
+     */
+    private fun findBlipEmbedIdRecursive(xml: Any, depth: Int = 0, visited: MutableSet<Int>? = null): String? {
+        if (depth > 15) return null
+        val visitSet = visited ?: mutableSetOf()
+        val identity = System.identityHashCode(xml)
+        if (identity in visitSet) return null
+        visitSet.add(identity)
+
+        // Check if this object has a getEmbed method (blip element)
+        val embed = try {
+            xml.javaClass.getMethod("getEmbed").invoke(xml) as? String
+        } catch (_: Throwable) { null }
+        if (!embed.isNullOrBlank()) return embed
+
+        // Also check for r:embed via getAttribute or similar
+        val link = try {
+            xml.javaClass.getMethod("getLink").invoke(xml) as? String
+        } catch (_: Throwable) { null }
+
+        // Try common child getters that might contain blip elements
+        val childGetters = listOf(
+            "getBlip", "getBlipFill", "getSpPr", "getGrpSpPr",
+            "getGraphic", "getGraphicData", "getPic", "getCxnSpPr",
+            "getNvSpPr", "getNvPicPr", "getNvCxnSpPr", "getBg",
+            "getBgPr", "getSolidFill", "getGradFill", "getPattFill",
+            "getLn", "getTxBody", "getTxDef", "getStyles"
+        )
+        for (getter in childGetters) {
+            try {
+                val child = xml.javaClass.getMethod(getter).invoke(xml)
+                if (child != null && child != xml) {
+                    val result = findBlipEmbedIdRecursive(child, depth + 1, visitSet)
+                    if (result != null) return result
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // Try to iterate over list children
+        for (getter in listOf("getSpList", "getGrpSpList", "getGraphicFrameList", "getPicList")) {
+            try {
+                val list = xml.javaClass.getMethod(getter).invoke(xml)
+                if (list is Iterable<*>) {
+                    for (item in list) {
+                        if (item != null) {
+                            val result = findBlipEmbedIdRecursive(item, depth + 1, visitSet)
+                            if (result != null) return result
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        return null
+    }
+
+    /**
      * Extracts blipId (e.g. "rId2") from XML structure for picture extraction.
+     * Uses recursive traversal to handle deeply nested structures like graphicFrame.
      */
     private fun extractBlipEmbedId(xml: Any): String? {
-        try {
-            var blipFill: Any? = null
-            try { blipFill = xml.javaClass.getMethod("getBlipFill").invoke(xml) } catch (_: Throwable) {}
-            if (blipFill == null) {
-                try {
-                    val spPr = xml.javaClass.getMethod("getSpPr").invoke(xml)
-                    if (spPr != null) blipFill = spPr.javaClass.getMethod("getBlipFill").invoke(spPr)
-                } catch (_: Throwable) {}
-            }
-            if (blipFill != null) {
-                val blip = try { blipFill.javaClass.getMethod("getBlip").invoke(blipFill) } catch (_: Throwable) { null }
-                if (blip != null) {
-                    val embed = try { blip.javaClass.getMethod("getEmbed").invoke(blip) as? String } catch (_: Throwable) { null }
-                    if (!embed.isNullOrBlank()) return embed
-                }
-            }
-        } catch (_: Throwable) { }
+        // First try recursive traversal (handles all nesting levels)
+        val recursiveResult = findBlipEmbedIdRecursive(xml)
+        if (recursiveResult != null) return recursiveResult
 
+        // Fallback: regex on string representation
         try {
             val xmlStr = xml.toString()
             val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
@@ -327,17 +376,31 @@ class PptxViewerViewModel @Inject constructor(
 
     /**
      * Resolves raw image bytes and contentType from a blip relationship ID on the slide.
+     * Tries multiple strategies to handle different PPTX structures.
      */
     private fun resolvePictureBytesFromBlipId(slide: Any, blipId: String): Pair<ByteArray, String?>? {
         if (slide !is XSLFSlide) return null
+
+        // Strategy 1: getRelationPartById (preferred)
         try {
             val relPart = slide.getRelationPartById(blipId)
-            val docPart = relPart?.documentPart
-            if (docPart is XSLFPictureData) {
-                return Pair(docPart.data, docPart.contentType)
+            if (relPart != null) {
+                // Use reflection to access documentPart (private field)
+                val docPartField = try { relPart.javaClass.getDeclaredField("documentPart") } catch (_: Throwable) { null }
+                val docPart = if (docPartField != null) {
+                    docPartField.isAccessible = true
+                    docPartField.get(relPart)
+                } else {
+                    // Try getDocumentPart method
+                    try { relPart.javaClass.getMethod("getDocumentPart").invoke(relPart) } catch (_: Throwable) { null }
+                }
+                if (docPart is XSLFPictureData) {
+                    return Pair(docPart.data, docPart.contentType)
+                }
             }
         } catch (_: Throwable) { }
 
+        // Strategy 2: getRelationById
         try {
             val relDoc = slide.getRelationById(blipId)
             if (relDoc is XSLFPictureData) {
@@ -345,6 +408,7 @@ class PptxViewerViewModel @Inject constructor(
             }
         } catch (_: Throwable) { }
 
+        // Strategy 3: packagePart.getRelationship
         try {
             val sheetPart = slide.packagePart
             val rel = sheetPart.getRelationship(blipId)
@@ -357,11 +421,75 @@ class PptxViewerViewModel @Inject constructor(
             }
         } catch (_: Throwable) { }
 
+        // Strategy 4: Search all picture data in the presentation by matching relationship target
         try {
             val slideShow = slide.slideShow
             for (pd in slideShow.pictureData) {
-                if (pd.packagePart?.partName?.name?.contains(blipId, ignoreCase = true) == true) {
-                    return Pair(pd.data, pd.contentType)
+                val pdPart = pd.packagePart ?: continue
+                try {
+                    val rels = slide.packagePart.relationships
+                    for (rel in rels) {
+                        if (rel.id == blipId || rel.relationshipType?.contains("image") == true) {
+                            // Use reflection to access targetUri (private field)
+                            val targetUri = try {
+                                val field = rel.javaClass.getDeclaredField("targetUri")
+                                field.isAccessible = true
+                                field.get(rel) as? java.net.URI
+                            } catch (_: Throwable) {
+                                try { rel.javaClass.getMethod("getTargetUri").invoke(rel) as? java.net.URI } catch (_: Throwable) { null }
+                            }
+                            val partNameUri = try { java.net.URI(pdPart.partName.toString()) } catch (_: Throwable) { null }
+                            if (targetUri != null && partNameUri != null &&
+                                (targetUri == partNameUri || targetUri.toString() == pdPart.partName.toString())) {
+                                return Pair(pd.data, pd.contentType)
+                            }
+                        }
+                    }
+                } catch (_: Throwable) { }
+            }
+        } catch (_: Throwable) { }
+
+        // Strategy 5: Try matching by checking all relationships and resolving their targets
+        try {
+            val slideShow = slide.slideShow
+            val allRels = slide.packagePart.relationships
+            for (rel in allRels) {
+                if (rel.id == blipId) {
+                    val targetUri = try {
+                        val field = rel.javaClass.getDeclaredField("targetUri")
+                        field.isAccessible = true
+                        field.get(rel) as? java.net.URI
+                    } catch (_: Throwable) {
+                        try { rel.javaClass.getMethod("getTargetUri").invoke(rel) as? java.net.URI } catch (_: Throwable) { null }
+                    } ?: continue
+                    for (pd in slideShow.pictureData) {
+                        val pdPartName = pd.packagePart?.partName?.toString() ?: continue
+                        if (pdPartName == targetUri.toString()) {
+                            return Pair(pd.data, pd.contentType)
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+
+        // Strategy 6: Fallback - match picture data by checking if any relationship resolves to it
+        try {
+            val sheetPart = slide.packagePart
+            val rel = sheetPart.getRelationship(blipId) ?: return null
+            val targetUriStr = try {
+                val field = rel.javaClass.getDeclaredField("targetUri")
+                field.isAccessible = true
+                (field.get(rel) as? java.net.URI)?.toString()
+            } catch (_: Throwable) {
+                try { (rel.javaClass.getMethod("getTargetUri").invoke(rel) as? java.net.URI)?.toString() } catch (_: Throwable) { null }
+            }
+            if (targetUriStr != null) {
+                val slideShow = slide.slideShow
+                for (pd in slideShow.pictureData) {
+                    val pdName = pd.packagePart?.partName?.toString()
+                    if (pdName != null && (pdName.contains(targetUriStr) || targetUriStr.contains(pdName))) {
+                        return Pair(pd.data, pd.contentType)
+                    }
                 }
             }
         } catch (_: Throwable) { }
@@ -370,9 +498,11 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     /**
-     * Extracts picture data from ANY shape (PictureShape, Shape with blipFill, etc.).
+     * Extracts picture data from ANY shape (PictureShape, Shape with blipFill, graphicFrame, etc.).
+     * Uses multiple strategies to handle all image embedding methods in OOXML.
      */
     private fun extractPictureDataFromShape(shape: Any, slide: Any): Pair<ByteArray, String?>? {
+        // Strategy 1: Direct PictureShape interface
         if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
             try {
                 val pd = shape.pictureData
@@ -383,6 +513,7 @@ class PptxViewerViewModel @Inject constructor(
             } catch (_: Throwable) { }
         }
 
+        // Strategy 2: getPictureData method reflection
         try {
             val method = shape.javaClass.getMethod("getPictureData")
             val pd = method.invoke(shape)
@@ -395,6 +526,7 @@ class PptxViewerViewModel @Inject constructor(
             }
         } catch (_: Throwable) { }
 
+        // Strategy 3: XML blip extraction (handles blipFill on AutoShape, graphicFrame, etc.)
         try {
             val xml = getXmlObjectReflection(shape)
             if (xml != null) {
@@ -402,6 +534,45 @@ class PptxViewerViewModel @Inject constructor(
                 if (!blipId.isNullOrBlank()) {
                     val resolved = resolvePictureBytesFromBlipId(slide, blipId)
                     if (resolved != null) return resolved
+                }
+            }
+        } catch (_: Throwable) { }
+
+        // Strategy 4: For graphicFrame shapes - navigate to pic > blipFill > blip
+        try {
+            val xml = getXmlObjectReflection(shape)
+            if (xml != null) {
+                val graphic = try { xml.javaClass.getMethod("getGraphic").invoke(xml) } catch (_: Throwable) { null }
+                if (graphic != null) {
+                    val graphicData = try { graphic.javaClass.getMethod("getGraphicData").invoke(graphic) } catch (_: Throwable) { null }
+                    if (graphicData != null) {
+                        // Try getPic method on graphicData
+                        val pic = try { graphicData.javaClass.getMethod("getPic").invoke(graphicData) } catch (_: Throwable) { null }
+                        if (pic != null) {
+                            val picXml = try { getXmlObjectReflection(pic) } catch (_: Throwable) { pic }
+                            if (picXml != null) {
+                                val blipId = extractBlipEmbedId(picXml)
+                                if (!blipId.isNullOrBlank()) {
+                                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
+                                    if (resolved != null) return resolved
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+
+        // Strategy 5: Direct picture data from shape's internal structure (for XSLFPictureShape)
+        try {
+            val dataField = shape.javaClass.getDeclaredField("pictureData")
+            dataField.isAccessible = true
+            val pd = dataField.get(shape)
+            if (pd != null) {
+                val data = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
+                if (data != null && data.isNotEmpty()) {
+                    val ct = try { pd.javaClass.getMethod("getContentType").invoke(pd) as? String } catch (_: Throwable) { null }
+                    return Pair(data, ct)
                 }
             }
         } catch (_: Throwable) { }
@@ -424,13 +595,28 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     private fun cleanTextRunString(raw: String): String {
-        return raw
+        if (raw.isBlank()) return raw
+        var cleaned = raw
             .replace("\uF0A7", "") // Wingdings square bullet
             .replace("\uF0B7", "") // Symbol bullet
             .replace("\uF06C", "") // Wingdings circle bullet
             .replace("\uF0D8", "")
             .replace("\uF076", "")
-            .replace(Regex("""^[\'`‘’-]\s*"""), "")
+            .replace("\u2022", "") // Unicode bullet
+            .replace("\u25CF", "") // Black circle
+            .replace("\u25CB", "") // White circle
+            .replace("\u25AA", "") // Small black square
+            .replace("\u25A0", "") // Black square
+            .replace("\u25BA", "") // Black right-pointing pointer
+            .replace("\u25B8", "") // Small black right-pointing pointer
+            .replace("\u25B6", "") // Black right-pointing triangle
+
+        // Remove leading bullet-like characters followed by whitespace
+        cleaned = cleaned.replace(Regex("""^[\'`‘’\-–—•·*▪▫◦●■□►▸→✓✔]\s*"""), "")
+        // Remove leading dash/hyphen patterns that are bullets
+        cleaned = cleaned.replace(Regex("""^[-–—]\s+"""), "")
+
+        return cleaned
     }
 
     /**
@@ -649,6 +835,7 @@ class PptxViewerViewModel @Inject constructor(
 
             var titleShape: PptxTextShape? = null
             var bodyCount = 0
+            val usedBounds = mutableListOf<FloatArray>()
 
             // Helper function to recursively flatten group shapes and collect all shapes
             val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
@@ -664,6 +851,36 @@ class PptxViewerViewModel @Inject constructor(
             }
             val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
             collectShapes(rootShapes)
+
+            // Check for overlapping bounds and adjust positions
+            fun findNonOverlappingY(desiredTop: Float, width: Float, height: Float): Float {
+                var y = desiredTop
+                val maxAttempts = 20
+                var attempt = 0
+                while (attempt < maxAttempts) {
+                    var overlaps = false
+                    for (existing in usedBounds) {
+                        val exLeft = existing[0]
+                        val exTop = existing[1]
+                        val exRight = existing[0] + existing[2]
+                        val exBottom = existing[1] + existing[3]
+                        val newLeft = 0f // simplified check
+                        val newTop = y
+                        val newRight = width
+                        val newBottom = y + height
+
+                        // Check vertical overlap
+                        if (newTop < exBottom && newBottom > exTop) {
+                            overlaps = true
+                            break
+                        }
+                    }
+                    if (!overlaps) return y
+                    y += height * 0.5f
+                    attempt++
+                }
+                return y
+            }
 
             for (shape in allShapes) {
                 try {
@@ -699,9 +916,12 @@ class PptxViewerViewModel @Inject constructor(
 
                             val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
                             val shapeLeft = bounds?.get(0) ?: 0.05f
-                            val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
+                            val rawTop = bounds?.get(1) ?: 0.22f
                             val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.2f)
+                            val shapeHeightVal = bounds?.get(3) ?: 0.2f
+                            // Use overlap avoidance when bounds are missing
+                            val shapeTop = if (bounds != null) rawTop else findNonOverlappingY(rawTop, shapeWidthVal, shapeHeightVal).coerceAtMost(0.9f)
+                            usedBounds.add(floatArrayOf(shapeLeft, shapeTop, shapeWidthVal, shapeHeightVal))
 
                             val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
                             val shapeParagraphs = mutableListOf<PptxParagraph>()
@@ -779,11 +999,33 @@ class PptxViewerViewModel @Inject constructor(
                                             else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
                                         } catch (_: Throwable) { null }
 
-                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank()
+                                        // Check if paragraph has bullet formatting via XML
+                                        val hasBulletFormatting = try {
+                                            val pXml = getXmlObjectReflection(p)
+                                            if (pXml != null) {
+                                                val pPr = try { pXml.javaClass.getMethod("getPPr").invoke(pXml) } catch (_: Throwable) { null }
+                                                if (pPr != null) {
+                                                    // Check for buChar, buAutoNum, or buBlip elements
+                                                    val buChar = try { pPr.javaClass.getMethod("getBuChar").invoke(pPr) } catch (_: Throwable) { null }
+                                                    val buAutoNum = try { pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr) } catch (_: Throwable) { null }
+                                                    val buBlip = try { pPr.javaClass.getMethod("getBuBlip").invoke(pPr) } catch (_: Throwable) { null }
+                                                    buChar != null || buAutoNum != null || buBlip != null
+                                                } else false
+                                            } else false
+                                        } catch (_: Throwable) { false }
+
+                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFormatting
                                         val bulletChar = when {
                                             rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
-                                            rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
-                                            rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
+                                            rawBulletChar.length == 1 && rawBulletChar[0].code < 32 -> "•"
+                                            rawBulletChar in listOf("•", "○", "▪", "▫", "◦", "●", "■", "□", "►", "▸", "→", "✓", "✔") -> rawBulletChar
+                                            rawBulletChar == "-" || rawBulletChar == "–" || rawBulletChar == "—" -> "•"
+                                            rawBulletChar == ">" || rawBulletChar == "→" -> "▸"
+                                            rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") ||
+                                            rawBulletChar.contains("\uF0D8") || rawBulletChar.contains("\uF076") || rawBulletChar.contains("\u2022") -> "•"
+                                            // Handle Wingdings/Symbol font characters that render as apostrophes/ticks
+                                            rawBulletChar == "'" || rawBulletChar == "`" || rawBulletChar == "‘" || rawBulletChar == "’" ||
+                                            rawBulletChar == "*" || rawBulletChar == "·" -> "•"
                                             else -> "•"
                                         }
 
