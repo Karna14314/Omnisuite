@@ -101,7 +101,8 @@ sealed class PptxLoadState {
     data class Success(
         val presentation: PptxPresentation,
         val fileName: String,
-        val slideBitmaps: List<android.graphics.Bitmap> = emptyList()
+        /** Disk-backed render for each slide. Empty entries use the native fallback. */
+        val slideRenderPaths: List<String?> = emptyList()
     ) : PptxLoadState()
     data class Error(val message: String) : PptxLoadState()
 }
@@ -1033,14 +1034,15 @@ class PptxViewerViewModel @Inject constructor(
                     val slides = parseAllSlides(ppt)
                     android.util.Log.d("PptxViewModel", "Parsed slides: ${slides.size}")
 
-                    // Render slides to bitmaps for reliable display
-                    val bitmaps = try {
-                        android.util.Log.d("PptxViewModel", "Rendering bitmaps...")
-                        val result = officeConverter.renderPptxToBitmaps(file)
-                        android.util.Log.d("PptxViewModel", "Rendered ${result.size} bitmaps")
+                    // Render each slide to a cache file. Keeping every ARGB bitmap in
+                    // state was enough to make preview pages blank on larger decks.
+                    val renderPaths = try {
+                        android.util.Log.d("PptxViewModel", "Rendering slide previews...")
+                        val result = officeConverter.renderPptxToSlideImages(file)
+                        android.util.Log.d("PptxViewModel", "Rendered ${result.count { it != null }} slide previews")
                         result
                     } catch (e: Throwable) {
-                        android.util.Log.e("PptxViewModel", "Bitmap rendering failed: ${e.message}")
+                        android.util.Log.e("PptxViewModel", "Slide rendering failed: ${e.message}")
                         emptyList()
                     }
 
@@ -1050,9 +1052,9 @@ class PptxViewerViewModel @Inject constructor(
                     _loadState.value = PptxLoadState.Success(
                         presentation = PptxPresentation(slides),
                         fileName = file.name,
-                        slideBitmaps = bitmaps
+                        slideRenderPaths = renderPaths
                     )
-                    android.util.Log.d("PptxViewModel", "State updated to Success with ${bitmaps.size} bitmaps")
+                    android.util.Log.d("PptxViewModel", "State updated to Success with ${renderPaths.size} slide previews")
 
                 } catch (e: Throwable) {
                     e.printStackTrace()

@@ -548,7 +548,7 @@ fun PptxViewerScreen(
                                         ZoomableBox(modifier = Modifier.fillMaxWidth()) {
                                             SlideCardItem(
                                                 slide = slide,
-                                                bitmap = currentState.slideBitmaps.getOrNull(pageIndex),
+                                                slideRenderPath = currentState.slideRenderPaths.getOrNull(pageIndex),
                                                 isEditMode = false,
                                                 onTextBlockClick = { _, _, _ -> }
                                             )
@@ -590,7 +590,7 @@ fun PptxViewerScreen(
                             // Mi PPT / WPS Office Continuous Flow Mode (Vertical Scroll)
                             ContinuousSlideView(
                                 presentation = presentation,
-                                slideBitmaps = currentState.slideBitmaps,
+                                slideRenderPaths = currentState.slideRenderPaths,
                                 isEditMode = isEditMode,
                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                     blockToEdit = textBlock
@@ -630,9 +630,10 @@ fun PptxViewerScreen(
                                         Box(
                                             modifier = Modifier.fillMaxSize()
                                         ) {
-                                            if (index < currentState.slideBitmaps.size && currentState.slideBitmaps[index] != null) {
-                                                Image(
-                                                    bitmap = currentState.slideBitmaps[index].asImageBitmap(),
+                                            val renderPath = currentState.slideRenderPaths.getOrNull(index)
+                                            if (renderPath != null) {
+                                                AsyncImage(
+                                                    model = File(renderPath),
                                                     contentDescription = "Slide ${index + 1}",
                                                     contentScale = ContentScale.Fit,
                                                     modifier = Modifier.fillMaxSize()
@@ -695,7 +696,7 @@ fun PptxViewerScreen(
                                         ) {
                                             SlideCardItem(
                                                 slide = slide,
-                                                bitmap = currentState.slideBitmaps.getOrNull(pageIndex),
+                                                slideRenderPath = currentState.slideRenderPaths.getOrNull(pageIndex),
                                                 isEditMode = isEditMode,
                                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                                     blockToEdit = textBlock
@@ -804,9 +805,10 @@ fun PptxViewerScreen(
                                                 contentAlignment = Alignment.Center,
                                                 modifier = Modifier.fillMaxSize()
                                             ) {
-                                                if (index < currentState.slideBitmaps.size && currentState.slideBitmaps[index] != null) {
-                                                    Image(
-                                                        bitmap = currentState.slideBitmaps[index].asImageBitmap(),
+                                                val renderPath = currentState.slideRenderPaths.getOrNull(index)
+                                                if (renderPath != null) {
+                                                    AsyncImage(
+                                                        model = File(renderPath),
                                                         contentDescription = "Slide ${index + 1}",
                                                         contentScale = ContentScale.Fit,
                                                         modifier = Modifier.fillMaxSize()
@@ -1210,7 +1212,7 @@ fun PptxTextFormatterDialog(
 @Composable
 fun ContinuousSlideView(
     presentation: PptxPresentation,
-    slideBitmaps: List<android.graphics.Bitmap>,
+    slideRenderPaths: List<String?>,
     isEditMode: Boolean,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     modifier: Modifier = Modifier
@@ -1235,7 +1237,7 @@ fun ContinuousSlideView(
                     ) {
                         SlideCardItem(
                             slide = slide,
-                            bitmap = slideBitmaps.getOrNull(index),
+                            slideRenderPath = slideRenderPaths.getOrNull(index),
                             isEditMode = isEditMode,
                             onTextBlockClick = onTextBlockClick
                         )
@@ -1284,7 +1286,7 @@ fun ContinuousSlideView(
 @Composable
 fun SlideCardItem(
     slide: PptxSlide,
-    bitmap: android.graphics.Bitmap? = null,
+    slideRenderPath: String? = null,
     isEditMode: Boolean = false,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
@@ -1308,9 +1310,9 @@ fun SlideCardItem(
         // it preserves the authoring application's text metrics, z-order and
         // image transforms.  The Compose shape renderer remains the editing
         // surface and a safe fallback if a raster cannot be produced.
-        if (!isEditMode && bitmap != null && !bitmap.isRecycled) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
+        if (!isEditMode && slideRenderPath != null) {
+            AsyncImage(
+                model = File(slideRenderPath),
                 contentDescription = "Slide ${slide.slideNumber}",
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize()

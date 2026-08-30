@@ -493,10 +493,12 @@ class OfficeConverter @Inject constructor(
      */
     // 1080px covers current phone displays while keeping a 13-slide deck below
     // the memory footprint that caused preview surfaces to be evicted/blank.
-    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1080): List<Bitmap> = withContext(Dispatchers.IO) {
+    suspend fun renderPptxToSlideImages(pptxFile: File, targetWidth: Int = 1080): List<String?> = withContext(Dispatchers.IO) {
         var pptxStream: FileInputStream? = null
         var ppt: XMLSlideShow? = null
-        val bitmaps = mutableListOf<Bitmap>()
+        val renderedPaths = mutableListOf<String?>()
+        val renderDirectory = File(context.cacheDir, "pptx_slide_renders").apply { mkdirs() }
+        val renderPrefix = "${pptxFile.nameWithoutExtension}_${pptxFile.length()}_${pptxFile.lastModified()}"
 
         try {
             pptxStream = FileInputStream(pptxFile)
@@ -509,7 +511,7 @@ class OfficeConverter @Inject constructor(
             // Calculate target height maintaining aspect ratio
             val targetHeight = if (slideWidthEmu > 0) (targetWidth * slideHeightEmu / slideWidthEmu).toInt() else (targetWidth * 9 / 16)
 
-            for (slide in ppt.slides) {
+            for ((slideIndex, slide) in ppt.slides.withIndex()) {
                 val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawColor(android.graphics.Color.WHITE)
@@ -633,22 +635,39 @@ class OfficeConverter @Inject constructor(
                                 shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
                             } catch (_: Throwable) { false }
                             val textColor = getTextColor(shape)
+                            // PowerPoint stores font size in points.  Deriving the
+                            // canvas size from that value (rather than a fixed body/
+                            // title size) is essential to keep independently placed
+                            // text boxes from looking as if they share one flow.
+                            val defaultSize = if (isTitle) 28f else 16f
+                            val firstRun = paragraphs.firstOrNull()?.textRuns?.firstOrNull()
+                            val fontSizePt = try { firstRun?.fontSize?.toFloat() } catch (_: Throwable) { null }
                             val textPaint = Paint().apply {
                                 color = textColor
-                                textSize = if (isTitle) (28f * (targetWidth / 960f)) else (16f * (targetWidth / 960f))
+                                textSize = ((fontSizePt ?: defaultSize) * targetWidth / 720f).coerceIn(8f, targetHeight * 0.22f)
                                 isAntiAlias = true
-                                isFakeBoldText = isTitle
+                                isFakeBoldText = try { firstRun?.isBold ?: isTitle } catch (_: Throwable) { isTitle }
+                                textSkewX = if (try { firstRun?.isItalic == true } catch (_: Throwable) { false }) -0.25f else 0f
                             }
 
-                            var curY = py + textPaint.textSize + 4f
+                            canvas.save()
+                            canvas.clipRect(px, py, px + pw, py + ph)
+                            var curY = py + textPaint.textSize
                             for (p in paragraphs) {
+                                val run = try { p.textRuns.firstOrNull() } catch (_: Throwable) { null }
+                                val paragraphSize = try { run?.fontSize?.toFloat() } catch (_: Throwable) { null }
+                                if (paragraphSize != null && paragraphSize > 0f) {
+                                    textPaint.textSize = (paragraphSize * targetWidth / 720f).coerceIn(8f, targetHeight * 0.22f)
+                                }
+                                textPaint.isFakeBoldText = try { run?.isBold ?: isTitle } catch (_: Throwable) { isTitle }
+                                textPaint.textSkewX = if (try { run?.isItalic == true } catch (_: Throwable) { false }) -0.25f else 0f
                                 val pText = try {
                                     p.textRuns.joinToString("") { it.rawText ?: "" }
                                 } catch (t: Throwable) { "" }
                                 if (pText.isNotBlank()) {
                                     val bulletPrefix = if (p.indentLevel > 0 || (!isTitle && paragraphs.size > 1)) "• " else ""
                                     val fullLine = bulletPrefix + pText.trim()
-                                    val indentOffset = (p.indentLevel * 14f * (targetWidth / 960f))
+                                    val indentOffset = (p.indentLevel * textPaint.textSize * 1.2f)
                                     val lines = wrapTextForCanvas(fullLine, textPaint, (pw - 12f - indentOffset).coerceAtLeast(50f))
                                     for (line in lines) {
                                         if (curY < py + ph - 4f) {
@@ -659,6 +678,7 @@ class OfficeConverter @Inject constructor(
                                     curY += 3f
                                 }
                             }
+                            canvas.restore()
                         } else if (text.isNotBlank()) {
                             val isTitle = try {
                                 shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
@@ -691,7 +711,18 @@ class OfficeConverter @Inject constructor(
                         }
                     }
                 }
-                bitmaps.add(bitmap)
+                val renderFile = File(renderDirectory, "${renderPrefix}_$slideIndex.png")
+                val persisted = try {
+                    FileOutputStream(renderFile).use { output ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                    }
+                    renderFile.absolutePath
+                } catch (_: Throwable) {
+                    null
+                } finally {
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+                renderedPaths.add(persisted)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -699,7 +730,7 @@ class OfficeConverter @Inject constructor(
             try { ppt?.close() } catch (e: Exception) {}
             try { pptxStream?.close() } catch (e: Exception) {}
         }
-        return@withContext bitmaps
+        return@withContext renderedPaths
     }
 
     /**
