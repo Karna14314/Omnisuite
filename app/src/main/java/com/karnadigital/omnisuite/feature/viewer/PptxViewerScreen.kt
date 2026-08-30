@@ -17,12 +17,6 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
 import java.io.File
-import android.annotation.SuppressLint
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.view.ViewGroup
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,6 +62,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -80,17 +79,24 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SpeakerNotes
 import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewCarousel
+import androidx.compose.material.icons.filled.ViewStream
 
 enum class PptxViewMode {
-    PAGER, GRID, SLIDESHOW
+    CONTINUOUS, PAGER, GRID, SLIDESHOW
 }
 
 private fun safeParseColor(colorHex: String?, fallback: Color): Color {
@@ -107,7 +113,7 @@ private fun safeParseColor(colorHex: String?, fallback: Color): Color {
 
 /**
  * Slide-deck Presentation Viewer (PPTX) mobile screen engine with WPS Office & Mi Docs features.
- * Supports swipeable pager, multi-slide overview grid, and full-screen slideshow presentation.
+ * Supports continuous vertical flow (Mi Docs / PDF style), swipeable pager, multi-slide overview grid, and full-screen slideshow.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -118,9 +124,7 @@ fun PptxViewerScreen(
     viewModel: PptxViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val fileOutputManager = coreEntryPoint(context).fileOutputManager()
     val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
-    val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(fileUri) {
@@ -135,11 +139,11 @@ fun PptxViewerScreen(
 
     val state by viewModel.loadState.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
-    var viewMode by remember { mutableStateOf(PptxViewMode.PAGER) }
+    var viewMode by remember { mutableStateOf(PptxViewMode.CONTINUOUS) }
     var showNotesPanel by remember { mutableStateOf(false) }
 
     var activeIndexToEdit by remember { mutableStateOf<Int?>(null) }
-    var blockToEdit by remember { mutableStateOf<PptxTextBlock?>(null) }
+    var blockToEdit by remember { mutableStateOf<PptxTextShape?>(null) }
     var isTitleEdit by remember { mutableStateOf(false) }
     var blockIndexToEdit by remember { mutableStateOf(-1) }
     var showFormatter by remember { mutableStateOf(false) }
@@ -274,12 +278,24 @@ fun PptxViewerScreen(
                             if (state is PptxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
 
+                                // Toggle Continuous Flow vs Single Slide Pager
                                 IconButton(onClick = {
-                                    viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.PAGER else PptxViewMode.GRID
+                                    viewMode = if (viewMode == PptxViewMode.CONTINUOUS) PptxViewMode.PAGER else PptxViewMode.CONTINUOUS
+                                }) {
+                                    Icon(
+                                        imageVector = if (viewMode == PptxViewMode.CONTINUOUS) Icons.Default.ViewCarousel else Icons.Default.ViewStream,
+                                        contentDescription = "Toggle Flow / Slide Pager View",
+                                        tint = if (viewMode == PptxViewMode.CONTINUOUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                // Toggle Grid Overview
+                                IconButton(onClick = {
+                                    viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.CONTINUOUS else PptxViewMode.GRID
                                 }) {
                                     Icon(
                                         imageVector = if (viewMode == PptxViewMode.GRID) Icons.Default.ViewAgenda else Icons.Default.GridView,
-                                        contentDescription = "Toggle Grid View",
+                                        contentDescription = "Toggle Grid Overview",
                                         tint = if (viewMode == PptxViewMode.GRID) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -384,10 +400,17 @@ fun PptxViewerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ViewerActionColumnButton(
-                            icon = if (viewMode == PptxViewMode.GRID) Icons.Default.ViewAgenda else Icons.Default.GridView,
-                            title = if (viewMode == PptxViewMode.GRID) "Slides" else "Grid"
+                            icon = if (viewMode == PptxViewMode.CONTINUOUS) Icons.Default.ViewCarousel else Icons.Default.ViewStream,
+                            title = if (viewMode == PptxViewMode.CONTINUOUS) "Single" else "Flow"
                         ) {
-                            viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.PAGER else PptxViewMode.GRID
+                            viewMode = if (viewMode == PptxViewMode.CONTINUOUS) PptxViewMode.PAGER else PptxViewMode.CONTINUOUS
+                        }
+
+                        ViewerActionColumnButton(
+                            icon = Icons.Default.GridView,
+                            title = "Grid"
+                        ) {
+                            viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.CONTINUOUS else PptxViewMode.GRID
                         }
 
                         ViewerActionColumnButton(
@@ -485,95 +508,8 @@ fun PptxViewerScreen(
                     val presentation = currentState.presentation
                     if (presentation.slides.isEmpty()) {
                         EmptyPresentationState()
-                    } else if (!isEditMode && currentState.pptxBase64 != null) {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            PptxWebView(
-                                pptxBase64 = currentState.pptxBase64,
-                                viewMode = viewMode,
-                                currentPage = pagerState.currentPage,
-                                searchQuery = searchQuery,
-                                currentMatchIndex = currentMatchIndex,
-                                onSlideChanged = { idx, _ ->
-                                    if (pagerState.currentPage != idx && idx < pagerState.pageCount) {
-                                        coroutineScope.launch { pagerState.scrollToPage(idx) }
-                                    }
-                                },
-                                onSlideClicked = { idx ->
-                                    if (viewMode == PptxViewMode.GRID) {
-                                        viewMode = PptxViewMode.PAGER
-                                        coroutineScope.launch { pagerState.scrollToPage(idx) }
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                            )
-
-                            // Speaker notes bottom panel
-                            if (showNotesPanel && viewMode != PptxViewMode.SLIDESHOW) {
-                                val currentSlide = presentation.slides.getOrNull(pagerState.currentPage)
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.SpeakerNotes,
-                                                    contentDescription = "Speaker Notes",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Speaker Notes (Slide ${pagerState.currentPage + 1})",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { showNotesPanel = false },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(Icons.Default.Close, contentDescription = "Close Notes", modifier = Modifier.size(14.dp))
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        val displayNotes = currentSlide?.speakerNotes
-                                        if (!displayNotes.isNullOrBlank()) {
-                                            Text(
-                                                text = displayNotes,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        } else {
-                                            Text(
-                                                text = "No slide notes recorded.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     } else {
+                        // Native Compose rendering for all modes (no WebView)
                         if (viewMode == PptxViewMode.SLIDESHOW) {
                             // WPS Office Fullscreen Presentation Mode
                             Box(
@@ -648,6 +584,18 @@ fun PptxViewerScreen(
                                     }
                                 }
                             }
+                        } else if (viewMode == PptxViewMode.CONTINUOUS) {
+                            // Mi PPT / WPS Office Continuous Flow Mode (Vertical Scroll)
+                            ContinuousSlideView(
+                                presentation = presentation,
+                                isEditMode = isEditMode,
+                                onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                    blockToEdit = textBlock
+                                    isTitleEdit = isTitle
+                                    blockIndexToEdit = blockIdx
+                                    showFormatter = true
+                                }
+                            )
                         } else if (viewMode == PptxViewMode.GRID) {
                             // Mi Docs Multi-slide Overview Grid Mode
                             LazyVerticalGrid(
@@ -668,7 +616,7 @@ fun PptxViewerScreen(
                                         elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 6.dp else 2.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .defaultMinSize(minHeight = 110.dp)
+                                            .aspectRatio(slideItem.aspectRatio)
                                             .clickable {
                                                 coroutineScope.launch {
                                                     pagerState.scrollToPage(index)
@@ -677,48 +625,31 @@ fun PptxViewerScreen(
                                             }
                                     ) {
                                         Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(10.dp)
+                                            modifier = Modifier.fillMaxSize()
                                         ) {
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.SpaceBetween
+                                            if (index < currentState.slideBitmaps.size && currentState.slideBitmaps[index] != null) {
+                                                Image(
+                                                    bitmap = currentState.slideBitmaps[index].asImageBitmap(),
+                                                    contentDescription = "Slide ${index + 1}",
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                MiniSlidePreview(slide = slideItem)
+                                            }
+
+                                            Surface(
+                                                shape = RoundedCornerShape(topStart = 6.dp),
+                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                                                modifier = Modifier.align(Alignment.BottomEnd)
                                             ) {
                                                 Text(
-                                                    text = slideItem.title.text.ifBlank { "Slide ${index + 1}" },
-                                                    style = MaterialTheme.typography.titleSmall,
+                                                    text = "${index + 1}",
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 11.sp,
-                                                    lineHeight = 14.sp,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface)
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                                 )
-                                                Spacer(modifier = Modifier.height(16.dp))
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    if (slideItem.images.isNotEmpty()) {
-                                                        Text("🖼️ ${slideItem.images.size}", fontSize = 9.sp)
-                                                    } else {
-                                                        Spacer(modifier = Modifier.width(1.dp))
-                                                    }
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = MaterialTheme.colorScheme.primaryContainer
-                                                    ) {
-                                                        Text(
-                                                            text = "${index + 1}",
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
                                             }
                                         }
                                     }
@@ -857,7 +788,7 @@ fun PptxViewerScreen(
                                             ),
                                             modifier = Modifier
                                                 .width(80.dp)
-                                                .height(45.dp)
+                                                .aspectRatio(slideItem.aspectRatio)
                                                 .clickable {
                                                     coroutineScope.launch {
                                                         pagerState.animateScrollToPage(index)
@@ -867,28 +798,30 @@ fun PptxViewerScreen(
                                         ) {
                                             Box(
                                                 contentAlignment = Alignment.Center,
-                                                modifier = Modifier.fillMaxSize().padding(4.dp)
+                                                modifier = Modifier.fillMaxSize()
                                             ) {
-                                                Column(
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    verticalArrangement = Arrangement.SpaceBetween,
-                                                    modifier = Modifier.fillMaxSize()
+                                                if (index < currentState.slideBitmaps.size && currentState.slideBitmaps[index] != null) {
+                                                    Image(
+                                                        bitmap = currentState.slideBitmaps[index].asImageBitmap(),
+                                                        contentDescription = "Slide ${index + 1}",
+                                                        contentScale = ContentScale.Fit,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                } else {
+                                                    MiniSlidePreview(slide = slideItem)
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(topStart = 4.dp),
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                                                    modifier = Modifier.align(Alignment.BottomEnd)
                                                 ) {
                                                     Text(
-                                                        text = slideItem.title.text,
-                                                        fontSize = 5.sp,
-                                                        lineHeight = 6.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        color = safeParseColor(slideItem.title.textColorHex, MaterialTheme.colorScheme.onSurface),
-                                                        textAlign = TextAlign.Center
-                                                    )
-                                                    Text(
                                                         text = "${index + 1}",
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                     )
                                                 }
                                             }
@@ -1039,7 +972,7 @@ fun PptxViewerScreen(
 @Composable
 fun PptxTextFormatterDialog(
     slideIndex: Int,
-    textBlock: PptxTextBlock,
+    textBlock: PptxTextShape,
     isTitle: Boolean,
     blockIndex: Int,
     initialNotes: String?,
@@ -1057,7 +990,7 @@ fun PptxTextFormatterDialog(
     ) -> Unit,
     onInsertImageClick: () -> Unit
 ) {
-    var text by remember { mutableStateOf(textBlock.text) }
+    var text by remember { mutableStateOf(textBlock.primaryText.ifBlank { textBlock.fullText }) }
     var isBold by remember { mutableStateOf(textBlock.isBold) }
     var isItalic by remember { mutableStateOf(textBlock.isItalic) }
     var isUnderline by remember { mutableStateOf(textBlock.isUnderline) }
@@ -1271,10 +1204,82 @@ fun PptxTextFormatterDialog(
 }
 
 @Composable
+fun ContinuousSlideView(
+    presentation: PptxPresentation,
+    isEditMode: Boolean,
+    onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    Box(modifier = modifier.fillMaxSize()) {
+        ZoomableBox(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                items(presentation.slides.size, key = { it }) { index ->
+                    val slide = presentation.slides[index]
+                    Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        SlideCardItem(
+                            slide = slide,
+                            isEditMode = isEditMode,
+                            onTextBlockClick = onTextBlockClick
+                        )
+                        // Page number badge on bottom right of slide card
+                        Surface(
+                            shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                            modifier = Modifier.align(Alignment.BottomEnd)
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Floating indicator showing current visible slide number
+        val firstVisibleIndex by remember {
+            derivedStateOf { listState.firstVisibleItemIndex }
+        }
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+        ) {
+            Text(
+                text = "Slide ${firstVisibleIndex + 1} of ${presentation.slides.size}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun SlideCardItem(
     slide: PptxSlide,
     isEditMode: Boolean = false,
-    onTextBlockClick: (PptxTextBlock, isTitle: Boolean, blockIndex: Int) -> Unit
+    onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1284,8 +1289,7 @@ fun SlideCardItem(
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .wrapContentHeight()
-            .defaultMinSize(minHeight = 260.dp)
+            .aspectRatio(slide.aspectRatio)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1293,141 +1297,200 @@ fun SlideCardItem(
             )
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            val slideW = constraints.maxWidth.toFloat()
-            val slideH = (constraints.maxWidth * 0.5625f).coerceAtLeast(260f)
+            val slideW = maxWidth.value
+            val slideH = maxHeight.value
 
-            fun absX(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideW).toDp() }
-            fun absY(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideH).toDp() }
-            fun absW(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideW).toDp() }
-            fun absH(normalized: Float): androidx.compose.ui.unit.Dp = with(density) { (normalized * slideH).toDp() }
+            // LAYER 1: Background Image (bottom layer, full slide coverage)
+            slide.backgroundImage?.let { bgImg ->
+                AsyncImage(
+                    model = File(bgImg.filePath),
+                    contentDescription = "Slide Background",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
 
-            val defaultTextStyle = MaterialTheme.typography.bodyLarge
-            fun textBlockStyle(block: PptxTextBlock, textAlign: TextAlign) = defaultTextStyle.copy(
-                fontWeight = if (block.isBold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (block.isItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-                textDecoration = if (block.isUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else androidx.compose.ui.text.style.TextDecoration.None,
-                fontSize = (block.fontSizePt * 0.55f).sp,
-                lineHeight = (block.fontSizePt * 0.7f).sp,
-                textAlign = textAlign
-            )
+            // LAYER 2: Foreground Images - positioned with exact normalized coordinates
+            slide.images.forEach { img ->
+                AsyncImage(
+                    model = File(img.filePath),
+                    contentDescription = "Slide Image",
+                    modifier = Modifier
+                        .offset(x = (img.left * slideW).dp, y = (img.top * slideH).dp)
+                        .size(width = (img.width * slideW).dp, height = (img.height * slideH).dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    contentScale = ContentScale.Fit
+                )
+            }
 
-            // 1. Title Block — positioned using normalized bounds
+            // LAYER 3: Title Shape (rendered only if distinct title shape with id "title")
             val title = slide.title
-            if (title.text.isNotBlank()) {
-                val titleColor = title.textColorHex?.let {
-                    try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.primary }
-                } ?: MaterialTheme.colorScheme.primary
+            if (title.fullText.isNotBlank() && title.id == "title") {
+                TextShapeItem(
+                    shape = title,
+                    slideW = slideW,
+                    slideH = slideH,
+                    isTitle = true,
+                    isEditMode = isEditMode,
+                    onClick = { onTextBlockClick(title, true, -1) }
+                )
+            }
 
-                val titleAlign = when (title.alignment) {
+            // LAYER 4: Body Text Shapes (rendered as single container with vertically stacked paragraphs)
+            slide.textShapes.forEachIndexed { idx, shape ->
+                TextShapeItem(
+                    shape = shape,
+                    slideW = slideW,
+                    slideH = slideH,
+                    isTitle = shape.isTitle,
+                    isEditMode = isEditMode,
+                    onClick = { onTextBlockClick(shape, false, idx) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TextShapeItem(
+    shape: PptxTextShape,
+    slideW: Float,
+    slideH: Float,
+    isTitle: Boolean,
+    isEditMode: Boolean,
+    onClick: () -> Unit
+) {
+    val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
+    // Dampened font scale: prevents large titles from being too big, small body from being too small
+    val fontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
+
+    Box(
+        modifier = Modifier
+            .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
+            .size(width = (shape.shapeWidth * slideW).dp, height = (shape.shapeHeight * slideH).dp)
+            .clickable(enabled = isEditMode, onClick = onClick)
+            .background(
+                if (isEditMode) {
+                    if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+                } else shapeBgColor
+            )
+            .border(
+                width = if (isEditMode) 1.dp else 0.dp,
+                color = if (isEditMode) {
+                    if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+                } else Color.Transparent,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .padding(horizontal = 2.dp, vertical = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Top
+        ) {
+            shape.paragraphs.forEach { paragraph ->
+                val textAlign = when (paragraph.alignment) {
                     "CENTER" -> TextAlign.Center
                     "RIGHT" -> TextAlign.Right
                     "JUSTIFY" -> TextAlign.Justify
                     else -> TextAlign.Start
                 }
 
-                Box(
+                val bulletLevel = paragraph.bulletLevel
+                val defaultFontSize = if (isTitle) 20f else 12f
+                val bulletSp = (defaultFontSize * fontScale).coerceIn(5f, 18f).sp
+
+                Row(
                     modifier = Modifier
-                        .offset(x = absX(title.shapeLeft), y = absY(title.shapeTop))
-                        .size(width = absW(title.shapeWidth), height = absH(title.shapeHeight))
-                        .clickable(enabled = isEditMode) {
-                            onTextBlockClick(title, true, -1)
-                        }
-                        .background(if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
-                        .border(
-                            width = if (isEditMode) 1.dp else 0.dp,
-                            color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                        .padding(4.dp)
+                        .fillMaxWidth()
+                        .padding(bottom = 1.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    androidx.compose.foundation.text.selection.SelectionContainer {
+                    if (bulletLevel > 0) {
+                        Spacer(modifier = Modifier.width((bulletLevel * 6 * fontScale).coerceAtLeast(2f).dp))
                         Text(
-                            text = title.text,
-                            style = textBlockStyle(title, titleAlign).copy(
-                                fontWeight = if (title.isBold) FontWeight.Bold else FontWeight.SemiBold
+                            text = "• ",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = bulletSp
                             ),
-                            color = titleColor,
-                            modifier = Modifier.fillMaxWidth()
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
-                }
-            }
 
-            // 2. Body Content & Text Blocks — absolutely positioned
-            slide.textBlocks.forEachIndexed { idx, block ->
-                val blockColor = block.textColorHex?.let {
-                    try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
-                } ?: MaterialTheme.colorScheme.onSurface
+                    val annotatedText = buildAnnotatedString {
+                        paragraph.runs.forEach { run ->
+                            val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
+                            // Dampened scaling: titles capped at 20sp, body capped at 16sp
+                            val maxSp = if (isTitle) 20f else 16f
+                            val calcSp = (basePt * fontScale).coerceIn(6f, maxSp)
+                            val runFontSize = calcSp.sp
 
-                val textAlign = when (block.alignment) {
-                    "CENTER" -> TextAlign.Center
-                    "RIGHT" -> TextAlign.Right
-                    "JUSTIFY" -> TextAlign.Justify
-                    else -> TextAlign.Start
-                }
+                            val runColor = run.textColorHex?.let {
+                                try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { null }
+                            } ?: (if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
 
-                Box(
-                    modifier = Modifier
-                        .offset(x = absX(block.shapeLeft), y = absY(block.shapeTop))
-                        .size(width = absW(block.shapeWidth), height = absH(block.shapeHeight))
-                        .clickable(enabled = isEditMode) {
-                            onTextBlockClick(block, false, idx)
-                        }
-                        .background(if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f) else Color.Transparent)
-                        .border(
-                            width = if (isEditMode) 1.dp else 0.dp,
-                            color = if (isEditMode) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent,
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                        .padding(2.dp),
-                    contentAlignment = Alignment.TopStart
-                ) {
-                    androidx.compose.foundation.text.selection.SelectionContainer {
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (block.bulletLevel > 0) {
-                                Spacer(modifier = Modifier.width((block.bulletLevel * 10).dp))
-                                Text(
-                                    text = "• ",
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = (block.fontSizePt * 0.55f).sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.primary
+                            withStyle(
+                                SpanStyle(
+                                    color = runColor,
+                                    fontSize = runFontSize,
+                                    fontWeight = if (run.isBold) FontWeight.Bold else (if (isTitle) FontWeight.SemiBold else FontWeight.Normal),
+                                    fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
+                                    textDecoration = if (run.isUnderline) TextDecoration.Underline else TextDecoration.None
                                 )
+                            ) {
+                                append(run.text)
                             }
-                            Text(
-                                text = block.text,
-                                style = textBlockStyle(block, textAlign),
-                                color = blockColor,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
                         }
                     }
-                }
-            }
 
-            // 3. Embedded Images — absolutely positioned using normalized bounds
-            if (slide.images.isNotEmpty()) {
-                slide.images.forEach { img ->
-                    AsyncImage(
-                        model = File(img.filePath),
-                        contentDescription = "Slide Image",
-                        modifier = Modifier
-                            .offset(x = absX(img.left), y = absY(img.top))
-                            .size(width = absW(img.width), height = absH(img.height))
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    val leadSp = (defaultFontSize * fontScale * 1.18f).coerceIn(6f, 24f).sp
+                    Text(
+                        text = annotatedText,
+                        textAlign = textAlign,
+                        lineHeight = leadSp,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniSlidePreview(slide: PptxSlide) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(safeParseColor(slide.bgColorHex, MaterialTheme.colorScheme.surface))
+            .padding(4.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = slide.title.primaryText.ifBlank { "Slide ${slide.slideNumber}" },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                fontSize = 8.sp,
+                lineHeight = 10.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = safeParseColor(slide.title.textColorHex, MaterialTheme.colorScheme.onSurface)
+            )
+            if (slide.textShapes.isNotEmpty()) {
+                Text(
+                    text = slide.textShapes.firstOrNull()?.primaryText ?: "",
+                    fontSize = 6.sp,
+                    lineHeight = 7.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
             }
         }
     }
@@ -1531,113 +1594,5 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
             try { ppt?.close() } catch (e: Exception) {}
         }
     }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun PptxWebView(
-    pptxBase64: String,
-    viewMode: PptxViewMode,
-    currentPage: Int,
-    searchQuery: String,
-    currentMatchIndex: Int,
-    onSlideChanged: (currentIndex: Int, totalSlides: Int) -> Unit,
-    onSlideClicked: (index: Int) -> Unit,
-    onWebViewReady: (WebView) -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var isPageLoaded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(pptxBase64, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
-            webViewInstance?.evaluateJavascript("renderPptxBase64('$pptxBase64')", null)
-        }
-    }
-
-    LaunchedEffect(viewMode, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
-            webViewInstance?.evaluateJavascript("setViewMode('${viewMode.name}')", null)
-        }
-    }
-
-    LaunchedEffect(currentPage, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
-            webViewInstance?.evaluateJavascript("goToSlide($currentPage)", null)
-        }
-    }
-
-    LaunchedEffect(searchQuery, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
-            val escaped = searchQuery
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", " ")
-                .replace("\r", "")
-            webViewInstance?.evaluateJavascript("searchPresentation('$escaped')", null)
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            WebView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    useWideViewPort = true
-                    loadWithOverviewMode = true
-                    setSupportZoom(true)
-                }
-                isVerticalScrollBarEnabled = false
-                isHorizontalScrollBarEnabled = false
-
-                addJavascriptInterface(object {
-                    @JavascriptInterface
-                    fun onSlideChanged(currentIndex: Int, totalSlides: Int) {
-                        onSlideChanged(currentIndex, totalSlides)
-                    }
-
-                    @JavascriptInterface
-                    fun onSlideClicked(index: Int) {
-                        onSlideClicked(index)
-                    }
-
-                    @JavascriptInterface
-                    fun onRenderComplete(totalSlides: Int) {
-                        onSlideChanged(0, totalSlides)
-                    }
-                }, "AndroidBridge")
-
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        isPageLoaded = true
-                        webViewInstance = this@apply
-                        onWebViewReady(this@apply)
-                        evaluateJavascript("renderPptxBase64('$pptxBase64')", null)
-                        evaluateJavascript("setViewMode('${viewMode.name}')", null)
-                        evaluateJavascript("goToSlide($currentPage)", null)
-                    }
-                }
-
-                loadUrl("file:///android_asset/pptx_viewer/viewer.html")
-                webViewInstance = this
-                onWebViewReady(this)
-            }
-        },
-        update = { wv ->
-            webViewInstance = wv
-            onWebViewReady(wv)
-        },
-        modifier = modifier
-    )
 }
 

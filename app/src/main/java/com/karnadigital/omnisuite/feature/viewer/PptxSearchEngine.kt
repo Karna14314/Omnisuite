@@ -21,9 +21,17 @@ object PptxSearchEngine {
         presentation.slides.forEachIndexed { slideIndex, slide ->
             // Gather all searchable text on the slide, tagging each with a label.
             val searchable = buildList {
-                add("title" to slide.title.text)
-                slide.textBlocks.forEach { add(it.id to it.text) }
-                if (!slide.speakerNotes.isNullOrBlank()) add("notes" to slide.speakerNotes)
+                if (slide.title.fullText.isNotBlank()) {
+                    add("title" to slide.title.fullText)
+                }
+                slide.textShapes.forEach { shape ->
+                    if (shape.fullText.isNotBlank()) {
+                        add(shape.id to shape.fullText)
+                    }
+                }
+                if (!slide.speakerNotes.isNullOrBlank()) {
+                    add("notes" to slide.speakerNotes)
+                }
             }
             searchable.forEach { (label, text) ->
                 for (pos in com.karnadigital.omnisuite.core.util.TextSearchUtils.findAllMatchIndices(text, query)) {

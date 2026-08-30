@@ -72,11 +72,7 @@ class ReverseOfficeConverter @Inject constructor(
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 val pictureData = pptx.addPicture(stream.toByteArray(), org.apache.poi.sl.usermodel.PictureData.PictureType.JPEG)
                 val slide = pptx.createSlide()
-                val pictureShape = slide.createPicture(pictureData)
-                val rect = org.apache.poi.sl.usermodel.Insets2D(0.0, 0.0, 0.0, 0.0)
-                // In POI Android we might just use java.awt.Rectangle replacement if any, or avoid setting anchor explicitly if it fills by default.
-                // Or use java.awt.geom.Rectangle2D.Double(0.0, 0.0, width, height) if it's available.
-                // To avoid java.awt which is missing on Android, let's just set the picture directly.
+                slide.createPicture(pictureData)
             }
             doc.close()
 

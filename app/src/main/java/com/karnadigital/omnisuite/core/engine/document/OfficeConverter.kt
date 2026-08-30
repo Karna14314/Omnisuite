@@ -486,6 +486,220 @@ class OfficeConverter @Inject constructor(
     }
 
     /**
+     * Renders a PowerPoint PPTX file to high-resolution bitmaps for mobile preview without WebView.
+     * Returns a list of Bitmaps, one per slide.
+     */
+    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1440): List<Bitmap> = withContext(Dispatchers.IO) {
+        var pptxStream: FileInputStream? = null
+        var ppt: XMLSlideShow? = null
+        val bitmaps = mutableListOf<Bitmap>()
+
+        try {
+            pptxStream = FileInputStream(pptxFile)
+            ppt = XMLSlideShow(pptxStream)
+
+            val slideDimEmu = getSlideDimensionsEmu(ppt)
+            val slideWidthEmu = slideDimEmu.first
+            val slideHeightEmu = slideDimEmu.second
+
+            // Calculate target height maintaining aspect ratio
+            val targetHeight = if (slideWidthEmu > 0) (targetWidth * slideHeightEmu / slideWidthEmu).toInt() else (targetWidth * 9 / 16)
+
+            for (slide in ppt.slides) {
+                val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+                canvas.drawColor(android.graphics.Color.WHITE)
+
+                // Draw slide background
+                val bgColor = getSlideBgColor(slide)
+                if (bgColor != null) {
+                    try {
+                        canvas.drawColor(android.graphics.Color.parseColor(bgColor))
+                    } catch (e: Exception) {
+                        canvas.drawColor(android.graphics.Color.WHITE)
+                    }
+                }
+
+                // Flatten all shapes (including group children)
+                val allSlideShapes = mutableListOf<org.apache.poi.xslf.usermodel.XSLFShape>()
+                fun collectBitmapShapes(shapes: List<org.apache.poi.xslf.usermodel.XSLFShape>) {
+                    for (s in shapes) {
+                        if (s is org.apache.poi.xslf.usermodel.XSLFGroupShape) {
+                            try { collectBitmapShapes(s.shapes) } catch (_: Throwable) { }
+                        } else {
+                            allSlideShapes.add(s)
+                        }
+                    }
+                }
+                try { collectBitmapShapes(slide.shapes) } catch (_: Throwable) { }
+
+                // Draw all shapes — check PictureShape BEFORE TextShape/SimpleShape
+                for (shape in allSlideShapes) {
+                    val normBounds = getShapeNormalizedBounds(shape, slideWidthEmu, slideHeightEmu)
+
+                    // Check if this is a picture shape FIRST (XSLFPictureShape extends XSLFTextShape extends XSLFSimpleShape)
+                    if (shape is org.apache.poi.xslf.usermodel.XSLFPictureShape) {
+                        try {
+                            var dataBytes: ByteArray? = null
+                            // Strategy A: direct cast
+                            try { dataBytes = shape.pictureData?.data } catch (_: Throwable) { }
+                            // Strategy B: reflection
+                            if (dataBytes == null) {
+                                try {
+                                    val pd = shape.javaClass.getMethod("getPictureData").invoke(shape)
+                                    if (pd != null) dataBytes = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
+                                } catch (_: Throwable) { }
+                            }
+                            if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                val bmp = BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size)
+                                if (bmp != null) {
+                                    val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
+                                    val destRect = android.graphics.Rect(
+                                        (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
+                                        ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
+                                    )
+                                    canvas.drawBitmap(bmp, null, destRect, null)
+                                    bmp.recycle()
+                                }
+                            }
+                        } catch (_: Throwable) { }
+                        continue
+                    }
+
+                    if (normBounds == null) continue
+                    val px = normBounds[0] * targetWidth.toFloat()
+                    val py = normBounds[1] * targetHeight.toFloat()
+                    val pw = normBounds[2] * targetWidth.toFloat()
+                    val ph = normBounds[3] * targetHeight.toFloat()
+
+                    if (shape is XSLFTextShape) {
+                        val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
+                        val text = try { shape.text ?: "" } catch (t: Throwable) { "" }
+                        if (paragraphs.isNotEmpty()) {
+                            val isTitle = try {
+                                shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                            } catch (_: Throwable) { false }
+                            val textColor = getTextColor(shape)
+                            val textPaint = Paint().apply {
+                                color = textColor
+                                textSize = if (isTitle) (28f * (targetWidth / 960f)) else (16f * (targetWidth / 960f))
+                                isAntiAlias = true
+                                isFakeBoldText = isTitle
+                            }
+
+                            var curY = py + textPaint.textSize + 4f
+                            for (p in paragraphs) {
+                                val pText = try {
+                                    p.textRuns.joinToString("") { it.rawText ?: "" }
+                                } catch (t: Throwable) { "" }
+                                if (pText.isNotBlank()) {
+                                    val bulletPrefix = if (p.indentLevel > 0 || (!isTitle && paragraphs.size > 1)) "• " else ""
+                                    val fullLine = bulletPrefix + pText.trim()
+                                    val indentOffset = (p.indentLevel * 14f * (targetWidth / 960f))
+                                    val lines = wrapTextForCanvas(fullLine, textPaint, (pw - 12f - indentOffset).coerceAtLeast(50f))
+                                    for (line in lines) {
+                                        if (curY < py + ph - 4f) {
+                                            canvas.drawText(line, px + 6f + indentOffset, curY, textPaint)
+                                            curY += textPaint.textSize * 1.3f
+                                        }
+                                    }
+                                    curY += 3f
+                                }
+                            }
+                        } else if (text.isNotBlank()) {
+                            val isTitle = try {
+                                shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                            } catch (_: Throwable) { false }
+                            val textPaint = Paint().apply {
+                                color = getTextColor(shape)
+                                textSize = if (isTitle) (28f * (targetWidth / 960f)) else (16f * (targetWidth / 960f))
+                                isAntiAlias = true
+                                isFakeBoldText = isTitle
+                            }
+                            val lines = wrapTextForCanvas(text.trim(), textPaint, pw - 12f)
+                            var curY = py + textPaint.textSize + 4f
+                            for (line in lines) {
+                                if (curY < py + ph - 4f) {
+                                    canvas.drawText(line, px + 6f, curY, textPaint)
+                                    curY += textPaint.textSize * 1.3f
+                                }
+                            }
+                        }
+                    } else if (shape is XSLFSimpleShape) {
+                        val fillColor = getShapeFillColor(shape)
+                        if (fillColor != null) {
+                            val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL }
+                            canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
+                        }
+                        val lineColor = getShapeLineColor(shape)
+                        if (lineColor != null) {
+                            val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f }
+                            canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
+                        }
+                    }
+                }
+                bitmaps.add(bitmap)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try { ppt?.close() } catch (e: Exception) {}
+            try { pptxStream?.close() } catch (e: Exception) {}
+        }
+        return@withContext bitmaps
+    }
+
+    /**
+     * Extracts text color from a text shape.
+     * Returns Android Color int.
+     */
+    private fun getTextColor(shape: XSLFTextShape): Int {
+        return try {
+            val paragraphs = shape.textParagraphs
+            if (paragraphs.isNotEmpty()) {
+                val runs = paragraphs[0].textRuns
+                if (runs.isNotEmpty()) {
+                    val run = runs[0]
+                    if (run is org.apache.poi.xslf.usermodel.XSLFTextRun) {
+                        // Try getting color via reflection on the XML run
+                        val xmlRun = try {
+                            run.javaClass.getMethod("getXmlObject").invoke(run)
+                        } catch (t: Throwable) {
+                            try {
+                                val m = run.javaClass.getDeclaredMethod("fetchXmlObject")
+                                m.isAccessible = true
+                                m.invoke(run)
+                            } catch (t2: Throwable) { null }
+                        }
+                        if (xmlRun != null) {
+                            val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (t: Throwable) { null }
+                            if (rPr != null) {
+                                val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (t: Throwable) { null }
+                                if (solidFill != null) {
+                                    val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
+                                    if (srgb != null) {
+                                        val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (t: Throwable) { null }
+                                        if (hexBytes != null && hexBytes.size >= 3) {
+                                            return android.graphics.Color.rgb(
+                                                hexBytes[0].toInt() and 0xFF,
+                                                hexBytes[1].toInt() and 0xFF,
+                                                hexBytes[2].toInt() and 0xFF
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            android.graphics.Color.BLACK
+        } catch (e: Exception) {
+            android.graphics.Color.BLACK
+        }
+    }
+
+    /**
      * Converts a PPTX presentation file slide-by-slide to A4 PDF.
      * Supports "image" mode (accurate slide shapes and text locations rendered to bitmaps)
      * and "text" mode (clean reflowed text and title elements).
@@ -515,83 +729,67 @@ class OfficeConverter @Inject constructor(
             val leadingTitle = fontSizeTitle * 1.3f
             val leadingBody = fontSizeBody * 1.3f
 
+            // Get slide dimensions in EMUs for coordinate conversion
+            val slideDimEmu = getSlideDimensionsEmu(ppt)
+            val slideWidthEmu = slideDimEmu.first.toFloat()
+            val slideHeightEmu = slideDimEmu.second.toFloat()
+
             for ((slideIndex, slide) in ppt.slides.withIndex()) {
                 val currentPage = PDPage(pageBounds)
                 pdf.addPage(currentPage)
                 contentStream = PDPageContentStream(pdf, currentPage)
 
                 if (renderMode.lowercase() == "image") {
-                    // 1. Accurate slide shape rendering to bitmap using reflection to bypass AWT classpath blocks
-                    val pageSizeObj = try { ppt.javaClass.getMethod("getPageSize").invoke(ppt) } catch(e: Exception) { null }
-                    val slideWidth = if (pageSizeObj != null) {
-                        try { (pageSizeObj.javaClass.getMethod("getWidth").invoke(pageSizeObj) as Number).toInt() } catch(e: Exception) { 720 }
-                    } else 720
-                    val slideHeight = if (pageSizeObj != null) {
-                        try { (pageSizeObj.javaClass.getMethod("getHeight").invoke(pageSizeObj) as Number).toInt() } catch(e: Exception) { 540 }
-                    } else 540
-                    
-                    // Create high-res bitmap (double size for crisp rendering in PDF)
-                    val scaleFactor = 2f
-                    val bitmap = Bitmap.createBitmap((slideWidth * scaleFactor).toInt(), (slideHeight * scaleFactor).toInt(), Bitmap.Config.ARGB_8888)
+                    // Render slide to bitmap with proper EMU-to-pixel coordinate conversion
+                    val canvasWidth = 1440
+                    val canvasHeight = 1080
+                    val bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
                     val canvas = android.graphics.Canvas(bitmap)
-                    canvas.scale(scaleFactor, scaleFactor)
-                    canvas.drawColor(android.graphics.Color.WHITE) // Background fill
+                    canvas.drawColor(android.graphics.Color.WHITE)
 
-                    // Extract slide title and text blocks for visual reflow fallback
-                    var slideTitle = ""
+                    // Calculate scale factors: EMU -> pixels
+                    val scaleX = canvasWidth.toFloat() / slideWidthEmu
+                    val scaleY = canvasHeight.toFloat() / slideHeightEmu
+
+                    // Extract slide content
                     val bodyBlocks = mutableListOf<String>()
-                    for (shape in slide.shapes) {
-                        if (shape is XSLFTextShape) {
-                            val text = shape.text ?: ""
-                            if (text.isNotBlank()) {
-                                if (shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)) {
-                                    slideTitle = text
-                                } else {
-                                    bodyBlocks.add(text)
-                                }
-                            }
-                        }
-                    }
-                    if (slideTitle.isBlank()) {
-                        slideTitle = "Slide ${slideIndex + 1}"
+
+                    // Draw slide background if present
+                    val bgColor = getSlideBgColor(slide)
+                    if (bgColor != null) {
+                        canvas.drawColor(android.graphics.Color.parseColor(bgColor))
                     }
 
-                    var drawingSucceeded = false
-                    try {
-                        // Draw all shapes if reflection is successful
-                        for (shape in slide.shapes) {
-                            val anchorObj = shape.javaClass.getMethod("getAnchor").invoke(shape) ?: continue
-                            val x = (anchorObj.javaClass.getMethod("getX").invoke(anchorObj) as Number).toFloat()
-                            val y = (anchorObj.javaClass.getMethod("getY").invoke(anchorObj) as Number).toFloat()
-                            val w = (anchorObj.javaClass.getMethod("getWidth").invoke(anchorObj) as Number).toFloat()
-                            val h = (anchorObj.javaClass.getMethod("getHeight").invoke(anchorObj) as Number).toFloat()
+                    // Collect and draw all shapes
+                    for (shape in slide.shapes) {
+                        val bounds = getShapeBoundsEmu(shape)
+                        if (bounds != null) {
+                            // Convert EMU coordinates to canvas pixels
+                            val px = bounds[0] * scaleX
+                            val py = bounds[1] * scaleY
+                            val pw = bounds[2] * scaleX
+                            val ph = bounds[3] * scaleY
 
                             if (shape is XSLFSimpleShape) {
-                                val fillObj = try { shape.javaClass.getMethod("getFillColor").invoke(shape) } catch (e: Exception) { null }
-                                if (fillObj != null) {
+                                // Draw shape fill
+                                val fillColor = getShapeFillColor(shape)
+                                if (fillColor != null) {
                                     val fillPaint = Paint().apply {
-                                        val r = try { fillObj.javaClass.getMethod("getRed").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                        val g = try { fillObj.javaClass.getMethod("getGreen").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                        val b = try { fillObj.javaClass.getMethod("getBlue").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                        val a = try { fillObj.javaClass.getMethod("getAlpha").invoke(fillObj) as Int } catch (e: Exception) { 255 }
-                                        color = android.graphics.Color.argb(a, r, g, b)
+                                        color = fillColor
                                         style = Paint.Style.FILL
                                     }
-                                    canvas.drawRect(x, y, x + w, y + h, fillPaint)
+                                    canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
                                 }
-                                
-                                val lineObj = try { shape.javaClass.getMethod("getLineColor").invoke(shape) } catch (e: Exception) { null }
-                                if (lineObj != null) {
+
+                                // Draw shape border
+                                val lineColor = getShapeLineColor(shape)
+                                if (lineColor != null) {
                                     val strokePaint = Paint().apply {
-                                        val r = try { lineObj.javaClass.getMethod("getRed").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                        val g = try { lineObj.javaClass.getMethod("getGreen").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                        val b = try { lineObj.javaClass.getMethod("getBlue").invoke(lineObj) as Int } catch (e: Exception) { 0 }
-                                        val a = try { lineObj.javaClass.getMethod("getAlpha").invoke(lineObj) as Int } catch (e: Exception) { 255 }
-                                        color = android.graphics.Color.argb(a, r, g, b)
+                                        color = lineColor
                                         style = Paint.Style.STROKE
-                                        strokeWidth = 1f
+                                        strokeWidth = 2f
                                     }
-                                    canvas.drawRect(x, y, x + w, y + h, strokePaint)
+                                    canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
                                 }
                             }
 
@@ -599,86 +797,32 @@ class OfficeConverter @Inject constructor(
                                 val text = shape.text ?: ""
                                 if (text.isNotBlank()) {
                                     val isTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                                    if (!isTitle) {
+                                        bodyBlocks.add(text)
+                                    }
+
                                     val textPaint = Paint().apply {
                                         color = android.graphics.Color.BLACK
-                                        textSize = if (isTitle) 22f else 14f
+                                        textSize = if (isTitle) 28f else 16f
                                         isAntiAlias = true
                                         isFakeBoldText = isTitle
                                     }
-                                    
+
+                                    // Draw text within shape bounds
                                     val lines = text.split("\n")
-                                    var curY = y + textPaint.textSize + 4f
+                                    var curY = py + textPaint.textSize + 8f
                                     for (line in lines) {
-                                        canvas.drawText(line, x + 8f, curY, textPaint)
-                                        curY += textPaint.textSize * 1.3f
+                                        if (curY < py + ph - 4f) {
+                                            canvas.drawText(line, px + 8f, curY, textPaint)
+                                            curY += textPaint.textSize * 1.4f
+                                        }
                                     }
-                                }
-                            }
-                        }
-                        drawingSucceeded = true
-                    } catch (e: Throwable) {
-                        e.printStackTrace()
-                    }
-
-                    if (!drawingSucceeded) {
-                        // High-fidelity fallback painter: Paint slide content elegantly on the Canvas
-                        val titlePaint = Paint().apply {
-                            color = android.graphics.Color.rgb(13, 15, 20) // Deep slate primary
-                            textSize = 32f
-                            isAntiAlias = true
-                            isFakeBoldText = true
-                        }
-                        
-                        var currentY = 60f
-                        canvas.drawText(slideTitle, 40f, currentY, titlePaint)
-                        currentY += 24f
-                        
-                        // Draw a sleek visual separator line
-                        val linePaint = Paint().apply {
-                            color = android.graphics.Color.rgb(239, 68, 68) // Category Red Accent
-                            strokeWidth = 3f
-                            style = Paint.Style.STROKE
-                        }
-                        canvas.drawLine(40f, currentY, (slideWidth - 40).toFloat(), currentY, linePaint)
-                        currentY += 40f
-                        
-                        // Draw body text blocks
-                        val bodyPaint = Paint().apply {
-                            color = android.graphics.Color.rgb(55, 65, 81) // Soft charcoal
-                            textSize = 18f
-                            isAntiAlias = true
-                        }
-                        val bulletPaint = Paint().apply {
-                            color = android.graphics.Color.rgb(239, 68, 68) // Bullet red
-                            textSize = 20f
-                            isAntiAlias = true
-                            isFakeBoldText = true
-                        }
-                        
-                        for (block in bodyBlocks) {
-                            val paragraphLines = block.split("\n")
-                            for (pLine in paragraphLines) {
-                                val wrapped = wrapTextForCanvas(pLine, bodyPaint, (slideWidth - 100).toFloat())
-                                for (line in wrapped) {
-                                    // Draw bullet marker
-                                    canvas.drawText("•", 45f, currentY, bulletPaint)
-                                    // Draw bullet line text
-                                    canvas.drawText(line, 68f, currentY, bodyPaint)
-                                    currentY += bodyPaint.textSize * 1.4f
-                                    
-                                    if (currentY > slideHeight - 40f) {
-                                        break
-                                    }
-                                }
-                                currentY += 12f // paragraph spacing
-                                if (currentY > slideHeight - 40f) {
-                                    break
                                 }
                             }
                         }
                     }
 
-                    // Convert Bitmap directly to PDImageXObject using LosslessFactory
+                    // Convert Bitmap to PDImageXObject and draw on PDF page
                     val pdImage = LosslessFactory.createFromImage(pdf, bitmap)
                     contentStream?.drawImage(pdImage, 0f, 0f, pageBounds.width, pageBounds.height)
                     bitmap.recycle()
@@ -748,7 +892,7 @@ class OfficeConverter @Inject constructor(
 
                             yPosition -= leadingBody
                         }
-                        yPosition -= 8f // Spacing between different text shapes
+                        yPosition -= 8f
                     }
                 }
 
@@ -781,6 +925,286 @@ class OfficeConverter @Inject constructor(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    /**
+     * Gets slide dimensions in EMUs without using java.awt.
+     */
+    private fun getSlideDimensionsEmu(ppt: XMLSlideShow): Pair<Long, Long> {
+        return try {
+            val ctPresentation = try {
+                ppt.javaClass.getMethod("getCTPresentation").invoke(ppt)
+            } catch (t: Throwable) { null }
+            if (ctPresentation != null) {
+                val sldSz = ctPresentation.javaClass.getMethod("getSldSz").invoke(ctPresentation)
+                if (sldSz != null) {
+                    val cx = (sldSz.javaClass.getMethod("getCx").invoke(sldSz) as? Number)?.toLong() ?: 9144000L
+                    val cy = (sldSz.javaClass.getMethod("getCy").invoke(sldSz) as? Number)?.toLong() ?: 5143500L
+                    return Pair(cx, cy)
+                }
+            }
+            Pair(9144000L, 5143500L)
+        } catch (t: Throwable) {
+            Pair(9144000L, 5143500L)
+        }
+    }
+
+    /**
+     * Extracts shape bounds in EMU units directly from XML, avoiding java.awt dependencies.
+     */
+    private fun getShapeBoundsEmu(shape: Any): FloatArray? {
+        return try {
+            val xmlObj = try {
+                shape.javaClass.getMethod("getXmlObject").invoke(shape)
+            } catch (t: Throwable) {
+                try {
+                    val method = shape.javaClass.getDeclaredMethod("fetchXmlObject")
+                    method.isAccessible = true
+                    method.invoke(shape)
+                } catch (t2: Throwable) { null }
+            } ?: return null
+
+            val spPr = try {
+                xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj)
+            } catch (t: Throwable) { null } ?: return null
+
+            val xfrm = try {
+                spPr.javaClass.getMethod("getXfrm").invoke(spPr)
+            } catch (t: Throwable) { null } ?: return null
+
+            val off = try { xfrm.javaClass.getMethod("getOff").invoke(xfrm) } catch (t: Throwable) { null }
+            val ext = try { xfrm.javaClass.getMethod("getExt").invoke(xfrm) } catch (t: Throwable) { null }
+
+            val x = (try { off?.javaClass?.getMethod("getX")?.invoke(off) as? Number } catch (t: Throwable) { null })?.toFloat()
+            val y = (try { off?.javaClass?.getMethod("getY")?.invoke(off) as? Number } catch (t: Throwable) { null })?.toFloat()
+            val cx = (try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) as? Number } catch (t: Throwable) { null })?.toFloat()
+            val cy = (try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) as? Number } catch (t: Throwable) { null })?.toFloat()
+
+            if (x != null && y != null && cx != null && cy != null) {
+                floatArrayOf(x, y, cx, cy)
+            } else null
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Extracts normalized shape bounds (left, top, width, height: 0.0f..1.0f)
+     * using getAnchor() reflection with fallback to XMLBeans without java.awt compile dependencies.
+     */
+    private fun getShapeNormalizedBounds(
+        shape: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): FloatArray? {
+        // Strategy 1: XMLBeans direct EMU extraction (most reliable on Android)
+        val xmlResult = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
+        if (xmlResult != null) return xmlResult
+
+        // Strategy 2: Try getAnchor() via reflection
+        try {
+            val anchor = shape.javaClass.getMethod("getAnchor").invoke(shape)
+            if (anchor != null) {
+                val x = (anchor.javaClass.getMethod("getX").invoke(anchor) as? Number)?.toDouble()
+                val y = (anchor.javaClass.getMethod("getY").invoke(anchor) as? Number)?.toDouble()
+                val w = (anchor.javaClass.getMethod("getWidth").invoke(anchor) as? Number)?.toDouble()
+                val h = (anchor.javaClass.getMethod("getHeight").invoke(anchor) as? Number)?.toDouble()
+
+                val slideWPt = if (slideWidthEmu > 0) slideWidthEmu / 12700.0 else 720.0
+                val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700.0 else 540.0
+
+                if (x != null && y != null && w != null && h != null && w > 0 && h > 0) {
+                    return floatArrayOf(
+                        (x / slideWPt).toFloat().coerceIn(0f, 1f),
+                        (y / slideHPt).toFloat().coerceIn(0f, 1f),
+                        (w / slideWPt).toFloat().coerceIn(0.01f, 1f),
+                        (h / slideHPt).toFloat().coerceIn(0.01f, 1f)
+                    )
+                }
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    private fun getXmlShapeBoundsNormalized(
+        shape: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): FloatArray? {
+        if (slideWidthEmu <= 0 || slideHeightEmu <= 0) return null
+        try {
+            val xmlObj = try {
+                shape.javaClass.getMethod("getXmlObject").invoke(shape)
+            } catch (t: Throwable) {
+                try {
+                    val method = shape.javaClass.getDeclaredMethod("fetchXmlObject")
+                    method.isAccessible = true
+                    method.invoke(shape)
+                } catch (t2: Throwable) { null }
+            } ?: return null
+
+            // Try multiple paths to find xfrm transform
+            var xfrm: Any? = null
+
+            // Path 1: xml.getSpPr().getXfrm() — works for CTShape, CTPicture, CTConnector
+            xfrm = tryGetXfrmOC(xmlObj, "getSpPr")
+
+            // Path 2: xml.getGrpSpPr().getXfrm() — works for CTGroupShape
+            if (xfrm == null) xfrm = tryGetXfrmOC(xmlObj, "getGrpSpPr")
+
+            // Path 3: Try other property accessors
+            if (xfrm == null) {
+                for (methodName in listOf("getCxnSpPr", "getNvSpPr", "getNvPicPr", "getNvCxnSpPr")) {
+                    xfrm = tryGetXfrmOC(xmlObj, methodName)
+                    if (xfrm != null) break
+                }
+            }
+
+            // Path 4: Direct xfrm on the xml object itself
+            if (xfrm == null) {
+                xfrm = try { xmlObj.javaClass.getMethod("getXfrm").invoke(xmlObj) } catch (_: Throwable) { null }
+            }
+
+            if (xfrm == null) return null
+
+            val off = try { xfrm.javaClass.getMethod("getOff").invoke(xfrm) } catch (_: Throwable) { null }
+            val ext = try { xfrm.javaClass.getMethod("getExt").invoke(xfrm) } catch (_: Throwable) { null }
+
+            val x = (try { off?.javaClass?.getMethod("getX")?.invoke(off) as? Number } catch (_: Throwable) { null })?.toLong()
+            val y = (try { off?.javaClass?.getMethod("getY")?.invoke(off) as? Number } catch (_: Throwable) { null })?.toLong()
+            val cx = (try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) as? Number } catch (_: Throwable) { null })?.toLong()
+            val cy = (try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) as? Number } catch (_: Throwable) { null })?.toLong()
+
+            if (x != null && y != null && cx != null && cy != null && cx > 0 && cy > 0) {
+                return floatArrayOf(
+                    (x.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
+                    (y.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
+                    (cx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.01f, 1f),
+                    (cy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.01f, 1f)
+                )
+            }
+        } catch (_: Throwable) { }
+        return null
+    }
+
+    /** Helper: tries parentObj.getMethodName().getXfrm() via reflection */
+    private fun tryGetXfrmOC(parentObj: Any, prMethodName: String): Any? {
+        return try {
+            val pr = parentObj.javaClass.getMethod(prMethodName).invoke(parentObj) ?: return null
+            pr.javaClass.getMethod("getXfrm").invoke(pr)
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Extracts shape fill color as Android Color int, or null if none.
+     */
+    private fun getShapeFillColor(shape: XSLFSimpleShape): Int? {
+        return try {
+            val xmlObj = try {
+                shape.javaClass.getMethod("getXmlObject").invoke(shape)
+            } catch (t: Throwable) { null } ?: return null
+
+            val spPr = try {
+                xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj)
+            } catch (t: Throwable) { null } ?: return null
+
+            val solidFill = try {
+                spPr.javaClass.getMethod("getSolidFill").invoke(spPr)
+            } catch (t: Throwable) { null } ?: return null
+
+            val srgbClr = try {
+                solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill)
+            } catch (t: Throwable) { null } ?: return null
+
+            val hexBytes = try {
+                srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray
+            } catch (t: Throwable) { null } ?: return null
+
+            if (hexBytes.size >= 3) {
+                android.graphics.Color.rgb(hexBytes[0].toInt() and 0xFF, hexBytes[1].toInt() and 0xFF, hexBytes[2].toInt() and 0xFF)
+            } else null
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Extracts shape line/border color as Android Color int, or null if none.
+     */
+    private fun getShapeLineColor(shape: XSLFSimpleShape): Int? {
+        return try {
+            val xmlObj = try {
+                shape.javaClass.getMethod("getXmlObject").invoke(shape)
+            } catch (t: Throwable) { null } ?: return null
+
+            val spPr = try {
+                xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj)
+            } catch (t: Throwable) { null } ?: return null
+
+            val ln = try {
+                spPr.javaClass.getMethod("getLn").invoke(spPr)
+            } catch (t: Throwable) { null } ?: return null
+
+            val solidFill = try {
+                ln.javaClass.getMethod("getSolidFill").invoke(ln)
+            } catch (t: Throwable) { null } ?: return null
+
+            val srgbClr = try {
+                solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill)
+            } catch (t: Throwable) { null } ?: return null
+
+            val hexBytes = try {
+                srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray
+            } catch (t: Throwable) { null } ?: return null
+
+            if (hexBytes.size >= 3) {
+                android.graphics.Color.rgb(hexBytes[0].toInt() and 0xFF, hexBytes[1].toInt() and 0xFF, hexBytes[2].toInt() and 0xFF)
+            } else null
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Extracts slide background color as hex string, or null if none.
+     */
+    private fun getSlideBgColor(slide: org.apache.poi.sl.usermodel.Slide<*, *>): String? {
+        if (slide !is org.apache.poi.xslf.usermodel.XSLFSlide) return null
+        return try {
+            val ctSlide = try {
+                slide.javaClass.getMethod("getXmlObject").invoke(slide)
+            } catch (t: Throwable) { null } ?: return null
+
+            val cSld = try {
+                ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide)
+            } catch (t: Throwable) { null } ?: return null
+
+            val bg = try {
+                cSld.javaClass.getMethod("getBg").invoke(cSld)
+            } catch (t: Throwable) { null } ?: return null
+
+            val bgPr = try {
+                bg.javaClass.getMethod("getBgPr").invoke(bg)
+            } catch (t: Throwable) { null } ?: return null
+
+            val solidFill = try {
+                bgPr.javaClass.getMethod("getSolidFill").invoke(bgPr)
+            } catch (t: Throwable) { null } ?: return null
+
+            val srgbClr = try {
+                solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill)
+            } catch (t: Throwable) { null } ?: return null
+
+            val hexBytes = try {
+                srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray
+            } catch (t: Throwable) { null } ?: return null
+
+            val hex = hexBytes.joinToString("") { String.format("%02X", it) }
+            if (hex.isNotBlank()) "#$hex" else null
+        } catch (t: Throwable) {
+            null
         }
     }
 
