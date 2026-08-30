@@ -1,20 +1,11 @@
 package com.karnadigital.omnisuite.feature.viewer
 
-import android.content.Context
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.engine.SearchResult
-import com.karnadigital.omnisuite.core.engine.document.ParsedPresentation
-import com.karnadigital.omnisuite.core.engine.document.PptxSlideParser
-import com.karnadigital.omnisuite.core.engine.document.PptxSlideRasterizer
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.pdmodel.PDPage
-import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
-import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
-import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import com.karnadigital.omnisuite.core.model.RecentFile
+import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,25 +14,102 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.apache.poi.sl.usermodel.Placeholder
+import org.apache.poi.sl.usermodel.Shape
 import org.apache.poi.xslf.usermodel.XMLSlideShow
 import org.apache.poi.xslf.usermodel.XSLFSlide
+import org.apache.poi.xslf.usermodel.XSLFShape
+import org.apache.poi.xslf.usermodel.XSLFPictureData
+import org.apache.poi.xslf.usermodel.XSLFTextParagraph
 import org.apache.poi.xslf.usermodel.XSLFTextRun
 import org.apache.poi.xslf.usermodel.XSLFTextShape
+import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import javax.inject.Inject
 
+data class PptxTextRun(
+    val text: String,
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val textColorHex: String? = null,
+    val fontSizePt: Float = 14f
+)
+
+data class PptxParagraph(
+    val runs: List<PptxTextRun>,
+    val bulletLevel: Int = 0,
+    val hasBullet: Boolean = false,
+    val bulletChar: String = "•",
+    val alignment: String = "LEFT", // "LEFT", "CENTER", "RIGHT", "JUSTIFY"
+    val spaceBeforePt: Float = 0f,
+    val spaceAfterPt: Float = 0f
+) {
+    val fullText: String get() = runs.joinToString("") { it.text }
+    val primaryText: String get() = runs.firstOrNull()?.text ?: ""
+    val isBold: Boolean get() = runs.firstOrNull()?.isBold ?: false
+    val isItalic: Boolean get() = runs.firstOrNull()?.isItalic ?: false
+    val isUnderline: Boolean get() = runs.firstOrNull()?.isUnderline ?: false
+    val textColorHex: String? get() = runs.firstOrNull()?.textColorHex
+    val fontSizePt: Float get() = runs.firstOrNull()?.fontSizePt ?: 14f
+}
+
+data class PptxTextShape(
+    val id: String,
+    val isTitle: Boolean = false,
+    val paragraphs: List<PptxParagraph> = emptyList(),
+    val shapeLeft: Float = 0.05f,
+    val shapeTop: Float = 0.05f,
+    val shapeWidth: Float = 0.9f,
+    val shapeHeight: Float = 0.15f,
+    val backgroundColorHex: String? = null
+) {
+    val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
+    val primaryText: String get() = paragraphs.firstOrNull()?.primaryText ?: ""
+    val isBold: Boolean get() = paragraphs.firstOrNull()?.isBold ?: false
+    val isItalic: Boolean get() = paragraphs.firstOrNull()?.isItalic ?: false
+    val isUnderline: Boolean get() = paragraphs.firstOrNull()?.isUnderline ?: false
+    val textColorHex: String? get() = paragraphs.firstOrNull()?.textColorHex
+    val fontSizePt: Float get() = paragraphs.firstOrNull()?.fontSizePt ?: 14f
+}
+
+data class PptxImage(
+    val filePath: String,
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float
+)
+
+data class PptxSlide(
+    val slideNumber: Int,
+    val title: PptxTextShape,
+    val textShapes: List<PptxTextShape>,
+    val images: List<PptxImage> = emptyList(),
+    val backgroundImage: PptxImage? = null,
+    val speakerNotes: String? = null,
+    val bgColorHex: String? = null,
+    val aspectRatio: Float = 16f / 9f
+)
+
+data class PptxPresentation(val slides: List<PptxSlide>)
+
 sealed class PptxLoadState {
-    data object Loading : PptxLoadState()
-    data class Success(val presentation: ParsedPresentation, val fileName: String) : PptxLoadState()
+    object Loading : PptxLoadState()
+    data class Success(
+        val presentation: PptxPresentation,
+        val fileName: String,
+        val slideBitmaps: List<android.graphics.Bitmap> = emptyList()
+    ) : PptxLoadState()
     data class Error(val message: String) : PptxLoadState()
 }
 
 @HiltViewModel
 class PptxViewerViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val parser: PptxSlideParser,
+    private val recentFileRepository: RecentFileRepository,
+    private val officeConverter: com.karnadigital.omnisuite.core.engine.document.OfficeConverter
 ) : ViewModel() {
 
     private val _loadState = MutableStateFlow<PptxLoadState>(PptxLoadState.Loading)
@@ -50,8 +118,10 @@ class PptxViewerViewModel @Inject constructor(
     private val _saveStatus = MutableSharedFlow<String>()
     val saveStatus = _saveStatus.asSharedFlow()
 
-    private var activePresentation: XMLSlideShow? = null
+    private var activePresentation: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
     private var activeFilePath: String? = null
+
+    private val tempImageCache = mutableMapOf<String, File>()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -62,283 +132,1355 @@ class PptxViewerViewModel @Inject constructor(
     private val _currentMatchIndex = MutableStateFlow(-1)
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
-    fun loadPptxFile(filePath: String) {
-        viewModelScope.launch {
-            _loadState.value = PptxLoadState.Loading
-            withContext(Dispatchers.IO) {
-                try { activePresentation?.close() } catch (_: Throwable) { }
-                activePresentation = null
-                activeFilePath = null
-
-                var stream: FileInputStream? = null
-                try {
-                    val file = File(filePath)
-                    if (!file.exists() || !file.isFile) {
-                        _loadState.value = PptxLoadState.Error("Target presentation file does not exist.")
-                        return@withContext
-                    }
-                    stream = FileInputStream(file)
-                    val ppt = XMLSlideShow(stream)
-                    activePresentation = ppt
-                    activeFilePath = filePath
-
-                    val presentation = parser.parse(ppt)
-                    _loadState.value = PptxLoadState.Success(presentation, file.name)
-                } catch (t: Throwable) {
-                    _loadState.value = PptxLoadState.Error(t.message ?: "Failed to read PowerPoint presentation.")
-                } finally {
-                    try { stream?.close() } catch (_: Throwable) { }
-                }
+    private fun getXmlObjectReflection(obj: Any): Any? {
+        return try {
+            obj.javaClass.getMethod("getXmlObject").invoke(obj)
+        } catch (t: Throwable) {
+            try {
+                val method = obj.javaClass.getDeclaredMethod("fetchXmlObject")
+                method.isAccessible = true
+                method.invoke(obj)
+            } catch (t2: Throwable) {
+                null
             }
         }
     }
 
-    // =========================================================================
-    // SEARCH
-    // =========================================================================
+    private fun extractLongValue(obj: Any?): Long? {
+        if (obj == null) return null
+        if (obj is Number) return obj.toLong()
+        try {
+            val longValMethod = obj.javaClass.getMethod("getLongValue")
+            val v = longValMethod.invoke(obj)
+            if (v is Number) return v.toLong()
+        } catch (_: Throwable) { }
+        try {
+            val str = obj.toString().trim()
+            val num = str.toLongOrNull()
+            if (num != null) return num
+            val doubleNum = str.toDoubleOrNull()
+            if (doubleNum != null) return doubleNum.toLong()
+        } catch (_: Throwable) { }
+        return null
+    }
 
-    fun setSearchQuery(query: String) {
-        _searchQuery.value = query
-        val state = _loadState.value
-        if (state is PptxLoadState.Success) {
-            val results = PptxSearchEngine.search(state.presentation, query)
-            _searchResults.value = results
-            _currentMatchIndex.value = if (results.isNotEmpty()) 0 else -1
+    /**
+     * Extracts normalized shape bounds (left, top, width, height: 0.0f..1.0f).
+     * 1. Checks XMLBeans on shape itself.
+     * 2. If placeholder without direct xfrm, resolves from Slide Layout or Slide Master.
+     * 3. Falls back to reflection getAnchor() if available.
+     */
+    private fun getShapeNormalizedBounds(
+        shape: Any,
+        slide: Any?,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): FloatArray? {
+        // Strategy 1: XML direct EMU extraction
+        val directXml = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
+        if (directXml != null) return directXml
+
+        // Strategy 2: If placeholder, resolve from Slide Layout / Master
+        if (slide is XSLFSlide && shape is XSLFShape) {
+            try {
+                val phDetails = try { shape.placeholderDetails } catch (_: Throwable) { null }
+                val phType = phDetails?.placeholder
+                if (phType != null) {
+                    // Check slide layout
+                    val layoutShapes: List<XSLFShape> = try { slide.slideLayout?.shapes ?: emptyList() } catch (_: Throwable) { emptyList() }
+                    for (lShape in layoutShapes) {
+                        if (lShape.placeholderDetails?.placeholder == phType) {
+                            val lBounds = getXmlShapeBoundsNormalized(lShape, slideWidthEmu, slideHeightEmu)
+                            if (lBounds != null) return lBounds
+                        }
+                    }
+                    // Check slide master
+                    val masterShapes: List<XSLFShape> = try { slide.slideLayout?.slideMaster?.shapes ?: emptyList() } catch (_: Throwable) { emptyList() }
+                    for (mShape in masterShapes) {
+                        if (mShape.placeholderDetails?.placeholder == phType) {
+                            val mBounds = getXmlShapeBoundsNormalized(mShape, slideWidthEmu, slideHeightEmu)
+                            if (mBounds != null) return mBounds
+                        }
+                    }
+                }
+            } catch (_: Throwable) { }
+        }
+
+        // Strategy 3: Try getAnchor() via reflection
+        try {
+            val anchor = shape.javaClass.getMethod("getAnchor").invoke(shape)
+            if (anchor != null) {
+                val x = (anchor.javaClass.getMethod("getX").invoke(anchor) as? Number)?.toDouble()
+                val y = (anchor.javaClass.getMethod("getY").invoke(anchor) as? Number)?.toDouble()
+                val w = (anchor.javaClass.getMethod("getWidth").invoke(anchor) as? Number)?.toDouble()
+                val h = (anchor.javaClass.getMethod("getHeight").invoke(anchor) as? Number)?.toDouble()
+
+                val slideWPt = if (slideWidthEmu > 0) slideWidthEmu / 12700.0 else 720.0
+                val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700.0 else 540.0
+
+                if (x != null && y != null && w != null && h != null && w > 0 && h > 0) {
+                    return floatArrayOf(
+                        (x / slideWPt).toFloat().coerceIn(0f, 1f),
+                        (y / slideHPt).toFloat().coerceIn(0f, 1f),
+                        (w / slideWPt).toFloat().coerceIn(0.01f, 1f),
+                        (h / slideHPt).toFloat().coerceIn(0.01f, 1f)
+                    )
+                }
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    /**
+     * Extracts shape bounds from XMLBeans, trying multiple XML paths:
+     * - CTShape/CTPicture → getSpPr() → getXfrm()
+     * - CTGroupShape children → getGrpSpPr()
+     * - Direct xfrm search via getNvSpPr parent traversal
+     */
+    private fun getXmlShapeBoundsNormalized(
+        shape: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): FloatArray? {
+        if (slideWidthEmu <= 0 || slideHeightEmu <= 0) return null
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+
+            var xfrm: Any? = null
+            xfrm = tryGetXfrm(xml, "getSpPr")
+            if (xfrm == null) xfrm = tryGetXfrm(xml, "getGrpSpPr")
+            if (xfrm == null) {
+                for (methodName in listOf("getCxnSpPr", "getNvSpPr", "getNvPicPr", "getNvCxnSpPr")) {
+                    xfrm = tryGetXfrm(xml, methodName)
+                    if (xfrm != null) break
+                }
+            }
+            if (xfrm == null) {
+                xfrm = try { xml.javaClass.getMethod("getXfrm").invoke(xml) } catch (_: Throwable) { null }
+            }
+
+            if (xfrm == null) return null
+
+            val off = try { xfrm.javaClass.getMethod("getOff").invoke(xfrm) } catch (_: Throwable) { null }
+            val ext = try { xfrm.javaClass.getMethod("getExt").invoke(xfrm) } catch (_: Throwable) { null }
+
+            val rawX = try { off?.javaClass?.getMethod("getX")?.invoke(off) } catch (_: Throwable) { null }
+            val rawY = try { off?.javaClass?.getMethod("getY")?.invoke(off) } catch (_: Throwable) { null }
+            val rawCx = try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) } catch (_: Throwable) { null }
+            val rawCy = try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) } catch (_: Throwable) { null }
+
+            val x = extractLongValue(rawX)
+            val y = extractLongValue(rawY)
+            val cx = extractLongValue(rawCx)
+            val cy = extractLongValue(rawCy)
+
+            if (x != null && y != null && cx != null && cy != null && cx > 0 && cy > 0) {
+                return floatArrayOf(
+                    (x.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
+                    (y.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
+                    (cx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.01f, 1f),
+                    (cy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.01f, 1f)
+                )
+            }
+        } catch (_: Throwable) { }
+        return null
+    }
+
+    /** Helper: tries parentObj.getMethodName().getXfrm() via reflection */
+    private fun tryGetXfrm(parentObj: Any, prMethodName: String): Any? {
+        return try {
+            val pr = parentObj.javaClass.getMethod(prMethodName).invoke(parentObj) ?: return null
+            pr.javaClass.getMethod("getXfrm").invoke(pr)
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Extracts blipId (e.g. "rId2") from XML structure for picture extraction.
+     */
+    private fun extractBlipEmbedId(xml: Any): String? {
+        try {
+            var blipFill: Any? = null
+            try { blipFill = xml.javaClass.getMethod("getBlipFill").invoke(xml) } catch (_: Throwable) {}
+            if (blipFill == null) {
+                try {
+                    val spPr = xml.javaClass.getMethod("getSpPr").invoke(xml)
+                    if (spPr != null) blipFill = spPr.javaClass.getMethod("getBlipFill").invoke(spPr)
+                } catch (_: Throwable) {}
+            }
+            if (blipFill != null) {
+                val blip = try { blipFill.javaClass.getMethod("getBlip").invoke(blipFill) } catch (_: Throwable) { null }
+                if (blip != null) {
+                    val embed = try { blip.javaClass.getMethod("getEmbed").invoke(blip) as? String } catch (_: Throwable) { null }
+                    if (!embed.isNullOrBlank()) return embed
+                }
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val xmlStr = xml.toString()
+            val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
+            if (match != null) {
+                return match.groupValues[1]
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    /**
+     * Resolves raw image bytes and contentType from a blip relationship ID on the slide.
+     */
+    private fun resolvePictureBytesFromBlipId(slide: Any, blipId: String): Pair<ByteArray, String?>? {
+        if (slide !is XSLFSlide) return null
+        try {
+            val relDoc = slide.getRelationById(blipId)
+            if (relDoc is XSLFPictureData) {
+                return Pair(relDoc.data, relDoc.contentType)
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val sheetPart = slide.packagePart
+            val rel = sheetPart?.getRelationship(blipId)
+            if (rel != null) {
+                val part = sheetPart.getRelatedPart(rel) ?: sheetPart.getPackage()?.getPart(rel)
+                val bytes = part?.inputStream?.use { stream -> stream.readBytes() }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    return Pair(bytes, part.contentType)
+                }
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val slideShow = slide.slideShow
+            for (pd in slideShow.pictureData) {
+                if (pd.packagePart?.partName?.name?.contains(blipId, ignoreCase = true) == true) {
+                    return Pair(pd.data, pd.contentType)
+                }
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    /**
+     * Extracts picture data from ANY shape (PictureShape, Shape with blipFill, etc.).
+     */
+    private fun extractPictureDataFromShape(shape: Any, slide: Any): Pair<ByteArray, String?>? {
+        if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
+            try {
+                val pd = shape.pictureData
+                val data = pd?.data
+                if (data != null && data.isNotEmpty()) {
+                    return Pair(data, pd.contentType)
+                }
+            } catch (_: Throwable) { }
+        }
+
+        try {
+            val method = shape.javaClass.getMethod("getPictureData")
+            val pd = method.invoke(shape)
+            if (pd != null) {
+                val data = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
+                if (data != null && data.isNotEmpty()) {
+                    val ct = try { pd.javaClass.getMethod("getContentType").invoke(pd) as? String } catch (_: Throwable) { null }
+                    return Pair(data, ct)
+                }
+            }
+        } catch (_: Throwable) { }
+
+        try {
+            val xml = getXmlObjectReflection(shape)
+            if (xml != null) {
+                val blipId = extractBlipEmbedId(xml)
+                if (!blipId.isNullOrBlank()) {
+                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
+                    if (resolved != null) return resolved
+                }
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    private fun savePicBytesToTempFile(slideIndex: Int, dataBytes: ByteArray, contentType: String?): File {
+        val hash = dataBytes.contentHashCode().toString()
+        val cacheKey = "${slideIndex}_$hash"
+        val cachedFile = tempImageCache[cacheKey]
+        if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
+            return cachedFile
+        }
+        val suggestExt = contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
+        val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
+        tempFile.outputStream().use { it.write(dataBytes) }
+        tempImageCache[cacheKey] = tempFile
+        return tempFile
+    }
+
+    private fun cleanTextRunString(raw: String): String {
+        return raw
+            .replace("\uF0A7", "") // Wingdings square bullet
+            .replace("\uF0B7", "") // Symbol bullet
+            .replace("\uF06C", "") // Wingdings circle bullet
+            .replace("\uF0D8", "")
+            .replace("\uF076", "")
+            .replace(Regex("""^[\'`‘’-]\s*"""), "")
+    }
+
+    /**
+     * Safely reads slide background color in hex from XMLBeans without touching java.awt.Color.
+     */
+    private fun getSlideBgColorHex(slide: org.apache.poi.sl.usermodel.Slide<*, *>): String? {
+        if (slide !is XSLFSlide) return null
+        try {
+            val ctSlide = getXmlObjectReflection(slide) ?: return null
+            val cSld = try { ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide) } catch (t: Throwable) { null } ?: return null
+            val bg = try { cSld.javaClass.getMethod("getBg").invoke(cSld) } catch (t: Throwable) { null } ?: return null
+            val bgPr = try { bg.javaClass.getMethod("getBgPr").invoke(bg) } catch (t: Throwable) { null } ?: return null
+            val solidFill = try { bgPr.javaClass.getMethod("getSolidFill").invoke(bgPr) } catch (t: Throwable) { null } ?: return null
+            val srgbClr = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
+            if (srgbClr != null) {
+                val hexBytes = try { srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray } catch (t: Throwable) { null }
+                val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
+                if (!hex.isNullOrBlank()) return "#$hex"
+            }
+        } catch (t: Throwable) {
+            // Safe fallback
+        }
+        return null
+    }
+
+    /**
+     * Safely extracts text run color without touching java.awt.Color.
+     */
+    private fun extractTextRunColorHex(run: org.apache.poi.sl.usermodel.TextRun): String? {
+        if (run is XSLFTextRun) {
+            try {
+                val xmlRun = getXmlObjectReflection(run) ?: return null
+                val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (t: Throwable) { null } ?: return null
+                val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (t: Throwable) { null } ?: return null
+                val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
+                if (srgb != null) {
+                    val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (t: Throwable) { null }
+                    val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
+                    if (!hex.isNullOrBlank()) return "#$hex"
+                }
+            } catch (t: Throwable) {
+                // Ignore
+            }
+        }
+        return null
+    }
+
+    private fun setRunProperties(r: XSLFTextRun, textColorHex: String?, fontSizePt: Float) {
+        try {
+            r.fontSize = fontSizePt.toDouble()
+        } catch (t: Throwable) {}
+
+        val xmlRun = getXmlObjectReflection(r) ?: return
+        try {
+            val rPr = try {
+                xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun)
+                    ?: xmlRun.javaClass.getMethod("addNewRPr").invoke(xmlRun)
+            } catch (t: Throwable) {
+                try { xmlRun.javaClass.getMethod("addNewRPr").invoke(xmlRun) } catch (t2: Throwable) { null }
+            }
+
+            if (rPr != null) {
+                if (textColorHex != null) {
+                    try { rPr.javaClass.getMethod("unsetSolidFill").invoke(rPr) } catch (t: Throwable) {}
+                    val solidFill = rPr.javaClass.getMethod("addNewSolidFill").invoke(rPr)
+                    val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
+                    val color = android.graphics.Color.parseColor(textColorHex)
+                    val rgbBytes = byteArrayOf(
+                        ((color shr 16) and 0xFF).toByte(),
+                        ((color shr 8) and 0xFF).toByte(),
+                        (color and 0xFF).toByte()
+                    )
+                    srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgbBytes)
+                } else {
+                    try { rPr.javaClass.getMethod("unsetSolidFill").invoke(rPr) } catch (t: Throwable) {}
+                }
+            }
+        } catch (t: Throwable) {
+            t.printStackTrace()
         }
     }
 
-    fun nextSearchResult(): Int? {
-        val results = _searchResults.value
-        if (results.isEmpty()) return null
-        val next = (_currentMatchIndex.value + 1) % results.size
-        _currentMatchIndex.value = next
-        return results[next].pageIndex
+    private fun setSlideBgColorHex(slide: org.apache.poi.sl.usermodel.Slide<*, *>, colorHex: String) {
+        if (slide is XSLFSlide) {
+            try {
+                val color = android.graphics.Color.parseColor(colorHex)
+                val rgbBytes = byteArrayOf(
+                    ((color shr 16) and 0xFF).toByte(),
+                    ((color shr 8) and 0xFF).toByte(),
+                    (color and 0xFF).toByte()
+                )
+                val ctSlide = getXmlObjectReflection(slide)
+                if (ctSlide != null) {
+                    val cSld = try {
+                        ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide)
+                            ?: ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide)
+                    } catch (t: Throwable) {
+                        try { ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide) } catch (t2: Throwable) { null }
+                    }
+                    if (cSld != null) {
+                        val bg = try {
+                            cSld.javaClass.getMethod("getBg").invoke(cSld)
+                                ?: cSld.javaClass.getMethod("addNewBg").invoke(cSld)
+                        } catch (t: Throwable) {
+                            try { cSld.javaClass.getMethod("addNewBg").invoke(cSld) } catch (t2: Throwable) { null }
+                        }
+                        if (bg != null) {
+                            try {
+                                val isSetBgPr = bg.javaClass.getMethod("isSetBgPr").invoke(bg) as Boolean
+                                if (isSetBgPr) {
+                                    val bgPr = bg.javaClass.getMethod("getBgPr").invoke(bg)
+                                    if (bgPr != null) {
+                                        val unsetMethods = listOf("unsetSolidFill", "unsetGradFill", "unsetBlipFill", "unsetPattFill", "unsetGrpFill")
+                                        unsetMethods.forEach { m ->
+                                            try { bgPr.javaClass.getMethod(m).invoke(bgPr) } catch (t: Throwable) {}
+                                        }
+                                    }
+                                }
+                            } catch (t: Throwable) {}
+                            val bgPr = try {
+                                bg.javaClass.getMethod("getBgPr").invoke(bg)
+                                    ?: bg.javaClass.getMethod("addNewBgPr").invoke(bg)
+                            } catch (t: Throwable) {
+                                try { bg.javaClass.getMethod("addNewBgPr").invoke(bg) } catch (t2: Throwable) { null }
+                            }
+                            if (bgPr != null) {
+                                val solidFill = bgPr.javaClass.getMethod("addNewSolidFill").invoke(bgPr)
+                                val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
+                                srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgbBytes)
+                            }
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
     }
 
-    fun previousSearchResult(): Int? {
-        val results = _searchResults.value
-        if (results.isEmpty()) return null
-        val prev = if (_currentMatchIndex.value <= 0) results.size - 1 else _currentMatchIndex.value - 1
-        _currentMatchIndex.value = prev
-        return results[prev].pageIndex
+    /**
+     * Extracts slide dimensions in EMUs without calling ppt.getPageSize() (which returns java.awt.Dimension).
+     */
+    private fun getSlideDimensionsEmu(ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>): Pair<Long, Long> {
+        if (ppt is XMLSlideShow) {
+            try {
+                val ctPresentation = getXmlObjectReflection(ppt)
+                    ?: try { ppt.javaClass.getMethod("getCTPresentation").invoke(ppt) } catch (t: Throwable) { null }
+                if (ctPresentation != null) {
+                    val sldSz = ctPresentation.javaClass.getMethod("getSldSz").invoke(ctPresentation)
+                    if (sldSz != null) {
+                        val cx = (sldSz.javaClass.getMethod("getCx").invoke(sldSz) as? Number)?.toLong() ?: 9144000L
+                        val cy = (sldSz.javaClass.getMethod("getCy").invoke(sldSz) as? Number)?.toLong() ?: 5143500L
+                        return Pair(cx, cy)
+                    }
+                }
+            } catch (t: Throwable) {
+                // Fall back to standard 16:9 widescreen in EMUs (10 inches x 5.625 inches)
+            }
+        }
+        // Default: 9144000 x 5143500 (10 x 5.625 in = 16:9 standard PPTX)
+        return Pair(9144000L, 5143500L)
     }
 
-    fun clearSearch() {
-        _searchQuery.value = ""
-        _searchResults.value = emptyList()
-        _currentMatchIndex.value = -1
+    private fun parseAllSlides(ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>): List<PptxSlide> {
+        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+        val slideAspectRatio = if (slideHeightEmu > 0) slideWidthEmu.toFloat() / slideHeightEmu.toFloat() else (16f / 9f)
+        val slides = mutableListOf<PptxSlide>()
+
+        for ((index, slide) in ppt.slides.withIndex()) {
+            val textShapes = mutableListOf<PptxTextShape>()
+            val images = mutableListOf<PptxImage>()
+            var backgroundImage: PptxImage? = null
+            val bgColorHex = getSlideBgColorHex(slide)
+
+            // Extract Slide Background Picture if present
+            try {
+                if (slide is XSLFSlide) {
+                    val ctSlide = getXmlObjectReflection(slide)
+                    if (ctSlide != null) {
+                        val cSld = try { ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide) } catch (_: Throwable) { null }
+                        val bg = try { cSld?.javaClass?.getMethod("getBg")?.invoke(cSld) } catch (_: Throwable) { null }
+                        if (bg != null) {
+                            val bgBlipId = extractBlipEmbedId(bg)
+                            if (!bgBlipId.isNullOrBlank()) {
+                                val resolved = resolvePictureBytesFromBlipId(slide, bgBlipId)
+                                if (resolved != null) {
+                                    val bgFile = savePicBytesToTempFile(index, resolved.first, resolved.second)
+                                    backgroundImage = PptxImage(bgFile.absolutePath, 0f, 0f, 1f, 1f)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) { }
+
+            // Extract Speaker Notes safely
+            val speakerNotes: String? = try {
+                val notesObj = try { slide.notes } catch (t: Throwable) { null }
+                if (notesObj != null) {
+                    val shapes = try { notesObj.shapes } catch (t: Throwable) { emptyList() }
+                    var noteText: String? = null
+                    for (sh in shapes) {
+                        if (sh is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                            val t = try { sh.text } catch (t2: Throwable) { null }
+                            if (!t.isNullOrBlank()) {
+                                noteText = t
+                                break
+                            }
+                        }
+                    }
+                    noteText
+                } else null
+            } catch (t: Throwable) {
+                null
+            }
+
+            var titleShape: PptxTextShape? = null
+            var bodyCount = 0
+
+            // Helper function to recursively flatten group shapes and collect all shapes
+            val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
+            fun collectShapes(shapeList: List<org.apache.poi.sl.usermodel.Shape<*, *>>) {
+                for (sh in shapeList) {
+                    if (sh is org.apache.poi.sl.usermodel.GroupShape<*, *>) {
+                        val nested = try { sh.shapes } catch (t: Throwable) { emptyList() }
+                        collectShapes(nested)
+                    } else {
+                        allShapes.add(sh)
+                    }
+                }
+            }
+            val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
+            collectShapes(rootShapes)
+
+            for (shape in allShapes) {
+                try {
+                    // 1. Check if shape has picture data (PictureShape, blipFill on AutoShape/SimpleShape, etc.)
+                    val picPair = extractPictureDataFromShape(shape, slide)
+                    if (picPair != null && picPair.first.isNotEmpty()) {
+                        val file = savePicBytesToTempFile(index, picPair.first, picPair.second)
+                        val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                        val left = bounds?.get(0) ?: 0.05f
+                        val top = bounds?.get(1) ?: 0.3f
+                        val width = bounds?.get(2) ?: 0.6f
+                        val height = bounds?.get(3) ?: 0.4f
+
+                        val imageArea = width * height
+                        val isBackground = imageArea >= 0.85f && left <= 0.05f && top <= 0.05f
+
+                        if (isBackground && backgroundImage == null) {
+                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f)
+                        } else {
+                            images.add(PptxImage(file.absolutePath, left, top, width, height))
+                        }
+                    }
+
+                    // 2. Process text shape if present
+                    if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                        val shapeText = try { shape.text ?: "" } catch (t: Throwable) { "" }
+                        if (shapeText.isNotBlank()) {
+                            val isTitle = try {
+                                shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
+                            } catch (t: Throwable) {
+                                shape.shapeName.lowercase().contains("title")
+                            }
+
+                            val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                            val shapeLeft = bounds?.get(0) ?: 0.05f
+                            val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
+                            val shapeWidthVal = bounds?.get(2) ?: 0.9f
+                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.2f)
+
+                            val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
+                            val shapeParagraphs = mutableListOf<PptxParagraph>()
+
+                            if (paragraphs.isNotEmpty()) {
+                                for (p in paragraphs) {
+                                    val pRuns = try { p.textRuns } catch (t: Throwable) { emptyList() }
+                                    val paragraphRuns = mutableListOf<PptxTextRun>()
+
+                                    for (r in pRuns) {
+                                        var rText = try { r.rawText ?: "" } catch (t: Throwable) { "" }
+                                        if (rText.isBlank()) {
+                                            rText = try {
+                                                val method = try { r.javaClass.getMethod("getText") } catch (e: Exception) { null }
+                                                val t = method?.invoke(r) as? String
+                                                if (t != null && !t.startsWith("org.apache.poi") && !t.startsWith("org.apache.xmlbeans")) t else ""
+                                            } catch (t: Throwable) { "" }
+                                        }
+
+                                        if (rText.startsWith("org.apache.poi") ||
+                                            rText.startsWith("org.apache.xmlbeans") ||
+                                            (rText.startsWith("<") && rText.endsWith(">"))
+                                        ) {
+                                            continue
+                                        }
+
+                                        rText = cleanTextRunString(rText)
+
+                                        if (rText.isNotEmpty()) {
+                                            val isBold = try { r.isBold } catch (t: Throwable) { isTitle }
+                                            val isItalic = try { r.isItalic } catch (t: Throwable) { false }
+                                            val isUnderline = try { r.isUnderlined } catch (t: Throwable) { false }
+                                            val colorHex = extractTextRunColorHex(r)
+                                            val fSize = try { r.fontSize } catch (t: Throwable) { null }
+                                            val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else (if (isTitle) 24f else 14f)
+
+                                            paragraphRuns.add(
+                                                PptxTextRun(
+                                                    text = rText,
+                                                    isBold = isBold,
+                                                    isItalic = isItalic,
+                                                    isUnderline = isUnderline,
+                                                    textColorHex = colorHex,
+                                                    fontSizePt = fontSizePt
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    // Fallback if runs were empty but paragraph had text
+                                    if (paragraphRuns.isEmpty()) {
+                                        var pText = try {
+                                            p.textRuns.joinToString("") { it.rawText ?: "" }
+                                        } catch (t: Throwable) { "" }
+                                        pText = cleanTextRunString(pText)
+                                        if (pText.isNotBlank() &&
+                                            !pText.startsWith("org.apache.poi") &&
+                                            !pText.startsWith("org.apache.xmlbeans") &&
+                                            !(pText.startsWith("<") && pText.endsWith(">"))
+                                        ) {
+                                            paragraphRuns.add(
+                                                PptxTextRun(
+                                                    text = pText,
+                                                    isBold = isTitle,
+                                                    fontSizePt = if (isTitle) 24f else 14f
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    if (paragraphRuns.isNotEmpty()) {
+                                        val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
+                                        val rawBulletChar = try {
+                                            if (p is XSLFTextParagraph) p.bulletCharacter
+                                            else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
+                                        } catch (_: Throwable) { null }
+
+                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank()
+                                        val bulletChar = when {
+                                            rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
+                                            rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
+                                            rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
+                                            else -> "•"
+                                        }
+
+                                        val alignment = try {
+                                            when (p.textAlign) {
+                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                                else -> "LEFT"
+                                            }
+                                        } catch (t: Throwable) { "LEFT" }
+
+                                        val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+                                        val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+
+                                        shapeParagraphs.add(
+                                            PptxParagraph(
+                                                runs = paragraphRuns,
+                                                bulletLevel = bulletLevel,
+                                                hasBullet = hasBullet,
+                                                bulletChar = bulletChar,
+                                                alignment = alignment,
+                                                spaceBeforePt = spaceBefore,
+                                                spaceAfterPt = spaceAfter
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // If no paragraphs parsed but shape has text
+                            if (shapeParagraphs.isEmpty() &&
+                                !shapeText.startsWith("org.apache.poi") &&
+                                !shapeText.startsWith("org.apache.xmlbeans") &&
+                                !(shapeText.startsWith("<") && shapeText.endsWith(">"))
+                            ) {
+                                shapeParagraphs.add(
+                                    PptxParagraph(
+                                        runs = listOf(
+                                            PptxTextRun(
+                                                text = cleanTextRunString(shapeText).trim(),
+                                                isBold = isTitle,
+                                                fontSizePt = if (isTitle) 24f else 14f
+                                            )
+                                        ),
+                                        bulletLevel = 0,
+                                        hasBullet = false,
+                                        bulletChar = "",
+                                        alignment = "LEFT"
+                                    )
+                                )
+                            }
+
+                            if (shapeParagraphs.isNotEmpty()) {
+                                val isDistinctTitle = isTitle && titleShape == null
+                                val parsedShape = PptxTextShape(
+                                    id = if (isDistinctTitle) "title" else "body_$bodyCount",
+                                    isTitle = isTitle,
+                                    paragraphs = shapeParagraphs,
+                                    shapeLeft = shapeLeft,
+                                    shapeTop = shapeTop,
+                                    shapeWidth = shapeWidthVal,
+                                    shapeHeight = shapeHeightVal
+                                )
+
+                                if (isDistinctTitle) {
+                                    titleShape = parsedShape
+                                } else {
+                                    textShapes.add(parsedShape)
+                                    bodyCount++
+                                }
+                            }
+                        }
+                    } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
+                        val numRows = try { shape.numberOfRows } catch (t: Throwable) { 0 }
+                        val numCols = try { shape.numberOfColumns } catch (t: Throwable) { 0 }
+                        val tableBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                        val tLeft = tableBounds?.get(0) ?: 0.05f
+                        val tTop = tableBounds?.get(1) ?: 0.35f
+                        val tWidth = tableBounds?.get(2) ?: 0.9f
+                        val tHeight = tableBounds?.get(3) ?: 0.5f
+
+                        for (r in 0 until numRows) {
+                            for (c in 0 until numCols) {
+                                val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
+                                val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
+                                if (text.isNotBlank()) {
+                                    val cellLeft = (tLeft + c.toFloat() / numCols.toFloat() * tWidth).coerceIn(0f, 1f)
+                                    val cellTop = (tTop + r.toFloat() / numRows.toFloat() * tHeight).coerceIn(0f, 1f)
+                                    val cellW = (tWidth / numCols.toFloat()).coerceIn(0.05f, 1f)
+                                    val cellH = (tHeight / numRows.toFloat()).coerceIn(0.05f, 1f)
+
+                                    val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
+                                    val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
+                                    val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
+                                    val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                    val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                    val colorHex = firstRun?.let { extractTextRunColorHex(it) }
+                                    val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
+                                    val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+
+                                    textShapes.add(
+                                        PptxTextShape(
+                                            id = "table_cell_${r}_${c}",
+                                            isTitle = false,
+                                            paragraphs = listOf(
+                                                PptxParagraph(
+                                                    runs = listOf(
+                                                        PptxTextRun(
+                                                            text = text.trim(),
+                                                            isBold = isBold,
+                                                            isItalic = isItalic,
+                                                            isUnderline = isUnderline,
+                                                            textColorHex = colorHex,
+                                                            fontSizePt = fontSizePt
+                                                        )
+                                                    ),
+                                                    bulletLevel = 0,
+                                                    hasBullet = false,
+                                                    bulletChar = "",
+                                                    alignment = "LEFT"
+                                                )
+                                            ),
+                                            shapeLeft = cellLeft,
+                                            shapeTop = cellTop,
+                                            shapeWidth = cellW,
+                                            shapeHeight = cellH
+                                        )
+                                    )
+                                    bodyCount++
+                                }
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
+            }
+
+            val finalTitle = titleShape ?: textShapes.firstOrNull { it.isTitle } ?: PptxTextShape(
+                id = "empty_title",
+                isTitle = false,
+                paragraphs = emptyList(),
+                shapeLeft = 0f,
+                shapeTop = 0f,
+                shapeWidth = 0f,
+                shapeHeight = 0f
+            )
+
+            slides.add(
+                PptxSlide(
+                    slideNumber = index + 1,
+                    title = finalTitle,
+                    textShapes = textShapes,
+                    images = images,
+                    backgroundImage = backgroundImage,
+                    speakerNotes = speakerNotes,
+                    bgColorHex = bgColorHex,
+                    aspectRatio = slideAspectRatio
+                )
+            )
+        }
+        return slides
     }
 
-    // =========================================================================
-    // EDITING
-    // =========================================================================
+    fun loadPptxFile(filePath: String) {
+        android.util.Log.d("PptxViewModel", "loadPptxFile called with: $filePath")
+        viewModelScope.launch {
+            _loadState.value = PptxLoadState.Loading
+            withContext(Dispatchers.IO) {
+                try {
+                    activePresentation?.close()
+                } catch (t: Throwable) {}
+                activePresentation = null
+                activeFilePath = null
+
+                var fileInputStream: FileInputStream? = null
+                var ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
+                try {
+                    val file = File(filePath)
+                    if (!file.exists() || !file.isFile) {
+                        android.util.Log.e("PptxViewModel", "File does not exist: $filePath")
+                        _loadState.value = PptxLoadState.Error("Target presentation does not exist or is corrupted.")
+                        return@withContext
+                    }
+
+                    android.util.Log.d("PptxViewModel", "File exists, size: ${file.length()} bytes")
+                    fileInputStream = FileInputStream(file)
+                    ppt = if (filePath.endsWith(".ppt", ignoreCase = true)) {
+                        org.apache.poi.hslf.usermodel.HSLFSlideShow(fileInputStream)
+                    } else {
+                        XMLSlideShow(fileInputStream)
+                    }
+
+                    android.util.Log.d("PptxViewModel", "Parsed PPTX, slides: ${ppt.slides.size}")
+                    val slides = parseAllSlides(ppt)
+                    android.util.Log.d("PptxViewModel", "Parsed slides: ${slides.size}")
+
+                    // Render slides to bitmaps for reliable display
+                    val bitmaps = try {
+                        android.util.Log.d("PptxViewModel", "Rendering bitmaps...")
+                        val result = officeConverter.renderPptxToBitmaps(file)
+                        android.util.Log.d("PptxViewModel", "Rendered ${result.size} bitmaps")
+                        result
+                    } catch (e: Throwable) {
+                        android.util.Log.e("PptxViewModel", "Bitmap rendering failed: ${e.message}")
+                        emptyList()
+                    }
+
+                    activePresentation = ppt
+                    activeFilePath = filePath
+
+                    _loadState.value = PptxLoadState.Success(
+                        presentation = PptxPresentation(slides),
+                        fileName = file.name,
+                        slideBitmaps = bitmaps
+                    )
+                    android.util.Log.d("PptxViewModel", "State updated to Success with ${bitmaps.size} bitmaps")
+
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    _loadState.value = PptxLoadState.Error("PowerPoint presentation parser failure: ${e.localizedMessage}")
+                } finally {
+                    try {
+                        fileInputStream?.close()
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
+                    }
+                }
+            }
+        }
+    }
 
     fun updateSlideTextShape(
         slideIndex: Int,
         isTitle: Boolean,
         blockIndex: Int,
         newText: String,
-        isBold: Boolean,
-        isItalic: Boolean,
-        isUnderline: Boolean,
-        textColorHex: String?,
-        comment: String?,
-        fontSizePt: Float,
+        isBold: Boolean = false,
+        isItalic: Boolean = false,
+        isUnderline: Boolean = false,
+        textColorHex: String? = null,
+        comment: String? = null,
+        fontSizePt: Float = 18f
     ) {
-        val state = _loadState.value as? PptxLoadState.Success ?: return
-        val ppt = activePresentation ?: return
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex in slides.indices) {
+            val slide = slides[slideIndex]
+            var blockIdx = 0
 
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val slide = ppt.slides.getOrNull(slideIndex) ?: return@withContext
-                    val shapes = slide.shapes.filterIsInstance<XSLFTextShape>()
-                    val targetShape = if (isTitle) {
-                        shapes.firstOrNull { it.isPlaceholder && (it.textType == org.apache.poi.sl.usermodel.Placeholder.TITLE || it.textType == org.apache.poi.sl.usermodel.Placeholder.CENTERED_TITLE) }
-                            ?: shapes.firstOrNull { it.shapeName.lowercase().contains("title") }
-                            ?: shapes.firstOrNull()
-                    } else {
-                        val bodyShapes = shapes.filter { !(it.isPlaceholder && (it.textType == org.apache.poi.sl.usermodel.Placeholder.TITLE || it.textType == org.apache.poi.sl.usermodel.Placeholder.CENTERED_TITLE)) }
-                        bodyShapes.getOrNull(blockIndex) ?: shapes.getOrNull(blockIndex)
-                    }
+            for (shape in slide.shapes) {
+                if (shape is XSLFTextShape) {
+                    val isShapeTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                    val targetMatch = if (isTitle) isShapeTitle else (!isShapeTitle && blockIdx == blockIndex)
 
-                    if (targetShape != null) {
-                        targetShape.text = newText
-                        for (p in targetShape.textParagraphs) {
-                            for (r in p.textRuns) {
-                                r.isBold = isBold
-                                r.isItalic = isItalic
-                                r.isUnderlined = isUnderline
-                                if (fontSizePt > 0) r.fontSize = fontSizePt.toDouble()
-                                if (textColorHex != null) setRunColor(r, textColorHex)
+                    if (targetMatch) {
+                        val paras = shape.textParagraphs
+                        if (paras.isNotEmpty()) {
+                            val p = paras[0]
+                            while (p.textRuns.size > 1) {
+                                try {
+                                    val rXml = getXmlObjectReflection(p.textRuns[1])
+                                    val pXml = getXmlObjectReflection(p)
+                                    val rListObj = pXml?.javaClass?.getMethod("getRList")?.invoke(pXml) as? MutableList<*>
+                                    rListObj?.remove(rXml)
+                                } catch (t: Throwable) {}
                             }
+
+                            val r = p.textRuns.firstOrNull() ?: p.addNewTextRun()
+                            r.setText(newText)
+                            r.isBold = isBold
+                            r.isItalic = isItalic
+                            r.isUnderlined = isUnderline
+                            setRunProperties(r, textColorHex, fontSizePt)
+
+                            while (shape.textParagraphs.size > 1) {
+                                try {
+                                    val paraXml = getXmlObjectReflection(shape.textParagraphs[1])
+                                    val shapeXml = getXmlObjectReflection(shape)
+                                    val txBody = shapeXml?.javaClass?.getMethod("getTxBody")?.invoke(shapeXml)
+                                    val pListObj = txBody?.javaClass?.getMethod("getPList")?.invoke(txBody) as? MutableList<*>
+                                    pListObj?.remove(paraXml)
+                                } catch (t: Throwable) {}
+                            }
+                        } else {
+                            val p = shape.addNewTextParagraph()
+                            val r = p.addNewTextRun()
+                            r.setText(newText)
+                            r.isBold = isBold
+                            r.isItalic = isItalic
+                            r.isUnderlined = isUnderline
+                            setRunProperties(r, textColorHex, fontSizePt)
                         }
+                        break
                     }
-
-                    if (comment != null) {
-                        try {
-                            val notes = slide.notes
-                            if (notes != null) {
-                                val noteShape = notes.shapes.filterIsInstance<XSLFTextShape>().firstOrNull()
-                                noteShape?.text = comment
-                            }
-                        } catch (_: Throwable) { }
+                    if (!isShapeTitle) {
+                        blockIdx++
                     }
-
-                    val updated = parser.parse(ppt)
-                    _loadState.value = state.copy(presentation = updated)
-                    _saveStatus.emit("Slide updated successfully")
-                } catch (t: Throwable) {
-                    _saveStatus.emit("Error updating slide: ${t.message}")
                 }
             }
-        }
-    }
 
-    private fun setRunColor(run: XSLFTextRun, colorHex: String) {
-        try {
-            val xmlRun = run.getXmlObject()
-            val rPr = xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun)
-                ?: xmlRun.javaClass.getMethod("addNewRPr").invoke(xmlRun)
-            if (rPr != null) {
-                try { rPr.javaClass.getMethod("unsetSolidFill").invoke(rPr) } catch (_: Throwable) { }
-                val solidFill = rPr.javaClass.getMethod("addNewSolidFill").invoke(rPr)
-                val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
-                val color = android.graphics.Color.parseColor(colorHex)
-                val rgb = byteArrayOf(((color shr 16) and 0xFF).toByte(), ((color shr 8) and 0xFF).toByte(), (color and 0xFF).toByte())
-                srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgb)
+            if (comment != null) {
+                try {
+                    val notesObj = try {
+                        slide.javaClass.getMethod("getNotes").invoke(slide)
+                            ?: slide.javaClass.getMethod("createNotes").invoke(slide)
+                    } catch (t: Throwable) {
+                        try { slide.javaClass.getMethod("createNotes").invoke(slide) } catch (t2: Throwable) { null }
+                    }
+
+                    if (notesObj != null) {
+                        val shapesList = notesObj.javaClass.getMethod("getShapes").invoke(notesObj) as? List<*>
+                        var notesShape = shapesList?.filterIsInstance<XSLFTextShape>()?.firstOrNull {
+                            it.placeholder == Placeholder.BODY
+                        } ?: shapesList?.filterIsInstance<XSLFTextShape>()?.firstOrNull()
+
+                        if (notesShape == null) {
+                            notesShape = notesObj.javaClass.getMethod("createTextBox").invoke(notesObj) as? XSLFTextShape
+                            try {
+                                notesShape?.javaClass?.getMethod("setPlaceholder", Placeholder::class.java)?.invoke(notesShape, Placeholder.BODY)
+                            } catch (t: Throwable) {}
+                        }
+                        notesShape?.clearText()
+                        notesShape?.setText(comment)
+                    }
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
             }
-        } catch (_: Throwable) { }
+
+            viewModelScope.launch {
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(parseAllSlides(ppt)),
+                    fileName = File(activeFilePath!!).name
+                )
+            }
+        }
     }
 
     fun setSlideBackground(slideIndex: Int, colorHex: String) {
-        val state = _loadState.value as? PptxLoadState.Success ?: return
-        val ppt = activePresentation ?: return
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex in slides.indices) {
+            val slide = slides[slideIndex]
+            setSlideBgColorHex(slide, colorHex)
+            viewModelScope.launch {
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(parseAllSlides(ppt)),
+                    fileName = File(activeFilePath!!).name
+                )
+            }
+        }
+    }
+
+    fun insertImageIntoSlide(slideIndex: Int, imagePath: String) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow || activeFilePath?.endsWith(".ppt", ignoreCase = true) == true) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex in slides.indices) {
+            val slide = slides[slideIndex]
+            try {
+                val imageBytes = File(imagePath).readBytes()
+                val pictureData = ppt.addPicture(imageBytes, org.apache.poi.sl.usermodel.PictureData.PictureType.PNG)
+                val pictureShape = slide.createPicture(pictureData)
+
+                val sp = getXmlObjectReflection(pictureShape)
+                if (sp != null) {
+                    val spPr = try {
+                        sp.javaClass.getMethod("getSpPr").invoke(sp)
+                            ?: sp.javaClass.getMethod("addNewSpPr").invoke(sp)
+                    } catch (t: Throwable) {
+                        try { sp.javaClass.getMethod("addNewSpPr").invoke(sp) } catch (t2: Throwable) { null }
+                    }
+                    if (spPr != null) {
+                        val xfrm = try {
+                            spPr.javaClass.getMethod("getXfrm").invoke(spPr)
+                                ?: spPr.javaClass.getMethod("addNewXfrm").invoke(spPr)
+                        } catch (t: Throwable) {
+                            try { spPr.javaClass.getMethod("addNewXfrm").invoke(spPr) } catch (t2: Throwable) { null }
+                        }
+                        if (xfrm != null) {
+                            val off = try {
+                                xfrm.javaClass.getMethod("getOff").invoke(xfrm)
+                                    ?: xfrm.javaClass.getMethod("addNewOff").invoke(xfrm)
+                            } catch (t: Throwable) {
+                                try { xfrm.javaClass.getMethod("addNewOff").invoke(xfrm) } catch (t2: Throwable) { null }
+                            }
+                            if (off != null) {
+                                off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, 914400L * 1)
+                                off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, 914400L * 1)
+                            }
+                            val ext = try {
+                                xfrm.javaClass.getMethod("getExt").invoke(xfrm)
+                                    ?: xfrm.javaClass.getMethod("addNewExt").invoke(xfrm)
+                            } catch (t: Throwable) {
+                                try { xfrm.javaClass.getMethod("addNewExt").invoke(xfrm) } catch (t2: Throwable) { null }
+                            }
+                            if (ext != null) {
+                                ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, 914400L * 5)
+                                ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, 914400L * 4)
+                            }
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+
+            viewModelScope.launch {
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(parseAllSlides(ppt)),
+                    fileName = File(activeFilePath!!).name
+                )
+            }
+        }
+    }
+
+    fun addSlide(afterIndex: Int) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val layoutsList = try {
+            ppt.javaClass.getMethod("getSlideLayouts").invoke(ppt) as? List<*>
+        } catch (t: Throwable) {
+            null
+        }
+        val layout = layoutsList?.firstOrNull() ?: return
+        try {
+            val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout)
+            ppt.setSlideOrder(newSlide as? XSLFSlide, (afterIndex + 1).coerceIn(0, ppt.slides.size))
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
 
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val slide = ppt.slides.getOrNull(slideIndex) ?: return@withContext
-                    if (slide is XSLFSlide) {
-                        val color = android.graphics.Color.parseColor(colorHex)
-                        val rgb = byteArrayOf(((color shr 16) and 0xFF).toByte(), ((color shr 8) and 0xFF).toByte(), (color and 0xFF).toByte())
-                        val ctSlide = slide.getXmlObject()
-                        val cSld = ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide)
-                            ?: ctSlide.javaClass.getMethod("addNewCSld").invoke(ctSlide)
-                        if (cSld != null) {
-                            val bg = cSld.javaClass.getMethod("getBg").invoke(cSld)
-                                ?: cSld.javaClass.getMethod("addNewBg").invoke(cSld)
-                            if (bg != null) {
-                                val bgPr = bg.javaClass.getMethod("getBgPr").invoke(bg)
-                                    ?: bg.javaClass.getMethod("addNewBgPr").invoke(bg)
-                                if (bgPr != null) {
-                                    try { bgPr.javaClass.getMethod("unsetSolidFill").invoke(bgPr) } catch (_: Throwable) { }
-                                    val solidFill = bgPr.javaClass.getMethod("addNewSolidFill").invoke(bgPr)
-                                    val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
-                                    srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgb)
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath!!).name
+            )
+        }
+    }
+
+    fun deleteSlide(index: Int) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (index in slides.indices) {
+            try {
+                ppt.removeSlide(index)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+            viewModelScope.launch {
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(parseAllSlides(ppt)),
+                    fileName = File(activeFilePath!!).name
+                )
+            }
+        }
+    }
+
+    fun duplicateSlide(index: Int) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (index in slides.indices) {
+            try {
+                val originalSlide = slides[index]
+                val layout = originalSlide.slideLayout
+                val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as XSLFSlide
+
+                val originalBgColor = getSlideBgColorHex(originalSlide)
+                if (originalBgColor != null) {
+                    setSlideBgColorHex(newSlide, originalBgColor)
+                }
+
+                originalSlide.shapes.forEach { shape ->
+                    try {
+                        if (shape is XSLFTextShape) {
+                            val newShape = newSlide.createTextBox()
+                            newShape.clearText()
+                            newShape.setText(shape.text)
+                            // Preserve font formatting from original runs
+                            val origParas = shape.textParagraphs
+                            val newParas = newShape.textParagraphs
+                            if (origParas.isNotEmpty() && newParas.isNotEmpty()) {
+                                val origRuns = origParas[0].textRuns
+                                val newRuns = newParas[0].textRuns
+                                if (origRuns.isNotEmpty()) {
+                                    newShape.clearText()
+                                    val newPara = newShape.addNewTextParagraph()
+                                    origRuns.forEach { run ->
+                                        val newRun = newPara.addNewTextRun()
+                                        newRun.setText(run.rawText)
+                                        newRun.isBold = run.isBold
+                                        newRun.isItalic = run.isItalic
+                                        newRun.isUnderlined = run.isUnderlined
+                                        setRunProperties(newRun, extractTextRunColorHex(run), run.fontSize.toFloat())
+                                    }
                                 }
                             }
-                        }
-                    }
-                    val updated = parser.parse(ppt)
-                    _loadState.value = state.copy(presentation = updated)
-                    _saveStatus.emit("Background updated")
-                } catch (t: Throwable) {
-                    _saveStatus.emit("Error updating background: ${t.message}")
-                }
-            }
-        }
-    }
-
-    fun saveActivePresentation(onComplete: (Boolean, String?) -> Unit) {
-        val ppt = activePresentation
-        val path = activeFilePath
-        if (ppt == null || path == null) { onComplete(false, "No active presentation to save."); return }
-
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val file = File(path)
-                    val tempFile = File(file.parentFile, "${file.nameWithoutExtension}_temp.pptx")
-                    FileOutputStream(tempFile).use { ppt.write(it) }
-                    if (tempFile.exists() && tempFile.length() > 0) {
-                        tempFile.copyTo(file, overwrite = true)
-                        tempFile.delete()
-                        withContext(Dispatchers.Main) { onComplete(true, "Presentation saved successfully.") }
-                    } else {
-                        withContext(Dispatchers.Main) { onComplete(false, "Failed to write presentation data.") }
-                    }
-                } catch (t: Throwable) {
-                    withContext(Dispatchers.Main) { onComplete(false, "Save error: ${t.message}") }
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    // EXPORT — PDF uses the SAME ParsedSlide model via the rasterizer
-    // =========================================================================
-
-    fun exportToPdf(outputUri: Uri, onComplete: (Boolean, String?) -> Unit) {
-        val state = _loadState.value as? PptxLoadState.Success ?: return
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val doc = PDDocument()
-                    for (slide in state.presentation.slides) {
-                        val aspect = state.presentation.aspectRatio
-                        val imgW = 1440
-                        val imgH = (imgW / aspect).toInt().coerceAtLeast(800)
-                        val bitmap = PptxSlideRasterizer.renderToBitmap(slide, imgW, imgH)
-                        val page = PDPage(PDRectangle(bitmap.width.toFloat(), bitmap.height.toFloat()))
-                        doc.addPage(page)
-                        val pdImage = JPEGFactory.createFromImage(doc, bitmap, 0.9f)
-                        PDPageContentStream(doc, page).use { cs -> cs.drawImage(pdImage, 0f, 0f) }
-                        bitmap.recycle()
-                    }
-                    context.contentResolver.openOutputStream(outputUri)?.use { doc.save(it) }
-                    doc.close()
-                    withContext(Dispatchers.Main) { onComplete(true, "PDF exported successfully.") }
-                } catch (t: Throwable) {
-                    withContext(Dispatchers.Main) { onComplete(false, "PDF Export failed: ${t.message}") }
-                }
-            }
-        }
-    }
-
-    fun exportToOutlineTxt(outputUri: Uri, onComplete: (Boolean, String?) -> Unit) {
-        val state = _loadState.value as? PptxLoadState.Success ?: return
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val sb = StringBuilder()
-                    sb.appendLine("Presentation: ${state.fileName}")
-                    sb.appendLine("=".repeat(40))
-                    sb.appendLine()
-                    for ((idx, slide) in state.presentation.slides.withIndex()) {
-                        sb.appendLine("--- Slide ${idx + 1} ---")
-                        val title = slide.shapes.firstOrNull { it.content is com.karnadigital.omnisuite.core.engine.document.TextContent }
-                        // best-effort title extraction
-                        for (sh in slide.shapes) {
-                            if (sh.content is com.karnadigital.omnisuite.core.engine.document.TextContent) {
-                                val tc = sh.content as com.karnadigital.omnisuite.core.engine.document.TextContent
-                                sb.appendLine(tc.paragraphs.joinToString(" ") { p -> p.runs.joinToString("") { it.text } }.trim())
+                            // Preserve shape position and size
+                            val xmlBounds = getXmlShapeBoundsNormalized(
+                                shape,
+                                getSlideDimensionsEmu(ppt).first,
+                                getSlideDimensionsEmu(ppt).second
+                            )
+                            if (xmlBounds != null) {
+                                val newSp = getXmlObjectReflection(newShape)
+                                val newSpPr = try {
+                                    newSp?.javaClass?.getMethod("getSpPr")?.invoke(newSp)
+                                        ?: newSp?.javaClass?.getMethod("addNewSpPr")?.invoke(newSp)
+                                } catch (t: Throwable) { null }
+                                val newXfrm = try {
+                                    newSpPr?.javaClass?.getMethod("getXfrm")?.invoke(newSpPr)
+                                        ?: newSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(newSpPr)
+                                } catch (t: Throwable) { null }
+                                if (newXfrm != null) {
+                                    val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+                                    val off = try {
+                                        newXfrm.javaClass.getMethod("getOff").invoke(newXfrm)
+                                            ?: newXfrm.javaClass.getMethod("addNewOff").invoke(newXfrm)
+                                    } catch (t: Throwable) { null }
+                                    val ext = try {
+                                        newXfrm.javaClass.getMethod("getExt").invoke(newXfrm)
+                                            ?: newXfrm.javaClass.getMethod("addNewExt").invoke(newXfrm)
+                                    } catch (t: Throwable) { null }
+                                    if (off != null) {
+                                        off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[0] * slideW).toLong())
+                                        off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[1] * slideH).toLong())
+                                    }
+                                    if (ext != null) {
+                                        ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[2] * slideW).toLong())
+                                        ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[3] * slideH).toLong())
+                                    }
+                                }
                             }
+                        } else if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
+                            try {
+                                val picData = shape.pictureData
+                                val imageBytes = picData.data
+                                if (imageBytes != null && imageBytes.isNotEmpty()) {
+                                    val newPicData = ppt.addPicture(imageBytes, picData.type)
+                                    val newPicShape = newSlide.createPicture(newPicData)
+                                    val xmlBounds = getXmlShapeBoundsNormalized(
+                                        shape,
+                                        getSlideDimensionsEmu(ppt).first,
+                                        getSlideDimensionsEmu(ppt).second
+                                    )
+                                    if (xmlBounds != null) {
+                                        val newSp = getXmlObjectReflection(newPicShape)
+                                        val newSpPr = try {
+                                            newSp?.javaClass?.getMethod("getSpPr")?.invoke(newSp)
+                                                ?: newSp?.javaClass?.getMethod("addNewSpPr")?.invoke(newSp)
+                                        } catch (t: Throwable) { null }
+                                        val newXfrm = try {
+                                            newSpPr?.javaClass?.getMethod("getXfrm")?.invoke(newSpPr)
+                                                ?: newSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(newSpPr)
+                                        } catch (t: Throwable) { null }
+                                        if (newXfrm != null) {
+                                            val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+                                            val off = try {
+                                                newXfrm.javaClass.getMethod("getOff").invoke(newXfrm)
+                                                    ?: newXfrm.javaClass.getMethod("addNewOff").invoke(newXfrm)
+                                            } catch (t: Throwable) { null }
+                                            val ext = try {
+                                                newXfrm.javaClass.getMethod("getExt").invoke(newXfrm)
+                                                    ?: newXfrm.javaClass.getMethod("addNewExt").invoke(newXfrm)
+                                            } catch (t: Throwable) { null }
+                                            if (off != null) {
+                                                off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[0] * slideW).toLong())
+                                                off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, (xmlBounds[1] * slideH).toLong())
+                                            }
+                                            if (ext != null) {
+                                                ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[2] * slideW).toLong())
+                                                ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, (xmlBounds[3] * slideH).toLong())
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (t: Throwable) { t.printStackTrace() }
                         }
-                        if (!slide.speakerNotes.isNullOrBlank()) sb.appendLine("Notes: ${slide.speakerNotes.trim()}")
-                        sb.appendLine()
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
                     }
-                    context.contentResolver.openOutputStream(outputUri)?.use { it.write(sb.toString().toByteArray(Charsets.UTF_8)) }
-                    withContext(Dispatchers.Main) { onComplete(true, "Outline extracted to text.") }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+
+            viewModelScope.launch {
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(parseAllSlides(ppt)),
+                    fileName = File(activeFilePath!!).name
+                )
+            }
+        }
+    }
+
+    fun commitChanges() {
+        viewModelScope.launch {
+            if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+                return@launch
+            }
+            val ppt = activePresentation
+            val filePath = activeFilePath
+            if (ppt == null || filePath == null) {
+                _saveStatus.emit("No active presentation loaded.")
+                return@launch
+            }
+
+            withContext(Dispatchers.IO) {
+                var fileOutputStream: FileOutputStream? = null
+                try {
+                    fileOutputStream = FileOutputStream(File(filePath))
+                    ppt.write(fileOutputStream)
+                    _saveStatus.emit("Presentation changes committed successfully!")
                 } catch (t: Throwable) {
-                    withContext(Dispatchers.Main) { onComplete(false, "Outline export failed: ${t.message}") }
+                    t.printStackTrace()
+                    _saveStatus.emit("Failed to save changes: ${t.localizedMessage}")
+                } finally {
+                    try {
+                        fileOutputStream?.close()
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
+                    }
                 }
             }
         }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        // Search the already-loaded in-memory presentation instead of re-parsing the file.
+        val presentation = (_loadState.value as? PptxLoadState.Success)?.presentation
+        if (presentation == null) {
+            _searchResults.value = emptyList()
+            _currentMatchIndex.value = -1
+            return
+        }
+        val results = PptxSearchEngine.search(presentation, query)
+        _searchResults.value = results
+        _currentMatchIndex.value = if (results.isNotEmpty()) 0 else -1
+    }
+
+    fun nextMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val nextIndex = (_currentMatchIndex.value + 1) % results.size
+        _currentMatchIndex.value = nextIndex
+    }
+
+    fun prevMatch() {
+        val results = _searchResults.value
+        if (results.isEmpty()) return
+        val prevIndex = (_currentMatchIndex.value - 1 + results.size) % results.size
+        _currentMatchIndex.value = prevIndex
     }
 
     override fun onCleared() {
         super.onCleared()
-        try { activePresentation?.close() } catch (_: Throwable) { }
+        try {
+            activePresentation?.close()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+        // Clean up temporary image files
+        tempImageCache.values.forEach { file ->
+            try { if (file.exists()) file.delete() } catch (t: Throwable) {}
+        }
+        tempImageCache.clear()
     }
 }
