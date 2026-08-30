@@ -548,6 +548,7 @@ fun PptxViewerScreen(
                                         ZoomableBox(modifier = Modifier.fillMaxWidth()) {
                                             SlideCardItem(
                                                 slide = slide,
+                                                bitmap = currentState.slideBitmaps.getOrNull(pageIndex),
                                                 isEditMode = false,
                                                 onTextBlockClick = { _, _, _ -> }
                                             )
@@ -589,6 +590,7 @@ fun PptxViewerScreen(
                             // Mi PPT / WPS Office Continuous Flow Mode (Vertical Scroll)
                             ContinuousSlideView(
                                 presentation = presentation,
+                                slideBitmaps = currentState.slideBitmaps,
                                 isEditMode = isEditMode,
                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                     blockToEdit = textBlock
@@ -693,6 +695,7 @@ fun PptxViewerScreen(
                                         ) {
                                             SlideCardItem(
                                                 slide = slide,
+                                                bitmap = currentState.slideBitmaps.getOrNull(pageIndex),
                                                 isEditMode = isEditMode,
                                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                                     blockToEdit = textBlock
@@ -1207,6 +1210,7 @@ fun PptxTextFormatterDialog(
 @Composable
 fun ContinuousSlideView(
     presentation: PptxPresentation,
+    slideBitmaps: List<android.graphics.Bitmap>,
     isEditMode: Boolean,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     modifier: Modifier = Modifier
@@ -1231,6 +1235,7 @@ fun ContinuousSlideView(
                     ) {
                         SlideCardItem(
                             slide = slide,
+                            bitmap = slideBitmaps.getOrNull(index),
                             isEditMode = isEditMode,
                             onTextBlockClick = onTextBlockClick
                         )
@@ -1279,6 +1284,7 @@ fun ContinuousSlideView(
 @Composable
 fun SlideCardItem(
     slide: PptxSlide,
+    bitmap: android.graphics.Bitmap? = null,
     isEditMode: Boolean = false,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
@@ -1297,6 +1303,21 @@ fun SlideCardItem(
                 shape = RoundedCornerShape(12.dp)
             )
     ) {
+        // A PPTX is a canvas document, not a flowing text document.  When the
+        // slide raster is available, it is the authoritative presentation view:
+        // it preserves the authoring application's text metrics, z-order and
+        // image transforms.  The Compose shape renderer remains the editing
+        // surface and a safe fallback if a raster cannot be produced.
+        if (!isEditMode && bitmap != null && !bitmap.isRecycled) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Slide ${slide.slideNumber}",
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+            return@Card
+        }
+
         BoxWithConstraints(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -1332,20 +1353,7 @@ fun SlideCardItem(
                 )
             }
 
-            // LAYER 3: Title Shape (rendered only if distinct title shape with id "title")
-            val title = slide.title
-            if (title.fullText.isNotBlank() && title.id == "title") {
-                TextShapeItem(
-                    shape = title,
-                    slideW = slideW,
-                    slideH = slideH,
-                    isTitle = true,
-                    isEditMode = isEditMode,
-                    onClick = { onTextBlockClick(title, true, -1) }
-                )
-            }
-
-            // LAYER 4: Body Text Shapes (rendered as single container with vertically stacked paragraphs)
+            // LAYER 3: All Text Shapes (rendered in natural slide order at exact coordinates)
             slide.textShapes.forEachIndexed { idx, shape ->
                 TextShapeItem(
                     shape = shape,
@@ -1353,7 +1361,7 @@ fun SlideCardItem(
                     slideH = slideH,
                     isTitle = shape.isTitle,
                     isEditMode = isEditMode,
-                    onClick = { onTextBlockClick(shape, false, idx) }
+                    onClick = { onTextBlockClick(shape, shape.isTitle, idx) }
                 )
             }
         }
@@ -1376,7 +1384,8 @@ fun TextShapeItem(
     Box(
         modifier = Modifier
             .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
-            .size(width = (shape.shapeWidth * slideW).dp, height = (shape.shapeHeight * slideH).dp)
+            .width((shape.shapeWidth * slideW).dp)
+            .heightIn(min = (shape.shapeHeight * slideH).dp)
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
                 if (isEditMode) {
@@ -1472,36 +1481,49 @@ fun TextShapeItem(
 
 @Composable
 fun MiniSlidePreview(slide: PptxSlide) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(safeParseColor(slide.bgColorHex, MaterialTheme.colorScheme.surface))
-            .padding(4.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = slide.title.primaryText.ifBlank { "Slide ${slide.slideNumber}" },
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                fontSize = 8.sp,
-                lineHeight = 10.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = safeParseColor(slide.title.textColorHex, MaterialTheme.colorScheme.onSurface)
+        val previewWidth = maxWidth.value
+        val previewHeight = maxHeight.value
+
+        // This fallback deliberately follows slide coordinates instead of
+        // reducing a slide to title/body text. It keeps image-only and
+        // image-led slides useful when a bitmap cannot be generated.
+        slide.backgroundImage?.let { image ->
+            AsyncImage(
+                model = File(image.filePath),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds
             )
-            if (slide.textShapes.isNotEmpty()) {
-                Text(
-                    text = slide.textShapes.firstOrNull()?.primaryText ?: "",
-                    fontSize = 6.sp,
-                    lineHeight = 7.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
+        }
+        slide.images.forEach { image ->
+            AsyncImage(
+                model = File(image.filePath),
+                contentDescription = null,
+                modifier = Modifier
+                    .offset((image.left * previewWidth).dp, (image.top * previewHeight).dp)
+                    .size((image.width * previewWidth).dp, (image.height * previewHeight).dp),
+                contentScale = ContentScale.Fit
+            )
+        }
+        slide.textShapes.forEach { shape ->
+            Text(
+                text = shape.fullText,
+                fontWeight = if (shape.isTitle) FontWeight.Bold else FontWeight.Normal,
+                fontSize = if (shape.isTitle) 7.sp else 4.sp,
+                lineHeight = if (shape.isTitle) 8.sp else 5.sp,
+                maxLines = if (shape.isTitle) 2 else 4,
+                overflow = TextOverflow.Ellipsis,
+                color = safeParseColor(shape.textColorHex, MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier
+                    .offset((shape.shapeLeft * previewWidth).dp, (shape.shapeTop * previewHeight).dp)
+                    .width((shape.shapeWidth * previewWidth).dp)
+                    .height((shape.shapeHeight * previewHeight).dp)
+            )
         }
     }
 }

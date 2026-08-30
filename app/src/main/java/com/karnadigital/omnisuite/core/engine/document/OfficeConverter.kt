@@ -491,7 +491,9 @@ class OfficeConverter @Inject constructor(
      * Renders a PowerPoint PPTX file to high-resolution bitmaps for mobile preview without WebView.
      * Returns a list of Bitmaps, one per slide.
      */
-    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1440): List<Bitmap> = withContext(Dispatchers.IO) {
+    // 1080px covers current phone displays while keeping a 13-slide deck below
+    // the memory footprint that caused preview surfaces to be evicted/blank.
+    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1080): List<Bitmap> = withContext(Dispatchers.IO) {
         var pptxStream: FileInputStream? = null
         var ppt: XMLSlideShow? = null
         val bitmaps = mutableListOf<Bitmap>()
@@ -1079,12 +1081,38 @@ class OfficeConverter @Inject constructor(
      * Extracts normalized shape bounds (left, top, width, height: 0.0f..1.0f)
      * using getAnchor() reflection with fallback to XMLBeans without java.awt compile dependencies.
      */
+    private fun invokeMethodOC(target: Any?, methodName: String, vararg args: Any): Any? {
+        if (target == null) return null
+        var clazz: Class<*>? = target.javaClass
+        while (clazz != null && clazz != Any::class.java) {
+            for (m in clazz.declaredMethods) {
+                if (m.name == methodName && m.parameterTypes.size == args.size) {
+                    try {
+                        m.isAccessible = true
+                        return m.invoke(target, *args)
+                    } catch (_: Throwable) {}
+                }
+            }
+            for (iface in clazz.interfaces) {
+                for (m in iface.declaredMethods) {
+                    if (m.name == methodName && m.parameterTypes.size == args.size) {
+                        try {
+                            m.isAccessible = true
+                            return m.invoke(target, *args)
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+            clazz = clazz.superclass
+        }
+        return null
+    }
+
     private fun extractLongValueOC(obj: Any?): Long? {
         if (obj == null) return null
         if (obj is Number) return obj.toLong()
         try {
-            val longValMethod = obj.javaClass.getMethod("getLongValue")
-            val v = longValMethod.invoke(obj)
+            val v = invokeMethodOC(obj, "getLongValue")
             if (v is Number) return v.toLong()
         } catch (_: Throwable) { }
         try {
@@ -1103,7 +1131,7 @@ class OfficeConverter @Inject constructor(
         slideWidthEmu: Long,
         slideHeightEmu: Long
     ): FloatArray? {
-        // Strategy 1: XMLBeans direct EMU extraction
+        // Strategy 1: XML direct EMU extraction
         val directXml = getXmlShapeBoundsNormalized(shape, slideWidthEmu, slideHeightEmu)
         if (directXml != null) return directXml
 
@@ -1133,12 +1161,12 @@ class OfficeConverter @Inject constructor(
 
         // Strategy 3: Try getAnchor() via reflection
         try {
-            val anchor = shape.javaClass.getMethod("getAnchor").invoke(shape)
+            val anchor = invokeMethodOC(shape, "getAnchor")
             if (anchor != null) {
-                val x = (anchor.javaClass.getMethod("getX").invoke(anchor) as? Number)?.toDouble()
-                val y = (anchor.javaClass.getMethod("getY").invoke(anchor) as? Number)?.toDouble()
-                val w = (anchor.javaClass.getMethod("getWidth").invoke(anchor) as? Number)?.toDouble()
-                val h = (anchor.javaClass.getMethod("getHeight").invoke(anchor) as? Number)?.toDouble()
+                val x = (invokeMethodOC(anchor, "getX") as? Number)?.toDouble()
+                val y = (invokeMethodOC(anchor, "getY") as? Number)?.toDouble()
+                val w = (invokeMethodOC(anchor, "getWidth") as? Number)?.toDouble()
+                val h = (invokeMethodOC(anchor, "getHeight") as? Number)?.toDouble()
 
                 val slideWPt = if (slideWidthEmu > 0) slideWidthEmu / 12700.0 else 720.0
                 val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700.0 else 540.0
@@ -1164,38 +1192,36 @@ class OfficeConverter @Inject constructor(
     ): FloatArray? {
         if (slideWidthEmu <= 0 || slideHeightEmu <= 0) return null
         try {
-            val xmlObj = try {
-                shape.javaClass.getMethod("getXmlObject").invoke(shape)
-            } catch (t: Throwable) {
-                try {
-                    val method = shape.javaClass.getDeclaredMethod("fetchXmlObject")
-                    method.isAccessible = true
-                    method.invoke(shape)
-                } catch (t2: Throwable) { null }
-            } ?: return null
+            val xmlObj = invokeMethodOC(shape, "getXmlObject") ?: invokeMethodOC(shape, "fetchXmlObject") ?: return null
 
-            var xfrm: Any? = null
-            xfrm = tryGetXfrmOC(xmlObj, "getSpPr")
-            if (xfrm == null) xfrm = tryGetXfrmOC(xmlObj, "getGrpSpPr")
+            var xfrm: Any? = invokeMethodOC(xmlObj, "getXfrm")
             if (xfrm == null) {
-                for (methodName in listOf("getCxnSpPr", "getNvSpPr", "getNvPicPr", "getNvCxnSpPr")) {
-                    xfrm = tryGetXfrmOC(xmlObj, methodName)
-                    if (xfrm != null) break
-                }
+                val spPr = invokeMethodOC(xmlObj, "getSpPr")
+                if (spPr != null) xfrm = invokeMethodOC(spPr, "getXfrm")
             }
             if (xfrm == null) {
-                xfrm = try { xmlObj.javaClass.getMethod("getXfrm").invoke(xmlObj) } catch (_: Throwable) { null }
+                val grpSpPr = invokeMethodOC(xmlObj, "getGrpSpPr")
+                if (grpSpPr != null) xfrm = invokeMethodOC(grpSpPr, "getXfrm")
+            }
+            if (xfrm == null) {
+                for (methodName in listOf("getCxnSpPr", "getNvSpPr", "getNvPicPr", "getNvCxnSpPr", "getPicPr")) {
+                    val pr = invokeMethodOC(xmlObj, methodName)
+                    if (pr != null) {
+                        xfrm = invokeMethodOC(pr, "getXfrm")
+                        if (xfrm != null) break
+                    }
+                }
             }
 
             if (xfrm == null) return null
 
-            val off = try { xfrm.javaClass.getMethod("getOff").invoke(xfrm) } catch (_: Throwable) { null }
-            val ext = try { xfrm.javaClass.getMethod("getExt").invoke(xfrm) } catch (_: Throwable) { null }
+            val off = invokeMethodOC(xfrm, "getOff")
+            val ext = invokeMethodOC(xfrm, "getExt")
 
-            val rawX = try { off?.javaClass?.getMethod("getX")?.invoke(off) } catch (_: Throwable) { null }
-            val rawY = try { off?.javaClass?.getMethod("getY")?.invoke(off) } catch (_: Throwable) { null }
-            val rawCx = try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) } catch (_: Throwable) { null }
-            val rawCy = try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) } catch (_: Throwable) { null }
+            val rawX = invokeMethodOC(off, "getX")
+            val rawY = invokeMethodOC(off, "getY")
+            val rawCx = invokeMethodOC(ext, "getCx")
+            val rawCy = invokeMethodOC(ext, "getCy")
 
             val x = extractLongValueOC(rawX)
             val y = extractLongValueOC(rawY)
@@ -1212,14 +1238,6 @@ class OfficeConverter @Inject constructor(
             }
         } catch (_: Throwable) { }
         return null
-    }
-
-    /** Helper: tries parentObj.getMethodName().getXfrm() via reflection */
-    private fun tryGetXfrmOC(parentObj: Any, prMethodName: String): Any? {
-        return try {
-            val pr = parentObj.javaClass.getMethod(prMethodName).invoke(parentObj) ?: return null
-            pr.javaClass.getMethod("getXfrm").invoke(pr)
-        } catch (_: Throwable) { null }
     }
 
     /**
