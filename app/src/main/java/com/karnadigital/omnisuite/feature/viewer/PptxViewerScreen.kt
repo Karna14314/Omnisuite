@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import com.karnadigital.omnisuite.di.coreEntryPoint
 
@@ -67,8 +68,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toDp
 import androidx.hilt.navigation.compose.hiltViewModel
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1368,6 +1375,56 @@ private sealed class SlideElement(val zOrder: Int) {
     data class TextElement(val shape: PptxTextShape, val isTitle: Boolean, val index: Int) : SlideElement(shape.zOrder)
 }
 
+/**
+ * Formats a numbered-list marker for a given OOXML auto-numbering scheme and 1-based index.
+ * Covers the common PowerPoint schemes; unknown schemes fall back to "index.".
+ */
+private fun formatNumberedMarker(type: String, index: Int): String {
+    if (index <= 0) return "$index."
+    return when (type) {
+        "arabicPeriod" -> "$index."
+        "arabicParenR" -> "$index)"
+        "arabicParen" -> "($index)"
+        "arabicUcPeriod" -> "$index."
+        "alphaUcPeriod" -> "${(64 + index).toChar()}."
+        "alphaLcPeriod" -> "${(96 + index).toChar()}."
+        "alphaUcParenR" -> "${(64 + index).toChar()})"
+        "alphaLcParenR" -> "${(96 + index).toChar()})"
+        "romanUcPeriod" -> "${romanNumeral(index)}."
+        "romanLcPeriod" -> "${romanNumeral(index).lowercase()}."
+        "romanUcParenR" -> "${romanNumeral(index)})"
+        "romanLcParenR" -> "${romanNumeral(index).lowercase()})"
+        else -> "$index."
+    }
+}
+
+/** Minimal Roman-numeral conversion for the small indices typical of slide bullets. */
+private fun romanNumeral(value: Int): String {
+    val nums = intArrayOf(1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
+    val romans = arrayOf("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
+    var n = value
+    val sb = StringBuilder()
+    for (i in nums.indices) {
+        while (n >= nums[i]) {
+            sb.append(romans[i])
+            n -= nums[i]
+        }
+    }
+    return sb.toString()
+}
+
+/** Per-paragraph resolved layout data (sizes at scale = 1.0). */
+private data class ParagraphLayout(
+    val paragraph: PptxParagraph,
+    val textAlign: TextAlign,
+    val maxFontSizeSp: Float,
+    val lineHeightSp: Float,
+    val spaceBeforeSp: Float,
+    val spaceAfterSp: Float,
+    val markerText: String,
+    val indentSp: Float
+)
+
 @Composable
 fun TextShapeItem(
     shape: PptxTextShape,
@@ -1379,16 +1436,160 @@ fun TextShapeItem(
 ) {
     val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
     // Proportional font scale: reference 720dp slide width
-    val fontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
+    val baseFontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
     val isTableCell = shape.id.startsWith("table_cell_")
-    // Proportional padding based on slide width for better readability
-    val padH = if (isTitle) maxOf((slideW * 0.02f).dp, 4.dp) else maxOf((slideW * 0.01f).dp, 3.dp)
-    val padV = if (isTitle) maxOf((slideH * 0.015f).dp, 3.dp) else 2.dp
+    val defaultFontSize = if (isTitle) 20f else 12f
+    val maxSpCap = if (isTitle) 20f else 16f
+
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+
+    // Inner content box (shape size minus real <a:bodyPr> insets) in px.
+    val shapeWidthPx = with(density) { (shape.shapeWidth * slideW).dp.toPx() }
+    val shapeHeightPx = with(density) { (shape.shapeHeight * slideH).dp.toPx() }
+    val insetLeftPx = with(density) { (shape.insets.left * slideW).dp.toPx() }
+    val insetTopPx = with(density) { (shape.insets.top * slideH).dp.toPx() }
+    val insetRightPx = with(density) { (shape.insets.right * slideW).dp.toPx() }
+    val insetBottomPx = with(density) { (shape.insets.bottom * slideH).dp.toPx() }
+    val contentWidthPx = (shapeWidthPx - insetLeftPx - insetRightPx).coerceAtLeast(1f)
+
+    // Line-spacing floor from normAutofit lnSpcReduction (default 1.0 = single, no compression).
+    val minLineMul = shape.lnSpcReduction?.let { (1f - it / 100000f).coerceIn(0.5f, 1f) } ?: 1.0f
+
+    // Assign sequential indices to numbered paragraphs sharing the same scheme.
+    val numberingIndex = remember(shape) {
+        val map = HashMap<Int, Int>()
+        var counter = 0
+        var prevType: String? = null
+        shape.paragraphs.forEachIndexed { i, p ->
+            if (p.numberingType != null) {
+                counter = if (p.numberingType == prevType) counter + 1 else 1
+                prevType = p.numberingType
+                map[i] = counter
+            }
+        }
+        map
+    }
+
+    // Resolve per-paragraph layout at scale 1.0.
+    val paraLayouts = remember(shape, baseFontScale) {
+        shape.paragraphs.mapIndexed { i, paragraph ->
+            val textAlign = when (paragraph.alignment) {
+                "CENTER" -> TextAlign.Center
+                "RIGHT" -> TextAlign.Right
+                "JUSTIFY" -> TextAlign.Justify
+                else -> TextAlign.Start
+            }
+            val maxFontSizeSp = paragraph.runs.maxOfOrNull { run ->
+                val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
+                (basePt * baseFontScale).coerceIn(6f, maxSpCap)
+            } ?: (defaultFontSize * baseFontScale).coerceIn(6f, maxSpCap)
+            val effLineMul = max(paragraph.lineSpacingMul, minLineMul)
+            val lineHeightSp = maxFontSizeSp * effLineMul
+            val markerText = when {
+                paragraph.numberingType != null -> formatNumberedMarker(
+                    paragraph.numberingType,
+                    numberingIndex[i] ?: 1
+                )
+                paragraph.hasBullet || paragraph.bulletLevel > 0 -> "${paragraph.bulletChar} "
+                else -> ""
+            }
+            val indentSp = paragraph.bulletLevel * 12f
+            ParagraphLayout(
+                paragraph = paragraph,
+                textAlign = textAlign,
+                maxFontSizeSp = maxFontSizeSp,
+                lineHeightSp = lineHeightSp,
+                spaceBeforeSp = paragraph.spaceBeforePt,
+                spaceAfterSp = paragraph.spaceAfterPt,
+                markerText = markerText,
+                indentSp = indentSp
+            )
+        }
+    }
+
+    // Build the annotated string for a paragraph at a given scale.
+    fun buildAnnotated(pl: ParagraphLayout, scale: Float): AnnotatedString = buildAnnotatedString {
+        pl.paragraph.runs.forEach { run ->
+            val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
+            val sizeSp = (basePt * baseFontScale * scale).coerceIn(6f, maxSpCap)
+            val runColor = run.textColorHex?.let {
+                try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { null }
+            } ?: (if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            withStyle(
+                SpanStyle(
+                    color = runColor,
+                    fontSize = sizeSp.sp,
+                    fontWeight = if (run.isBold) FontWeight.Bold else (if (isTitle) FontWeight.SemiBold else FontWeight.Normal),
+                    fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
+                    textDecoration = if (run.isUnderline) TextDecoration.Underline else TextDecoration.None
+                )
+            ) {
+                append(run.text)
+            }
+        }
+    }
+
+    // Measure total content height (all paragraphs + spacing) at a given scale.
+    fun measureTotalHeight(scale: Float): Float {
+        var total = 0f
+        paraLayouts.forEach { pl ->
+            val fontSize = pl.maxFontSizeSp * scale
+            val lineHeight = pl.lineHeightSp * scale
+            val style = TextStyle(fontSize = fontSize.sp, lineHeight = lineHeight.sp)
+            val result = measurer.measure(
+                text = buildAnnotated(pl, scale),
+                style = style,
+                constraints = Constraints(maxWidth = contentWidthPx.toInt()),
+                layoutDirection = LayoutDirection.Ltr,
+                density = density
+            )
+            total += result.size.height
+            total += with(density) { (pl.spaceBeforeSp * scale).sp.toPx() + (pl.spaceAfterSp * scale).sp.toPx() }
+        }
+        return total
+    }
+
+    // Determine shrink scale: honor baked-in normAutofit fontScale, then fit-to-box if needed.
+    val shrinkScale = remember(shape, contentWidthPx, contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)) {
+        val availableHeightPx = contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)
+        if (shape.autoFit != AutoFitMode.NORM_AUTOFIT || availableHeightPx <= 0f) {
+            shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
+        } else {
+            val baked = shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
+            val minScale = 0.5f
+            if (measureTotalHeight(baked) <= availableHeightPx) {
+                baked
+            } else {
+                // Binary search the largest scale whose measured height fits the box.
+                var lo = minScale
+                var hi = baked
+                repeat(6) {
+                    val mid = (lo + hi) / 2f
+                    if (measureTotalHeight(mid) > availableHeightPx) hi = mid else lo = mid
+                }
+                lo
+            }
+        }
+    }
+
+    // For titles without autofit, allow the box to grow to the measured wrapped content height
+    // so a title that needs 2 lines is not clipped to 1.
+    val finalHeightDp = with(density) {
+        val baseHeightPx = (shape.shapeHeight * slideH).dp.toPx()
+        val extraPx = if (isTitle && shape.autoFit != AutoFitMode.NORM_AUTOFIT) {
+            val scale = shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
+            val needed = measureTotalHeight(scale)
+            val contentH = contentHeightPx(baseHeightPx, insetTopPx, insetBottomPx, isTitle)
+            (needed - contentH).coerceAtLeast(0f)
+        } else 0f
+        (baseHeightPx + extraPx).toDp()
+    }
 
     Box(
         modifier = Modifier
             .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
-            .size(width = (shape.shapeWidth * slideW).dp, height = (shape.shapeHeight * slideH).dp)
+            .size(width = (shape.shapeWidth * slideW).dp, height = finalHeightDp)
             .clip(RoundedCornerShape(if (isTableCell) 0.dp else 2.dp))
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
@@ -1411,44 +1612,40 @@ fun TextShapeItem(
                 },
                 shape = RoundedCornerShape(if (isTableCell) 0.dp else 4.dp)
             )
-            .padding(horizontal = padH, vertical = padV)
+            .padding(
+                start = (shape.insets.left * slideW).dp,
+                top = (shape.insets.top * slideH).dp,
+                end = (shape.insets.right * slideW).dp,
+                bottom = (shape.insets.bottom * slideH).dp
+            )
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Top
         ) {
-            shape.paragraphs.forEach { paragraph ->
-                val textAlign = when (paragraph.alignment) {
-                    "CENTER" -> TextAlign.Center
-                    "RIGHT" -> TextAlign.Right
-                    "JUSTIFY" -> TextAlign.Justify
-                    else -> TextAlign.Start
-                }
+            paraLayouts.forEach { pl ->
+                val textAlign = pl.textAlign
+                val bulletLevel = pl.paragraph.bulletLevel
+                val showMarker = pl.markerText.isNotBlank()
+                val bulletSp = (pl.maxFontSizeSp * shrinkScale).coerceIn(5f, 18f).sp
 
-                val bulletLevel = paragraph.bulletLevel
-                val showBullet = paragraph.hasBullet || bulletLevel > 0
-                val defaultFontSize = if (isTitle) 20f else 12f
-                val bulletSp = (defaultFontSize * fontScale).coerceIn(5f, 18f).sp
+                val annotatedText = buildAnnotated(pl, shrinkScale)
 
-                // Calculate max font size in this paragraph for proper line height
-                val maxSpCap = if (isTitle) 20f else 16f
-                val maxRunSp = paragraph.runs.maxOfOrNull { run ->
-                    val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
-                    (basePt * fontScale).coerceIn(6f, maxSpCap)
-                } ?: (defaultFontSize * fontScale).coerceIn(6f, maxSpCap)
+                // Line height driven by the parsed line-spacing multiplier (single = 1.0).
+                val leadSp = (pl.lineHeightSp * shrinkScale).coerceIn(7f, 32f).sp
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 1.dp),
+                        .padding(bottom = (pl.spaceAfterSp * shrinkScale).sp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    if (showBullet) {
+                    if (showMarker) {
                         if (bulletLevel > 0) {
-                            Spacer(modifier = Modifier.width((bulletLevel * 6 * fontScale).coerceAtLeast(2f).dp))
+                            Spacer(modifier = Modifier.width((pl.indentSp * shrinkScale).coerceAtLeast(2f).dp))
                         }
                         Text(
-                            text = if (paragraph.bulletChar.isNotBlank()) "${paragraph.bulletChar} " else "• ",
+                            text = pl.markerText,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = bulletSp
@@ -1457,45 +1654,25 @@ fun TextShapeItem(
                         )
                     }
 
-                    val annotatedText = buildAnnotatedString {
-                        paragraph.runs.forEach { run ->
-                            val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
-                            val calcSp = (basePt * fontScale).coerceIn(6f, maxSpCap)
-                            val runFontSize = calcSp.sp
-
-                            val runColor = run.textColorHex?.let {
-                                try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { null }
-                            } ?: (if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-
-                            withStyle(
-                                SpanStyle(
-                                    color = runColor,
-                                    fontSize = runFontSize,
-                                    fontWeight = if (run.isBold) FontWeight.Bold else (if (isTitle) FontWeight.SemiBold else FontWeight.Normal),
-                                    fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
-                                    textDecoration = if (run.isUnderline) TextDecoration.Underline else TextDecoration.None
-                                )
-                            ) {
-                                append(run.text)
-                            }
-                        }
-                    }
-
-                    // Line height based on actual max font size to prevent line collision
-                    val leadSp = (maxRunSp * 1.4f).coerceIn(7f, 32f).sp
                     Text(
                         text = annotatedText,
                         textAlign = textAlign,
                         lineHeight = leadSp,
-                        maxLines = if (isTitle) 3 else 100,
+                        maxLines = if (isTitle) 100 else 1000,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier
+                            .padding(top = (pl.spaceBeforeSp * shrinkScale).sp)
+                            .weight(1f, fill = false)
                     )
                 }
             }
         }
     }
 }
+
+/** Available inner content height in px. For non-expanding shapes this is the box minus insets. */
+private fun contentHeightPx(shapeHeightPx: Float, insetTopPx: Float, insetBottomPx: Float, isTitle: Boolean): Float =
+    (shapeHeightPx - insetTopPx - insetBottomPx).coerceAtLeast(0f)
 
 @Composable
 fun MiniSlidePreview(slide: PptxSlide) {

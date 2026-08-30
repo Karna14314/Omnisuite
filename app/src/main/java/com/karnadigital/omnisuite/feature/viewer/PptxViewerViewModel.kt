@@ -38,6 +38,24 @@ data class PptxTextRun(
     val fontSizePt: Float = 14f
 )
 
+/**
+ * Text-box / table-cell padding derived from `<a:bodyPr>` lIns/tIns/rIns/bIns (EMU).
+ * Horizontal values (left/right) are stored as a fraction of slide width;
+ * vertical values (top/bottom) as a fraction of slide height. The renderer
+ * multiplies by the slide size in dp, so no EMU conversion is needed at draw time.
+ * Defaults match the OOXML spec defaults (lIns 91440, tIns 45720, rIns 91440,
+ * bIns 45720 EMU) for a 16:9 widescreen slide.
+ */
+data class Insets(
+    val left: Float = 0.01f,
+    val top: Float = 0.009f,
+    val right: Float = 0.01f,
+    val bottom: Float = 0.009f
+)
+
+/** Autofit mode from `<a:bodyPr>` — shrink text, resize shape, or none. */
+enum class AutoFitMode { NONE, NORM_AUTOFIT, SP_AUTO_FIT }
+
 data class PptxParagraph(
     val runs: List<PptxTextRun>,
     val bulletLevel: Int = 0,
@@ -45,7 +63,11 @@ data class PptxParagraph(
     val bulletChar: String = "•",
     val alignment: String = "LEFT", // "LEFT", "CENTER", "RIGHT", "JUSTIFY"
     val spaceBeforePt: Float = 0f,
-    val spaceAfterPt: Float = 0f
+    val spaceAfterPt: Float = 0f,
+    /** Line-spacing multiplier: 1.0 = single (100% spcPct). From `<a:lnSpc>`. */
+    val lineSpacingMul: Float = 1.0f,
+    /** Numbering scheme from `<a:buAutoNum type>`, e.g. "arabicPeriod". Null = bullet/none. */
+    val numberingType: String? = null
 ) {
     val fullText: String get() = runs.joinToString("") { it.text }
     val primaryText: String get() = runs.firstOrNull()?.text ?: ""
@@ -65,7 +87,15 @@ data class PptxTextShape(
     val shapeWidth: Float = 0.9f,
     val shapeHeight: Float = 0.15f,
     val backgroundColorHex: String? = null,
-    val zOrder: Int = 0
+    val zOrder: Int = 0,
+    /** Text-box / cell padding from `<a:bodyPr>` (fraction of slide w/h). */
+    val insets: Insets = Insets(),
+    /** Autofit mode from `<a:bodyPr>`. */
+    val autoFit: AutoFitMode = AutoFitMode.NONE,
+    /** normAutofit fontScale in thousandths (e.g. 80000 = 80%). Null = use default. */
+    val fontScale: Int? = null,
+    /** normAutofit lnSpcReduction in thousandths. Null = no reduction. */
+    val lnSpcReduction: Int? = null
 ) {
     val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
     val primaryText: String get() = paragraphs.firstOrNull()?.primaryText ?: ""
@@ -296,6 +326,184 @@ class PptxViewerViewModel @Inject constructor(
             pr.javaClass.getMethod("getXfrm").invoke(pr)
         } catch (_: Throwable) { null }
     }
+
+    /**
+     * Extracts a long attribute (e.g. inset EMU) from an XML object via reflection.
+     * Returns null if the getter is absent or returns null.
+     */
+    private fun extractLongAttr(obj: Any?, getterName: String): Long? {
+        if (obj == null) return null
+        return try {
+            val v = obj.javaClass.getMethod(getterName).invoke(obj)
+            extractLongValue(v)
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Extracts text-box padding (bodyPr lIns/tIns/rIns/bIns) and autofit mode from a
+     * text shape's `<a:txBody>/<a:bodyPr>`. Insets are converted to a fraction of the
+     * slide width/height so the renderer can multiply by the slide size in dp.
+     * Falls back to OOXML spec defaults (lIns 91440, tIns 45720, rIns 91440, bIns 45720
+     * EMU) when the source omits them.
+     */
+    private fun extractBodyPr(
+        shape: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): BodyPrResult {
+        val w = if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f
+        val h = if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f
+        var insets = Insets()
+        var autoFit = AutoFitMode.NONE
+        var fontScale: Int? = null
+        var lnSpcReduction: Int? = null
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+            val txBody = try { xml.javaClass.getMethod("getTxBody").invoke(xml) } catch (_: Throwable) { null }
+                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+            val bodyPr = try { txBody.javaClass.getMethod("getBodyPr").invoke(txBody) } catch (_: Throwable) { null }
+                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+
+            val lIns = extractLongAttr(bodyPr, "getLIns")
+            val tIns = extractLongAttr(bodyPr, "getTIns")
+            val rIns = extractLongAttr(bodyPr, "getRIns")
+            val bIns = extractLongAttr(bodyPr, "getBIns")
+            insets = Insets(
+                left = (lIns ?: 91440L).toFloat() / w,
+                top = (tIns ?: 45720L).toFloat() / h,
+                right = (rIns ?: 91440L).toFloat() / w,
+                bottom = (bIns ?: 45720L).toFloat() / h
+            )
+
+            // normAutofit (shrink text on overflow)
+            val normAuto = try { bodyPr.javaClass.getMethod("getNormAutofit").invoke(bodyPr) } catch (_: Throwable) { null }
+            if (normAuto != null) {
+                autoFit = AutoFitMode.NORM_AUTOFIT
+                fontScale = try {
+                    val v = normAuto.javaClass.getMethod("getFontScale").invoke(normAuto)
+                    (v as? Number)?.toInt()
+                } catch (_: Throwable) { null }
+                lnSpcReduction = try {
+                    val v = normAuto.javaClass.getMethod("getLnSpcReduction").invoke(normAuto)
+                    (v as? Number)?.toInt()
+                } catch (_: Throwable) { null }
+            }
+
+            // spAutoFit (resize shape to fit text) — only if normAutofit not present
+            val spAuto = try { bodyPr.javaClass.getMethod("getSpAutoFit").invoke(bodyPr) } catch (_: Throwable) { null }
+            if (spAuto != null && autoFit == AutoFitMode.NONE) {
+                autoFit = AutoFitMode.SP_AUTO_FIT
+            }
+        } catch (_: Throwable) { }
+        return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+    }
+
+    private data class BodyPrResult(
+        val insets: Insets,
+        val autoFit: AutoFitMode,
+        val fontScale: Int?,
+        val lnSpcReduction: Int?
+    )
+
+    /**
+     * Extracts the line-spacing multiplier from a paragraph's `<a:pPr>/<a:lnSpc>`.
+     * spcPct (e.g. 100000 = 100% = single → 1.0) takes priority; spcPts (exact leading in
+     * hundredths of a point) is converted relative to [refFontPt]. Returns 1.0 (single)
+     * when unspecified.
+     */
+    private fun extractLineSpacingMul(pPr: Any?, refFontPt: Float): Float {
+        if (pPr == null) return 1.0f
+        return try {
+            val lnSpc = try { pPr.javaClass.getMethod("getLnSpc").invoke(pPr) } catch (_: Throwable) { null } ?: return 1.0f
+            // spcPct: percentage in 1/1000th of a percent (100000 = 100%)
+            val spcPct = try {
+                val pct = lnSpc.javaClass.getMethod("getSpcPct").invoke(lnSpc)
+                val v = try { pct?.javaClass?.getMethod("getVal")?.invoke(pct) } catch (_: Throwable) { null }
+                extractLongValue(v)
+            } catch (_: Throwable) { null }
+            if (spcPct != null) {
+                (spcPct.toFloat() / 100000f).coerceAtLeast(0.2f)
+            } else {
+                // spcPts: exact leading in hundredths of a point
+                val spcPts = try {
+                    val pts = lnSpc.javaClass.getMethod("getSpcPts").invoke(lnSpc)
+                    val v = try { pts?.javaClass?.getMethod("getVal")?.invoke(pts) } catch (_: Throwable) { null }
+                    extractLongValue(v)
+                } catch (_: Throwable) { null }
+                if (spcPts != null) {
+                    val leadingPt = spcPts.toFloat() / 100f
+                    val ref = if (refFontPt > 0) refFontPt else 14f
+                    (leadingPt / ref).coerceAtLeast(0.2f)
+                } else 1.0f
+            }
+        } catch (_: Throwable) { 1.0f }
+    }
+
+    /**
+     * Extracts the numbering scheme from a paragraph's `<a:pPr>/<a:buAutoNum type>`.
+     * Returns the scheme string (e.g. "arabicPeriod", "alphaLcParenR") or null.
+     */
+    private fun extractNumberingType(pPr: Any?): String? {
+        if (pPr == null) return null
+        return try {
+            val autoNum = try { pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr) } catch (_: Throwable) { null } ?: return null
+            val typeObj = try { autoNum.javaClass.getMethod("getType").invoke(autoNum) } catch (_: Throwable) { null }
+            val s = typeObj?.toString()
+            if (s.isNullOrBlank() || s.startsWith("org.apache")) null else s
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Extracts table geometry (gridCol widths, row heights, per-cell margins) from a
+     * `<a:tbl>`. Widths/heights are in EMU; cell margins are converted to a fraction of
+     * the slide size. Returns null if the table XML cannot be read.
+     */
+    private fun extractTableGeometry(
+        shape: Any,
+        slideWidthEmu: Long,
+        slideHeightEmu: Long
+    ): TableGeometry? {
+        val w = if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f
+        val h = if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+            val tbl = try { xml.javaClass.getMethod("getTbl").invoke(xml) } catch (_: Throwable) { null } ?: return null
+
+            val gridCols = try {
+                @Suppress("UNCHECKED_CAST")
+                val list = tbl.javaClass.getMethod("getGridColList").invoke(tbl) as? List<*>
+                list?.map { col -> extractLongAttr(col, "getW") ?: 0L } ?: emptyList()
+            } catch (_: Throwable) { emptyList() }
+
+            val rows = try {
+                @Suppress("UNCHECKED_CAST")
+                val rowList = tbl.javaClass.getMethod("getTrList").invoke(tbl) as? List<*>
+                rowList?.map { tr ->
+                    val rowH = extractLongAttr(tr, "getH") ?: 0L
+                    val cells = try {
+                        @Suppress("UNCHECKED_CAST")
+                        val tcList = tr.javaClass.getMethod("getTcList").invoke(tr) as? List<*>
+                        tcList?.map { tc ->
+                            val tcPr = try { tc?.javaClass?.getMethod("getTcPr")?.invoke(tc) } catch (_: Throwable) { null }
+                            CellMargins(
+                                left = ((extractLongAttr(tcPr, "getMarL") ?: 45720L).toFloat() / w),
+                                top = ((extractLongAttr(tcPr, "getMarT") ?: 45720L).toFloat() / h),
+                                right = ((extractLongAttr(tcPr, "getMarR") ?: 45720L).toFloat() / w),
+                                bottom = ((extractLongAttr(tcPr, "getMarB") ?: 45720L).toFloat() / h)
+                            )
+                        } ?: emptyList()
+                    } catch (_: Throwable) { emptyList<CellMargins>() }
+                    TableRow(rowH, cells)
+                } ?: emptyList()
+            } catch (_: Throwable) { emptyList<TableRow>() }
+
+            return TableGeometry(gridCols, rows)
+        } catch (_: Throwable) { return null }
+    }
+
+    private data class CellMargins(val left: Float, val top: Float, val right: Float, val bottom: Float)
+    private data class TableRow(val heightEmu: Long, val cells: List<CellMargins>)
+    private data class TableGeometry(val gridColWidthsEmu: List<Long>, val rows: List<TableRow>)
 
     /**
      * Extracts blipId (e.g. "rId2") from XML structure for picture extraction.
@@ -773,66 +981,81 @@ class PptxViewerViewModel @Inject constructor(
                                         }
                                     }
 
-                                    if (paragraphRuns.isNotEmpty()) {
-                                        val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
-                                        val rawBulletChar = try {
-                                            if (p is XSLFTextParagraph) p.bulletCharacter
-                                            else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
-                                        } catch (_: Throwable) { null }
+                                     if (paragraphRuns.isNotEmpty()) {
+                                         val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
+                                         val rawBulletChar = try {
+                                             if (p is XSLFTextParagraph) p.bulletCharacter
+                                             else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
+                                         } catch (_: Throwable) { null }
 
-                                        // Additional bullet detection: check XML for bullet properties
-                                        val hasBulletFromXml = if (rawBulletChar.isNullOrBlank() && bulletLevel == 0) {
-                                            try {
-                                                val xmlPara = getXmlObjectReflection(p)
-                                                if (xmlPara != null) {
-                                                    val pPr = try { xmlPara.javaClass.getMethod("getPPr").invoke(xmlPara) } catch (_: Throwable) { null }
-                                                    if (pPr != null) {
-                                                        // Check for bullet auto number scheme
-                                val autoNumScheme = try {
-                                    pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr)
-                                } catch (_: Throwable) { null }
-                                // Check for bullet character in XML
-                                val buChar = try {
-                                    pPr.javaClass.getMethod("getBuChar").invoke(pPr)
-                                } catch (_: Throwable) { null }
-                                autoNumScheme != null || buChar != null
-                            } else false
-                                            } else false
-                                        } catch (_: Throwable) { false }
-                                        } else false
+                                         // Reference font size for exact (pt) line spacing: largest run font.
+                                         val refFontPt = paragraphRuns.maxOfOrNull {
+                                             if (it.fontSizePt > 0) it.fontSizePt else defaultFontSize
+                                         } ?: defaultFontSize
 
-                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
-                                        val bulletChar = when {
-                                            rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
-                                            rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
-                                            rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
-                                            else -> "•"
-                                        }
+                                         // Resolve paragraph XML (pPr) once for bullet + spacing + numbering.
+                                         val pPr = try {
+                                             val xmlPara = getXmlObjectReflection(p)
+                                             if (xmlPara != null) {
+                                                 try { xmlPara.javaClass.getMethod("getPPr").invoke(xmlPara) } catch (_: Throwable) { null }
+                                             } else null
+                                         } catch (_: Throwable) { null }
 
-                                        val alignment = try {
-                                            when (p.textAlign) {
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
-                                                else -> "LEFT"
-                                            }
-                                        } catch (t: Throwable) { "LEFT" }
+                                         // Additional bullet detection: check XML for bullet properties
+                                         val hasBulletFromXml = if (rawBulletChar.isNullOrBlank() && bulletLevel == 0) {
+                                             try {
+                                                 if (pPr != null) {
+                                                     // Check for bullet auto number scheme
+                                                     val autoNumScheme = try {
+                                                         pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr)
+                                                     } catch (_: Throwable) { null }
+                                                     // Check for bullet character in XML
+                                                     val buChar = try {
+                                                         pPr.javaClass.getMethod("getBuChar").invoke(pPr)
+                                                     } catch (_: Throwable) { null }
+                                                     autoNumScheme != null || buChar != null
+                                                 } else false
+                                             } catch (_: Throwable) { false }
+                                         } else false
 
-                                        val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
-                                        val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+                                         val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
+                                         val numberingType = extractNumberingType(pPr)
+                                         val bulletChar = when {
+                                             // Numbered paragraphs render their number in the renderer, not a char.
+                                             numberingType != null -> ""
+                                             rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
+                                             rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
+                                             rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
+                                             else -> "•"
+                                         }
 
-                                        shapeParagraphs.add(
-                                            PptxParagraph(
-                                                runs = paragraphRuns,
-                                                bulletLevel = bulletLevel,
-                                                hasBullet = hasBullet,
-                                                bulletChar = bulletChar,
-                                                alignment = alignment,
-                                                spaceBeforePt = spaceBefore,
-                                                spaceAfterPt = spaceAfter
-                                            )
-                                        )
-                                    }
+                                         val alignment = try {
+                                             when (p.textAlign) {
+                                                 org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                                 org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                                 org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                                 else -> "LEFT"
+                                             }
+                                         } catch (t: Throwable) { "LEFT" }
+
+                                         val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+                                         val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+                                         val lineSpacingMul = extractLineSpacingMul(pPr, refFontPt)
+
+                                         shapeParagraphs.add(
+                                             PptxParagraph(
+                                                 runs = paragraphRuns,
+                                                 bulletLevel = bulletLevel,
+                                                 hasBullet = hasBullet,
+                                                 bulletChar = bulletChar,
+                                                 alignment = alignment,
+                                                 spaceBeforePt = spaceBefore,
+                                                 spaceAfterPt = spaceAfter,
+                                                 lineSpacingMul = lineSpacingMul,
+                                                 numberingType = numberingType
+                                             )
+                                         )
+                                     }
                                 }
                             }
 
@@ -859,19 +1082,25 @@ class PptxViewerViewModel @Inject constructor(
                                 )
                             }
 
-                            if (shapeParagraphs.isNotEmpty()) {
-                                val isDistinctTitle = isTitle && titleShape == null
-                                val textZOrder = zOrderCounter++
-                                val parsedShape = PptxTextShape(
-                                    id = if (isDistinctTitle) "title" else "body_$bodyCount",
-                                    isTitle = isTitle,
-                                    paragraphs = shapeParagraphs,
-                                    shapeLeft = shapeLeft,
-                                    shapeTop = shapeTop,
-                                    shapeWidth = shapeWidthVal,
-                                    shapeHeight = shapeHeightVal,
-                                    zOrder = textZOrder
-                                )
+                             if (shapeParagraphs.isNotEmpty()) {
+                                 val isDistinctTitle = isTitle && titleShape == null
+                                 val textZOrder = zOrderCounter++
+                                 // Read text-box padding + autofit from <a:bodyPr>.
+                                 val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
+                                 val parsedShape = PptxTextShape(
+                                     id = if (isDistinctTitle) "title" else "body_$bodyCount",
+                                     isTitle = isTitle,
+                                     paragraphs = shapeParagraphs,
+                                     shapeLeft = shapeLeft,
+                                     shapeTop = shapeTop,
+                                     shapeWidth = shapeWidthVal,
+                                     shapeHeight = shapeHeightVal,
+                                     zOrder = textZOrder,
+                                     insets = bodyPr.insets,
+                                     autoFit = bodyPr.autoFit,
+                                     fontScale = bodyPr.fontScale,
+                                     lnSpcReduction = bodyPr.lnSpcReduction
+                                 )
 
                                 if (isDistinctTitle) {
                                     titleShape = parsedShape
@@ -881,68 +1110,105 @@ class PptxViewerViewModel @Inject constructor(
                                 }
                             }
                         }
-                    } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
-                        val numRows = try { shape.numberOfRows } catch (t: Throwable) { 0 }
-                        val numCols = try { shape.numberOfColumns } catch (t: Throwable) { 0 }
-                        val tableBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                        val tLeft = tableBounds?.get(0) ?: 0.05f
-                        val tTop = tableBounds?.get(1) ?: 0.35f
-                        val tWidth = tableBounds?.get(2) ?: 0.9f
-                        val tHeight = tableBounds?.get(3) ?: 0.5f
+                     } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
+                         val numRows = try { shape.numberOfRows } catch (t: Throwable) { 0 }
+                         val numCols = try { shape.numberOfColumns } catch (t: Throwable) { 0 }
+                         val tableBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                         val tLeft = tableBounds?.get(0) ?: 0.05f
+                         val tTop = tableBounds?.get(1) ?: 0.35f
+                         val tWidth = tableBounds?.get(2) ?: 0.9f
+                         val tHeight = tableBounds?.get(3) ?: 0.5f
 
-                        for (r in 0 until numRows) {
-                            for (c in 0 until numCols) {
-                                val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
-                                val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
-                                if (text.isNotBlank()) {
-                                    val cellLeft = (tLeft + c.toFloat() / numCols.toFloat() * tWidth).coerceIn(0f, 1f)
-                                    val cellTop = (tTop + r.toFloat() / numRows.toFloat() * tHeight).coerceIn(0f, 1f)
-                                    val cellW = (tWidth / numCols.toFloat()).coerceIn(0.05f, 1f)
-                                    val cellH = (tHeight / numRows.toFloat()).coerceIn(0.05f, 1f)
+                         // Real grid geometry: column widths + row heights (EMU) and cell margins.
+                         val tableGeo = extractTableGeometry(shape, slideWidthEmu, slideHeightEmu)
 
-                                    val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
-                                    val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
-                                    val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
-                                    val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
-                                    val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
-                                    val colorHex = firstRun?.let { extractTextRunColorHex(it) }
-                                    val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
-                                    val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+                         // Cumulative column offsets (normalized to the grid's total width).
+                         val colWidths = tableGeo?.gridColWidthsEmu?.takeIf { it.size == numCols }
+                             ?: List(numCols) { (slideWidthEmu / numCols) }
+                         val totalGridW = colWidths.sum().toFloat().coerceAtLeast(1f)
+                         val colOffset = FloatArray(numCols + 1)
+                         for (c in 0 until numCols) {
+                             colOffset[c + 1] = colOffset[c] + colWidths[c].toFloat() / totalGridW
+                         }
 
-                                     textShapes.add(
-                                         PptxTextShape(
-                                             id = "table_cell_${r}_${c}",
-                                             isTitle = false,
-                                             paragraphs = listOf(
-                                                 PptxParagraph(
-                                                     runs = listOf(
-                                                         PptxTextRun(
-                                                             text = text.trim(),
-                                                             isBold = isBold,
-                                                             isItalic = isItalic,
-                                                             isUnderline = isUnderline,
-                                                             textColorHex = colorHex,
-                                                             fontSizePt = fontSizePt
-                                                         )
-                                                     ),
-                                                     bulletLevel = 0,
-                                                     hasBullet = false,
-                                                     bulletChar = "",
-                                                     alignment = "LEFT"
-                                                 )
-                                             ),
-                                             shapeLeft = cellLeft,
-                                             shapeTop = cellTop,
-                                             shapeWidth = cellW,
-                                             shapeHeight = cellH,
-                                             zOrder = zOrderCounter++
+                         // Cumulative row offsets (normalized to the grid's total height).
+                         val rowHeights = tableGeo?.rows?.map { it.heightEmu }?.takeIf { it.size == numRows }
+                             ?: List(numRows) { (slideHeightEmu / numRows) }
+                         val totalGridH = rowHeights.sum().toFloat().coerceAtLeast(1f)
+                         val rowOffset = FloatArray(numRows + 1)
+                         for (r in 0 until numRows) {
+                             rowOffset[r + 1] = rowOffset[r] + rowHeights[r].toFloat() / totalGridH
+                         }
+
+                         for (r in 0 until numRows) {
+                             for (c in 0 until numCols) {
+                                 val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
+                                 val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
+                                 if (text.isNotBlank()) {
+                                     val cellLeft = (tLeft + colOffset[c] * tWidth).coerceIn(0f, 1f)
+                                     val cellTop = (tTop + rowOffset[r] * tHeight).coerceIn(0f, 1f)
+                                     val cellW = ((colOffset[c + 1] - colOffset[c]) * tWidth).coerceIn(0.05f, 1f)
+                                     val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.05f, 1f)
+
+                                     val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
+                                     val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
+                                     val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
+                                     val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                     val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                     val colorHex = firstRun?.let { extractTextRunColorHex(it) }
+                                     val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
+                                     val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+
+                                     // Cell margins (from <a:tcPr> marL/T/R/B) are stored as insets so the
+                                     // renderer pads cell text away from its borders.
+                                     val cellMargins = tableGeo?.rows?.getOrNull(r)?.cells?.getOrNull(c)
+                                         ?: CellMargins(
+                                             left = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
+                                             top = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f),
+                                             right = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
+                                             bottom = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f)
                                          )
-                                     )
-                                    bodyCount++
-                                }
-                            }
-                        }
-                    }
+
+                                      textShapes.add(
+                                          PptxTextShape(
+                                              id = "table_cell_${r}_${c}",
+                                              isTitle = false,
+                                              paragraphs = listOf(
+                                                  PptxParagraph(
+                                                      runs = listOf(
+                                                          PptxTextRun(
+                                                              text = text.trim(),
+                                                              isBold = isBold,
+                                                              isItalic = isItalic,
+                                                              isUnderline = isUnderline,
+                                                              textColorHex = colorHex,
+                                                              fontSizePt = fontSizePt
+                                                          )
+                                                      ),
+                                                      bulletLevel = 0,
+                                                      hasBullet = false,
+                                                      bulletChar = "",
+                                                      alignment = "LEFT"
+                                                  )
+                                              ),
+                                              shapeLeft = cellLeft,
+                                              shapeTop = cellTop,
+                                              shapeWidth = cellW,
+                                              shapeHeight = cellH,
+                                              zOrder = zOrderCounter++,
+                                              insets = Insets(
+                                                  left = cellMargins.left,
+                                                  top = cellMargins.top,
+                                                  right = cellMargins.right,
+                                                  bottom = cellMargins.bottom
+                                              )
+                                          )
+                                      )
+                                     bodyCount++
+                                 }
+                             }
+                         }
+                     }
                 } catch (t: Throwable) {
                     t.printStackTrace()
                 }
