@@ -64,7 +64,8 @@ data class PptxTextShape(
     val shapeTop: Float = 0.05f,
     val shapeWidth: Float = 0.9f,
     val shapeHeight: Float = 0.15f,
-    val backgroundColorHex: String? = null
+    val backgroundColorHex: String? = null,
+    val zOrder: Int = 0
 ) {
     val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
     val primaryText: String get() = paragraphs.firstOrNull()?.primaryText ?: ""
@@ -80,7 +81,8 @@ data class PptxImage(
     val left: Float,
     val top: Float,
     val width: Float,
-    val height: Float
+    val height: Float,
+    val zOrder: Int = 0
 )
 
 data class PptxSlide(
@@ -660,6 +662,9 @@ class PptxViewerViewModel @Inject constructor(
             val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
             collectShapes(rootShapes)
 
+            // Z-order counter: shapes are processed in document order, which matches z-order
+            var zOrderCounter = 0
+
             for (shape in allShapes) {
                 try {
                     // 1. Check if shape has picture data (PictureShape, blipFill on AutoShape/SimpleShape, etc.)
@@ -675,10 +680,11 @@ class PptxViewerViewModel @Inject constructor(
                         val imageArea = width * height
                         val isBackground = imageArea >= 0.85f && left <= 0.05f && top <= 0.05f
 
+                        val imgZOrder = zOrderCounter++
                         if (isBackground && backgroundImage == null) {
-                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f)
+                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder)
                         } else {
-                            images.add(PptxImage(file.absolutePath, left, top, width, height))
+                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder))
                         }
                     }
 
@@ -696,7 +702,7 @@ class PptxViewerViewModel @Inject constructor(
                             val shapeLeft = bounds?.get(0) ?: 0.05f
                             val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
                             val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.2f)
+                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.35f)
 
                             val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
                             val shapeParagraphs = mutableListOf<PptxParagraph>()
@@ -774,7 +780,28 @@ class PptxViewerViewModel @Inject constructor(
                                             else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
                                         } catch (_: Throwable) { null }
 
-                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank()
+                                        // Additional bullet detection: check XML for bullet properties
+                                        val hasBulletFromXml = if (rawBulletChar.isNullOrBlank() && bulletLevel == 0) {
+                                            try {
+                                                val xmlPara = getXmlObjectReflection(p)
+                                                if (xmlPara != null) {
+                                                    val pPr = try { xmlPara.javaClass.getMethod("getPPr").invoke(xmlPara) } catch (_: Throwable) { null }
+                                                    if (pPr != null) {
+                                                        // Check for bullet auto number scheme
+                                val autoNumScheme = try {
+                                    pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr)
+                                } catch (_: Throwable) { null }
+                                // Check for bullet character in XML
+                                val buChar = try {
+                                    pPr.javaClass.getMethod("getBuChar").invoke(pPr)
+                                } catch (_: Throwable) { null }
+                                autoNumScheme != null || buChar != null
+                            } else false
+                                            } else false
+                                        } catch (_: Throwable) { false }
+                                        } else false
+
+                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
                                         val bulletChar = when {
                                             rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
                                             rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
@@ -834,6 +861,7 @@ class PptxViewerViewModel @Inject constructor(
 
                             if (shapeParagraphs.isNotEmpty()) {
                                 val isDistinctTitle = isTitle && titleShape == null
+                                val textZOrder = zOrderCounter++
                                 val parsedShape = PptxTextShape(
                                     id = if (isDistinctTitle) "title" else "body_$bodyCount",
                                     isTitle = isTitle,
@@ -841,7 +869,8 @@ class PptxViewerViewModel @Inject constructor(
                                     shapeLeft = shapeLeft,
                                     shapeTop = shapeTop,
                                     shapeWidth = shapeWidthVal,
-                                    shapeHeight = shapeHeightVal
+                                    shapeHeight = shapeHeightVal,
+                                    zOrder = textZOrder
                                 )
 
                                 if (isDistinctTitle) {
@@ -880,34 +909,35 @@ class PptxViewerViewModel @Inject constructor(
                                     val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
                                     val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
 
-                                    textShapes.add(
-                                        PptxTextShape(
-                                            id = "table_cell_${r}_${c}",
-                                            isTitle = false,
-                                            paragraphs = listOf(
-                                                PptxParagraph(
-                                                    runs = listOf(
-                                                        PptxTextRun(
-                                                            text = text.trim(),
-                                                            isBold = isBold,
-                                                            isItalic = isItalic,
-                                                            isUnderline = isUnderline,
-                                                            textColorHex = colorHex,
-                                                            fontSizePt = fontSizePt
-                                                        )
-                                                    ),
-                                                    bulletLevel = 0,
-                                                    hasBullet = false,
-                                                    bulletChar = "",
-                                                    alignment = "LEFT"
-                                                )
-                                            ),
-                                            shapeLeft = cellLeft,
-                                            shapeTop = cellTop,
-                                            shapeWidth = cellW,
-                                            shapeHeight = cellH
-                                        )
-                                    )
+                                     textShapes.add(
+                                         PptxTextShape(
+                                             id = "table_cell_${r}_${c}",
+                                             isTitle = false,
+                                             paragraphs = listOf(
+                                                 PptxParagraph(
+                                                     runs = listOf(
+                                                         PptxTextRun(
+                                                             text = text.trim(),
+                                                             isBold = isBold,
+                                                             isItalic = isItalic,
+                                                             isUnderline = isUnderline,
+                                                             textColorHex = colorHex,
+                                                             fontSizePt = fontSizePt
+                                                         )
+                                                     ),
+                                                     bulletLevel = 0,
+                                                     hasBullet = false,
+                                                     bulletChar = "",
+                                                     alignment = "LEFT"
+                                                 )
+                                             ),
+                                             shapeLeft = cellLeft,
+                                             shapeTop = cellTop,
+                                             shapeWidth = cellW,
+                                             shapeHeight = cellH,
+                                             zOrder = zOrderCounter++
+                                         )
+                                     )
                                     bodyCount++
                                 }
                             }

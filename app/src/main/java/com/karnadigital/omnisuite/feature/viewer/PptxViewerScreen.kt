@@ -307,18 +307,19 @@ fun PptxViewerScreen(
                                         contentDescription = "Search text"
                                     )
                                 }
-                                IconButton(onClick = {
-                                    if (isEditMode) {
-                                        viewModel.commitChanges()
-                                    }
-                                    isEditMode = !isEditMode
-                                }) {
-                                    Icon(
-                                        imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                        contentDescription = "Toggle Edit Mode",
-                                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
+                                // Edit button temporarily hidden
+                                // IconButton(onClick = {
+                                //     if (isEditMode) {
+                                //         viewModel.commitChanges()
+                                //     }
+                                //     isEditMode = !isEditMode
+                                // }) {
+                                //     Icon(
+                                //         imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                //         contentDescription = "Toggle Edit Mode",
+                                //         tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                //     )
+                                // }
                                 IconButton(onClick = { showMenu = true }) {
                                     Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                                 }
@@ -421,15 +422,16 @@ fun PptxViewerScreen(
                             viewMode = PptxViewMode.SLIDESHOW
                         }
 
-                        ViewerActionColumnButton(
-                            icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                            title = if (isEditMode) "Save" else "Edit"
-                        ) {
-                            if (isEditMode) {
-                                viewModel.commitChanges()
-                            }
-                            isEditMode = !isEditMode
-                        }
+                        // Edit button temporarily hidden
+                        // ViewerActionColumnButton(
+                        //     icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                        //     title = if (isEditMode) "Save" else "Edit"
+                        // ) {
+                        //     if (isEditMode) {
+                        //         viewModel.commitChanges()
+                        //     }
+                        //     isEditMode = !isEditMode
+                        // }
 
                         ViewerActionColumnButton(
                             icon = Icons.Default.SpeakerNotes,
@@ -1302,6 +1304,7 @@ fun SlideCardItem(
         ) {
             val slideW = maxWidth.value
             val slideH = maxHeight.value
+            val title = slide.title
 
             // LAYER 1: Background Image (bottom layer, full slide coverage)
             slide.backgroundImage?.let { bgImg ->
@@ -1316,48 +1319,53 @@ fun SlideCardItem(
                 )
             }
 
-            // LAYER 2: Foreground Images - positioned with exact normalized coordinates
-            slide.images.forEach { img ->
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(File(img.filePath))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Slide Image",
-                    modifier = Modifier
-                        .offset(x = (img.left * slideW).dp, y = (img.top * slideH).dp)
-                        .size(width = (img.width * slideW).dp, height = (img.height * slideH).dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    contentScale = ContentScale.Fit
-                )
+            // Combine foreground images and text shapes into a single z-ordered list
+            val imageElements = slide.images.map { img -> SlideElement.ImageElement(img) }
+            val titleElement = if (title.fullText.isNotBlank() && title.id == "title") {
+                listOf(SlideElement.TextElement(title, true, -1))
+            } else emptyList()
+            val bodyElements = slide.textShapes.mapIndexed { idx, shape ->
+                SlideElement.TextElement(shape, shape.isTitle, idx)
             }
+            val allElements = (imageElements + titleElement + bodyElements).sortedBy { it.zOrder }
 
-            // LAYER 3: Title Shape (rendered only if distinct title shape with id "title")
-            val title = slide.title
-            if (title.fullText.isNotBlank() && title.id == "title") {
-                TextShapeItem(
-                    shape = title,
-                    slideW = slideW,
-                    slideH = slideH,
-                    isTitle = true,
-                    isEditMode = isEditMode,
-                    onClick = { onTextBlockClick(title, true, -1) }
-                )
-            }
-
-            // LAYER 4: Body Text Shapes (rendered as single container with vertically stacked paragraphs)
-            slide.textShapes.forEachIndexed { idx, shape ->
-                TextShapeItem(
-                    shape = shape,
-                    slideW = slideW,
-                    slideH = slideH,
-                    isTitle = shape.isTitle,
-                    isEditMode = isEditMode,
-                    onClick = { onTextBlockClick(shape, false, idx) }
-                )
+            // Render all elements in z-order (bottom to top)
+            allElements.forEach { element ->
+                when (element) {
+                    is SlideElement.ImageElement -> {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(File(element.image.filePath))
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Slide Image",
+                            modifier = Modifier
+                                .offset(x = (element.image.left * slideW).dp, y = (element.image.top * slideH).dp)
+                                .size(width = (element.image.width * slideW).dp, height = (element.image.height * slideH).dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                    is SlideElement.TextElement -> {
+                        TextShapeItem(
+                            shape = element.shape,
+                            slideW = slideW,
+                            slideH = slideH,
+                            isTitle = element.isTitle,
+                            isEditMode = isEditMode,
+                            onClick = { onTextBlockClick(element.shape, element.isTitle, element.index) }
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/** Represents a renderable slide element with z-order for correct layering */
+private sealed class SlideElement(val zOrder: Int) {
+    data class ImageElement(val image: PptxImage) : SlideElement(image.zOrder)
+    data class TextElement(val shape: PptxTextShape, val isTitle: Boolean, val index: Int) : SlideElement(shape.zOrder)
 }
 
 @Composable
@@ -1372,11 +1380,16 @@ fun TextShapeItem(
     val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
     // Proportional font scale: reference 720dp slide width
     val fontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
+    val isTableCell = shape.id.startsWith("table_cell_")
+    // Proportional padding based on slide width for better readability
+    val padH = if (isTitle) maxOf((slideW * 0.02f).dp, 4.dp) else maxOf((slideW * 0.01f).dp, 3.dp)
+    val padV = if (isTitle) maxOf((slideH * 0.015f).dp, 3.dp) else 2.dp
 
     Box(
         modifier = Modifier
             .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
             .size(width = (shape.shapeWidth * slideW).dp, height = (shape.shapeHeight * slideH).dp)
+            .clip(RoundedCornerShape(if (isTableCell) 0.dp else 2.dp))
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
                 if (isEditMode) {
@@ -1385,14 +1398,20 @@ fun TextShapeItem(
                 } else shapeBgColor
             )
             .border(
-                width = if (isEditMode) 1.dp else 0.dp,
-                color = if (isEditMode) {
-                    if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
-                } else Color.Transparent,
-                shape = RoundedCornerShape(4.dp)
+                width = when {
+                    isTableCell -> 1.dp
+                    isEditMode -> 1.dp
+                    else -> 0.dp
+                },
+                color = when {
+                    isTableCell -> MaterialTheme.colorScheme.outlineVariant
+                    isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    isEditMode -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+                    else -> Color.Transparent
+                },
+                shape = RoundedCornerShape(if (isTableCell) 0.dp else 4.dp)
             )
-            .padding(horizontal = 2.dp, vertical = 1.dp)
+            .padding(horizontal = padH, vertical = padV)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -1410,6 +1429,13 @@ fun TextShapeItem(
                 val showBullet = paragraph.hasBullet || bulletLevel > 0
                 val defaultFontSize = if (isTitle) 20f else 12f
                 val bulletSp = (defaultFontSize * fontScale).coerceIn(5f, 18f).sp
+
+                // Calculate max font size in this paragraph for proper line height
+                val maxSpCap = if (isTitle) 20f else 16f
+                val maxRunSp = paragraph.runs.maxOfOrNull { run ->
+                    val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
+                    (basePt * fontScale).coerceIn(6f, maxSpCap)
+                } ?: (defaultFontSize * fontScale).coerceIn(6f, maxSpCap)
 
                 Row(
                     modifier = Modifier
@@ -1434,9 +1460,7 @@ fun TextShapeItem(
                     val annotatedText = buildAnnotatedString {
                         paragraph.runs.forEach { run ->
                             val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
-                            // Dampened scaling: titles capped at 20sp, body capped at 16sp
-                            val maxSp = if (isTitle) 20f else 16f
-                            val calcSp = (basePt * fontScale).coerceIn(6f, maxSp)
+                            val calcSp = (basePt * fontScale).coerceIn(6f, maxSpCap)
                             val runFontSize = calcSp.sp
 
                             val runColor = run.textColorHex?.let {
@@ -1457,11 +1481,14 @@ fun TextShapeItem(
                         }
                     }
 
-                    val leadSp = (defaultFontSize * fontScale * 1.18f).coerceIn(6f, 24f).sp
+                    // Line height based on actual max font size to prevent line collision
+                    val leadSp = (maxRunSp * 1.4f).coerceIn(7f, 32f).sp
                     Text(
                         text = annotatedText,
                         textAlign = textAlign,
                         lineHeight = leadSp,
+                        maxLines = if (isTitle) 3 else 100,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                 }
