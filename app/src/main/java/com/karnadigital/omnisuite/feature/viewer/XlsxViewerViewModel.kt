@@ -688,14 +688,13 @@ class XlsxViewerViewModel @Inject constructor(
     }
 
     /**
-     * Extracts chart metadata from the sheet's drawing patriarch using safe XML-level access.
-     * Fully wrapped in try/catch so any unsupported POI-Android API path is silently ignored.
+     * Extracts chart metadata and series data from the sheet's drawing patriarch.
+     * Uses reflection to access CTChart XML for series values and category labels.
      */
     private fun extractCharts(sheet: org.apache.poi.xssf.usermodel.XSSFSheet): List<SheetChart> {
         val charts = mutableListOf<SheetChart>()
         try {
             val drawing = sheet.drawingPatriarch ?: return charts
-            // drawing.charts returns List<XSSFChart> on full POI; on poi-ooxml-lite it may be empty
             val rawCharts: List<*> = try {
                 val method = drawing.javaClass.getMethod("getCharts")
                 @Suppress("UNCHECKED_CAST")
@@ -717,13 +716,11 @@ class XlsxViewerViewModel @Inject constructor(
                         anchorRow = anchor?.row1?.toInt() ?: 0
                         anchorCol = anchor?.col1?.toInt() ?: 0
                     } catch (e: Exception) {
-                        // If we can't get anchor, place at 0,0
                         charts.add(SheetChart("Chart", "UNKNOWN", emptyList(), 0, 0))
                         continue
                     }
 
                     // --- Chart XML access ---
-                    // Use reflection to call getCTChart() -> CTChart -> plotArea
                     val ctChart = try {
                         val m = rawChart.javaClass.getMethod("getCTChart")
                         m.invoke(rawChart)
@@ -733,7 +730,7 @@ class XlsxViewerViewModel @Inject constructor(
                         ctChart?.javaClass?.getMethod("getPlotArea")?.invoke(ctChart)
                     } catch (e: Exception) { null }
 
-                    // Determine chart type by checking which series list is non-empty
+                    // Determine chart type
                     val chartType: String = if (plotArea == null) "UNKNOWN" else try {
                         val barList = try { (plotArea.javaClass.getMethod("getBarChartList").invoke(plotArea) as? List<*>)?.size ?: 0 } catch (e: Exception) { 0 }
                         val pieList = try { (plotArea.javaClass.getMethod("getPieChartList").invoke(plotArea) as? List<*>)?.size ?: 0 } catch (e: Exception) { 0 }
@@ -763,11 +760,162 @@ class XlsxViewerViewModel @Inject constructor(
                         firstR?.javaClass?.getMethod("getT")?.invoke(firstR)?.toString() ?: chartType
                     } catch (e: Exception) { chartType }
 
-                    charts.add(SheetChart(titleText, chartType, emptyList(), anchorRow, anchorCol))
+                    // --- Extract series data from chart XML ---
+                    val series = extractChartSeries(plotArea, chartType)
+
+                    charts.add(SheetChart(titleText, chartType, series, anchorRow, anchorCol))
                 } catch (t: Throwable) { t.printStackTrace() }
             }
         } catch (t: Throwable) { t.printStackTrace() }
         return charts
+    }
+
+    /**
+     * Extracts series data (labels and values) from a chart's plot area using reflection.
+     * Navigates CT*Chart -> ser -> cat (labels) and val (values) elements.
+     */
+    private fun extractChartSeries(plotArea: Any?, chartType: String): List<ChartSeries> {
+        if (plotArea == null) return emptyList()
+        val seriesList = mutableListOf<ChartSeries>()
+        try {
+            // Get the appropriate chart element based on type
+            val chartElement: Any? = try {
+                when (chartType) {
+                    "BAR" -> (plotArea.javaClass.getMethod("getBarChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                    "PIE" -> (plotArea.javaClass.getMethod("getPieChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                        ?: (plotArea.javaClass.getMethod("getPie3DChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                    "LINE" -> (plotArea.javaClass.getMethod("getLineChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                    "AREA" -> (plotArea.javaClass.getMethod("getAreaChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                    "SCATTER" -> (plotArea.javaClass.getMethod("getScatterChartList").invoke(plotArea) as? List<*>)?.firstOrNull()
+                    else -> null
+                }
+            } catch (e: Exception) { null }
+
+            if (chartElement == null) return emptyList()
+
+            // Get series list from chart element
+            val serList: List<*> = try {
+                (chartElement.javaClass.getMethod("getSerList").invoke(chartElement) as? List<*>) ?: emptyList<Any>()
+            } catch (e: Exception) { emptyList<Any>() }
+
+            for (ser in serList) {
+                if (ser == null) continue
+                try {
+                    // Extract series name
+                    val seriesName = try {
+                        val tx = ser.javaClass.getMethod("getTx").invoke(ser)
+                        val strRef = tx?.javaClass?.getMethod("getStrRef")?.invoke(tx)
+                        val strCache = strRef?.javaClass?.getMethod("getStrCache")?.invoke(strRef)
+                        val ptList = strCache?.javaClass?.getMethod("getPtList")?.invoke(strCache) as? List<*>
+                        val firstPt = ptList?.firstOrNull()
+                        firstPt?.javaClass?.getMethod("getV")?.invoke(firstPt)?.toString() ?: "Series"
+                    } catch (e: Exception) { "Series" }
+
+                    // Extract category labels (cat)
+                    val labels = mutableListOf<String>()
+                    try {
+                        val cat = ser.javaClass.getMethod("getCat").invoke(ser)
+                        if (cat != null) {
+                            // Try strRef (string reference) first
+                            val strRef = try { cat.javaClass.getMethod("getStrRefList").invoke(cat) as? List<*> } catch (e: Exception) { null }
+                            if (!strRef.isNullOrEmpty()) {
+                                for (ref in strRef) {
+                                    val cache = try { ref?.javaClass?.getMethod("getStrCache")?.invoke(ref) } catch (e: Exception) { null }
+                                    val pts = try { cache?.javaClass?.getMethod("getPtList")?.invoke(cache) as? List<*> } catch (e: Exception) { null }
+                                    if (!pts.isNullOrEmpty()) {
+                                        for (pt in pts) {
+                                            val v = try { pt?.javaClass?.getMethod("getV")?.invoke(pt)?.toString() } catch (e: Exception) { null }
+                                            if (v != null) labels.add(v)
+                                        }
+                                    }
+                                }
+                            }
+                            // Try numRef (numeric reference)
+                            if (labels.isEmpty()) {
+                                val numRef = try { cat.javaClass.getMethod("getNumRefList").invoke(cat) as? List<*> } catch (e: Exception) { null }
+                                if (!numRef.isNullOrEmpty()) {
+                                    for (ref in numRef) {
+                                        val cache = try { ref?.javaClass?.getMethod("getNumCache")?.invoke(ref) } catch (e: Exception) { null }
+                                        val pts = try { cache?.javaClass?.getMethod("getPtList")?.invoke(cache) as? List<*> } catch (e: Exception) { null }
+                                        if (!pts.isNullOrEmpty()) {
+                                            for (pt in pts) {
+                                                val v = try { pt?.javaClass?.getMethod("getV")?.invoke(pt)?.toString() } catch (e: Exception) { null }
+                                                if (v != null) labels.add(v)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Try multiLvlStrRef (hierarchical categories)
+                            if (labels.isEmpty()) {
+                                val multiLvl = try { cat.javaClass.getMethod("getMultiLvlStrRefList").invoke(cat) as? List<*> } catch (e: Exception) { null }
+                                if (!multiLvl.isNullOrEmpty()) {
+                                    val ref = multiLvl.firstOrNull()
+                                    val cache = try { ref?.javaClass?.getMethod("getMultiLvlStrCache")?.invoke(ref) } catch (e: Exception) { null }
+                                    val lvl = try { cache?.javaClass?.getMethod("getLvlList")?.invoke(cache) as? List<*> } catch (e: Exception) { null }
+                                    if (!lvl.isNullOrEmpty()) {
+                                        for (l in lvl) {
+                                            val pts = try { l?.javaClass?.getMethod("getPtList")?.invoke(l) as? List<*> } catch (e: Exception) { null }
+                                            if (!pts.isNullOrEmpty()) {
+                                                for (pt in pts) {
+                                                    val v = try { pt?.javaClass?.getMethod("getV")?.invoke(pt)?.toString() } catch (e: Exception) { null }
+                                                    if (v != null) labels.add(v)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { /* ignore cat extraction errors */ }
+
+                    // Extract values (val)
+                    val values = mutableListOf<Double>()
+                    try {
+                        val valObj = ser.javaClass.getMethod("getVal").invoke(ser)
+                        if (valObj != null) {
+                            val numRef = try { valObj.javaClass.getMethod("getNumRef").invoke(valObj) } catch (e: Exception) { null }
+                            if (numRef != null) {
+                                val numCache = try { numRef.javaClass.getMethod("getNumCache").invoke(numRef) } catch (e: Exception) { null }
+                                if (numCache != null) {
+                                    val pts = try { numCache.javaClass.getMethod("getPtList").invoke(numCache) as? List<*> } catch (e: Exception) { null }
+                                    if (!pts.isNullOrEmpty()) {
+                                        for (pt in pts) {
+                                            val v = try { pt?.javaClass?.getMethod("getV")?.invoke(pt)?.toString() } catch (e: Exception) { null }
+                                            val d = v?.toDoubleOrNull()
+                                            if (d != null) values.add(d)
+                                        }
+                                    }
+                                }
+                            }
+                            // Try direct numLit (literal numeric values)
+                            if (values.isEmpty()) {
+                                val numLit = try { valObj.javaClass.getMethod("getNumLit").invoke(valObj) } catch (e: Exception) { null }
+                                if (numLit != null) {
+                                    val pts = try { numLit.javaClass.getMethod("getPtList").invoke(numLit) as? List<*> } catch (e: Exception) { null }
+                                    if (!pts.isNullOrEmpty()) {
+                                        for (pt in pts) {
+                                            val v = try { pt?.javaClass?.getMethod("getV")?.invoke(pt)?.toString() } catch (e: Exception) { null }
+                                            val d = v?.toDoubleOrNull()
+                                            if (d != null) values.add(d)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { /* ignore val extraction errors */ }
+
+                    if (values.isNotEmpty()) {
+                        // Generate default labels if none extracted
+                        if (labels.isEmpty()) {
+                            for (i in values.indices) labels.add("Item ${i + 1}")
+                        }
+                        seriesList.add(ChartSeries(seriesName, labels, values))
+                    }
+                } catch (t: Throwable) { t.printStackTrace() }
+            }
+        } catch (t: Throwable) { t.printStackTrace() }
+        return seriesList
     }
 
     /**

@@ -1040,12 +1040,11 @@ fun ColumnHeaderCell(
             }
         }
 
-        // Sleek Right-Edge Resize Handle with generous 24dp touch target
+        // Right-Edge Resize Handle flush with column boundary
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .offset(x = 12.dp)
-                .width(24.dp)
+                .width(12.dp)
                 .fillMaxHeight()
                 .zIndex(10f)
                 .pointerInput(widthDp) {
@@ -1077,9 +1076,9 @@ fun ColumnHeaderCell(
             } else {
                 Box(
                     modifier = Modifier
-                        .width(1.5.dp)
+                        .width(2.dp)
                         .fillMaxHeight(0.65f)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 )
             }
         }
@@ -1141,13 +1140,12 @@ fun RowHeaderCell(
             }
         }
 
-        // Sleek Bottom-Edge Resize Handle with generous 24dp touch target
+        // Bottom-Edge Resize Handle flush with row boundary
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = 12.dp)
                 .fillMaxWidth()
-                .height(24.dp)
+                .height(12.dp)
                 .zIndex(10f)
                 .pointerInput(heightDp) {
                     var startHeight = heightDp
@@ -1179,9 +1177,9 @@ fun RowHeaderCell(
             } else {
                 Box(
                     modifier = Modifier
-                        .height(1.5.dp)
+                        .height(2.dp)
                         .fillMaxWidth(0.65f)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 )
             }
         }
