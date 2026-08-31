@@ -606,19 +606,44 @@ class PptxViewerViewModel @Inject constructor(
         return null
     }
 
+    data class PicCrop(val l: Float = 0f, val t: Float = 0f, val r: Float = 0f, val b: Float = 0f)
+
+    private fun extractBlipCrop(xml: Any): PicCrop? {
+        val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
+        if (xmlStr.isBlank()) return null
+        val match = Regex("""<[^>]*srcRect[^>]*>""", RegexOption.IGNORE_CASE).find(xmlStr)
+        if (match != null) {
+            val tag = match.value
+            fun getAttr(attr: String): Float {
+                val m = Regex("""$attr=["'](\d+)["']""", RegexOption.IGNORE_CASE).find(tag)
+                val v = m?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                return (v.toFloat() / 100000f).coerceIn(0f, 0.99f)
+            }
+            val l = getAttr("l")
+            val t = getAttr("t")
+            val r = getAttr("r")
+            val b = getAttr("b")
+            if (l > 0f || t > 0f || r > 0f || b > 0f) {
+                return PicCrop(l, t, r, b)
+            }
+        }
+        return null
+    }
+
     /**
      * Extracts picture data from ANY shape (PictureShape, Shape with blipFill, etc.).
      * Prioritizes modern vector graphics (SVG) in XML before falling back to POI raster PictureData.
      */
-    private fun extractPictureDataFromShape(shape: Any, slide: Any): Pair<ByteArray, String?>? {
+    private fun extractPictureDataFromShape(shape: Any, slide: Any): Triple<ByteArray, String?, PicCrop?>? {
         // Priority 1: Check XML for <asvg:svgBlip> or modern vector graphic embed ID FIRST
         try {
             val xml = getXmlObjectReflection(shape)
             if (xml != null) {
+                val crop = extractBlipCrop(xml)
                 val blipId = extractBlipEmbedId(xml)
                 if (!blipId.isNullOrBlank()) {
                     val resolved = resolvePictureBytesFromBlipId(slide, blipId)
-                    if (resolved != null) return resolved
+                    if (resolved != null) return Triple(resolved.first, resolved.second, crop)
                 }
             }
         } catch (_: Throwable) { }
@@ -629,7 +654,9 @@ class PptxViewerViewModel @Inject constructor(
                 val pd = shape.pictureData
                 val data = pd?.data
                 if (data != null && data.isNotEmpty()) {
-                    return Pair(data, pd.contentType)
+                    val xml = getXmlObjectReflection(shape)
+                    val crop = if (xml != null) extractBlipCrop(xml) else null
+                    return Triple(data, pd.contentType, crop)
                 }
             } catch (_: Throwable) { }
         }
@@ -641,7 +668,9 @@ class PptxViewerViewModel @Inject constructor(
                 val data = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
                 if (data != null && data.isNotEmpty()) {
                     val ct = try { pd.javaClass.getMethod("getContentType").invoke(pd) as? String } catch (_: Throwable) { null }
-                    return Pair(data, ct)
+                    val xml = getXmlObjectReflection(shape)
+                    val crop = if (xml != null) extractBlipCrop(xml) else null
+                    return Triple(data, ct, crop)
                 }
             }
         } catch (_: Throwable) { }
@@ -649,8 +678,9 @@ class PptxViewerViewModel @Inject constructor(
         return null
     }
 
-    private fun savePicBytesToTempFile(slideIndex: Int, dataBytes: ByteArray, contentType: String?): File {
-        val hash = dataBytes.contentHashCode().toString()
+    private fun savePicBytesToTempFile(slideIndex: Int, dataBytes: ByteArray, contentType: String?, crop: PicCrop? = null): File {
+        val cropSuffix = if (crop != null) "_c_${crop.l}_${crop.t}_${crop.r}_${crop.b}" else ""
+        val hash = dataBytes.contentHashCode().toString() + cropSuffix
         val cacheKey = "${slideIndex}_$hash"
         val cachedFile = tempImageCache[cacheKey]
         if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
@@ -658,6 +688,27 @@ class PptxViewerViewModel @Inject constructor(
         }
         val suggestExt = contentType?.substringAfter("/")?.substringBefore("+")?.lowercase() ?: "png"
         val tempFile = File.createTempFile("pptx_img_", ".$suggestExt")
+
+        if (crop != null && (suggestExt == "png" || suggestExt == "jpeg" || suggestExt == "jpg" || suggestExt == "webp")) {
+            try {
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size)
+                if (bitmap != null) {
+                    val origW = bitmap.width
+                    val origH = bitmap.height
+                    val startX = (crop.l * origW).toInt().coerceIn(0, origW - 1)
+                    val startY = (crop.t * origH).toInt().coerceIn(0, origH - 1)
+                    val cropW = ((1f - crop.l - crop.r) * origW).toInt().coerceIn(1, origW - startX)
+                    val cropH = ((1f - crop.t - crop.b) * origH).toInt().coerceIn(1, origH - startY)
+                    val cropped = android.graphics.Bitmap.createBitmap(bitmap, startX, startY, cropW, cropH)
+                    tempFile.outputStream().use { out ->
+                        cropped.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    tempImageCache[cacheKey] = tempFile
+                    return tempFile
+                }
+            } catch (_: Throwable) {}
+        }
+
         tempFile.outputStream().use { it.write(dataBytes) }
         tempImageCache[cacheKey] = tempFile
         return tempFile
@@ -868,14 +919,19 @@ class PptxViewerViewModel @Inject constructor(
                     // Check line outline: ln
                     val ln = try { spPr.javaClass.getMethod("getLn").invoke(spPr) } catch (_: Throwable) { null }
                     if (ln != null) {
+                        val noFill = try { ln.javaClass.getMethod("getNoFill").invoke(ln) } catch (_: Throwable) { null }
                         val lnFill = try { ln.javaClass.getMethod("getSolidFill").invoke(ln) } catch (_: Throwable) { null }
                         val lnColor = if (lnFill != null) extractColorFromSolidFill(lnFill) else null
                         val lnW = extractLongAttr(ln, "getW")
                         val widthDp = if (lnW != null && lnW > 0) (lnW.toFloat() / 12700f).coerceIn(0.5f, 4f) else 0.75f
-                        val strokeHex = lnColor ?: resolveSchemeColor("tx1") ?: "#1E293B"
-                        border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = widthDp)
+                        if (noFill == null && lnColor != null) {
+                            border = ShapeBorder(strokeColorHex = lnColor, strokeWidthDp = widthDp)
+                        } else if (geometry == ShapeGeometryType.ELLIPSE && noFill == null) {
+                            val strokeHex = lnColor ?: resolveSchemeColor("tx1") ?: "#334155"
+                            border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = 0.75f)
+                        }
                     } else if (geometry == ShapeGeometryType.ELLIPSE) {
-                        val strokeHex = resolveSchemeColor("tx1") ?: "#1E293B"
+                        val strokeHex = resolveSchemeColor("tx1") ?: "#334155"
                         border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = 0.75f)
                     }
                 }
@@ -1186,9 +1242,9 @@ class PptxViewerViewModel @Inject constructor(
             for (shape in allShapes) {
                 try {
                     // 1. Check if shape has picture data (PictureShape, blipFill on AutoShape/SimpleShape, etc.)
-                    val picPair = extractPictureDataFromShape(shape, slide)
-                    if (picPair != null && picPair.first.isNotEmpty()) {
-                        val file = savePicBytesToTempFile(index, picPair.first, picPair.second)
+                    val picTriple = extractPictureDataFromShape(shape, slide)
+                    if (picTriple != null && picTriple.first.isNotEmpty()) {
+                        val file = savePicBytesToTempFile(index, picTriple.first, picTriple.second, picTriple.third)
                         val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
                         val left = bounds?.get(0) ?: 0.05f
                         val top = bounds?.get(1) ?: 0.3f
