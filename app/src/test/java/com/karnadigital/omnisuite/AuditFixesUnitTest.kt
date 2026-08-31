@@ -8,7 +8,9 @@ import com.karnadigital.omnisuite.core.util.ZipSecurity
 import com.karnadigital.omnisuite.feature.viewer.PptxPresentation
 import com.karnadigital.omnisuite.feature.viewer.PptxSearchEngine
 import com.karnadigital.omnisuite.feature.viewer.PptxSlide
-import com.karnadigital.omnisuite.feature.viewer.PptxTextBlock
+import com.karnadigital.omnisuite.feature.viewer.PptxTextShape
+import com.karnadigital.omnisuite.feature.viewer.PptxParagraph
+import com.karnadigital.omnisuite.feature.viewer.PptxTextRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -152,6 +154,26 @@ class AuditFixesUnitTest {
         assertEquals(1, ImageSampling.calculateInSampleSize(-1, 100, 3000, 3000))
     }
 
+    private fun makeShape(text: String, id: String = "test", isTitle: Boolean = false): PptxTextShape {
+        return PptxTextShape(
+            id = id,
+            isTitle = isTitle,
+            paragraphs = listOf(
+                PptxParagraph(
+                    runs = listOf(PptxTextRun(text = text)),
+                    bulletLevel = 0,
+                    hasBullet = false,
+                    bulletChar = "",
+                    alignment = "LEFT"
+                )
+            ),
+            shapeLeft = 0f,
+            shapeTop = 0f,
+            shapeWidth = 1f,
+            shapeHeight = 1f
+        )
+    }
+
     // ---- M7: in-memory PPTX search ----
     @Test
     fun testPptxSearchEngineInMemory() {
@@ -159,17 +181,17 @@ class AuditFixesUnitTest {
             slides = listOf(
                 PptxSlide(
                     slideNumber = 0,
-                    title = PptxTextBlock(id = "title", text = "Quarterly Report"),
-                    textBlocks = listOf(
-                        PptxTextBlock(id = "t1", text = "Revenue grew ten percent this quarter."),
-                        PptxTextBlock(id = "t2", text = "Quarter expenses were controlled.")
+                    title = makeShape("Quarterly Report", id = "title", isTitle = true),
+                    textShapes = listOf(
+                        makeShape("Revenue grew ten percent this quarter.", id = "t1"),
+                        makeShape("Quarter expenses were controlled.", id = "t2")
                     ),
                     speakerNotes = "Emphasize the quarterly growth story."
                 ),
                 PptxSlide(
                     slideNumber = 1,
-                    title = PptxTextBlock(id = "title", text = "Roadmap"),
-                    textBlocks = listOf(PptxTextBlock(id = "t1", text = "Next quarter priorities.")),
+                    title = makeShape("Roadmap", id = "title", isTitle = true),
+                    textShapes = listOf(makeShape("Next quarter priorities.", id = "t1")),
                     speakerNotes = null
                 )
             )
