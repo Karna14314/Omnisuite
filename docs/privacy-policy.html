@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - OmniSuite</title>
+    <meta name="description" content="Privacy Policy for OmniSuite document suite and PDF power tools application developed by Karna Digital.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #60a5fa;
+            --accent-green: #10b981;
+            --bg: #0b0f19;
+            --surface: #111827;
+            --surface-card: #1f2937;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(37, 99, 235, 0.3);
+            --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font);
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(12px);
+            background: rgba(11, 15, 25, 0.85);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: var(--text-main);
+            font-weight: 800;
+            font-size: 1.25rem;
+        }
+
+        .brand-icon {
+            width: 34px;
+            height: 34px;
+            background: linear-gradient(135deg, var(--primary), #8b5cf6);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-main);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 3.5rem 1.5rem 6rem;
+        }
+
+        .policy-header {
+            margin-bottom: 2.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .badge-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 0.35rem 0.9rem;
+            border-radius: 100px;
+            color: #34d399;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .policy-header h1 {
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .policy-header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .policy-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .policy-section h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .policy-section p {
+            color: #d1d5db;
+            font-size: 0.98rem;
+            margin-bottom: 1rem;
+        }
+
+        .policy-section p:last-child {
+            margin-bottom: 0;
+        }
+
+        .policy-section ul {
+            list-style-type: disc;
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: #d1d5db;
+        }
+
+        .policy-section ul li {
+            margin-bottom: 0.5rem;
+        }
+
+        .highlight-box {
+            background: rgba(37, 99, 235, 0.1);
+            border: 1px solid rgba(37, 99, 235, 0.25);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin: 1.25rem 0;
+        }
+
+        .highlight-box p {
+            color: #bfdbfe;
+            font-size: 0.95rem;
+            margin: 0;
+        }
+
+        footer {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .footer-links a:hover {
+            color: var(--text-main);
+        }
+
+        .footer-copy {
+            color: rgba(156, 163, 175, 0.6);
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="index.html" class="brand">
+                <div class="brand-icon">📂</div>
+                <span>OmniSuite</span>
+            </a>
+            <nav class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="index.html#features">Features</a>
+                <a href="privacy-policy.html">Privacy Policy</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="policy-header">
+            <div class="badge-pill">
+                <span>🛡️ Verified Offline-First Privacy</span>
+            </div>
+            <h1>Privacy Policy for OmniSuite</h1>
+            <p>Last Updated: August 31, 2026 &bull; Effective Date: August 31, 2026</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>1. Introduction</h2>
+            <p>Welcome to <strong>OmniSuite</strong>, developed and published by <strong>Karna Digital</strong> ("we", "our", or "us"). We are strongly committed to protecting your privacy and ensuring your personal data remains completely secure.</p>
+            <p>OmniSuite is designed from the ground up with an <strong>offline-first architecture</strong>. This Privacy Policy explains how our application operates, our zero-data collection policy, and how we handle device permissions.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>2. Zero Data Collection Policy</h2>
+            <div class="highlight-box">
+                <p><strong>Summary:</strong> OmniSuite does NOT collect, transmit, store, sell, or share any personal information, files, document contents, photos, or device identifiers.</p>
+            </div>
+            <p>When you use OmniSuite:</p>
+            <ul>
+                <li><strong>No User Account Required:</strong> You do not need to register, provide an email address, or sign in to use any feature of OmniSuite.</li>
+                <li><strong>No Cloud Document Storage:</strong> All document viewing (PDF, PPTX, DOCX, XLSX, EPUB, TXT) and document conversions take place 100% locally on your device hardware.</li>
+                <li><strong>No Telemetry or Tracking:</strong> OmniSuite does not contain analytics tracking SDKs, advertising frameworks, or user behavioral tracking tools.</li>
+            </ul>
+        </div>
+
+        <div class="policy-section">
+            <h2>3. On-Device Processing &amp; File Handling</h2>
+            <p>Every operation performed inside OmniSuite—including rendering presentation slides, spreadsheet computations, Word paragraph parsing, PDF page merging, splitting, AES-128 document encryption, OCR optical character recognition, and QR/barcode generation—is executed entirely within your device's isolated application sandbox.</p>
+            <p>Your files are never transmitted to external cloud servers, remote databases, or third-party APIs.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>4. Permissions Used &amp; Justifications</h2>
+            <p>OmniSuite requests only the minimum set of Android system permissions strictly necessary to execute features you explicitly initiate:</p>
+            <ul>
+                <li>
+                    <strong>Camera Permission (<code>android.permission.CAMERA</code>):</strong>
+                    <br>
+                    <em>Purpose:</em> Used exclusively when you open the Barcode / QR Scanner tool. Camera frames are streamed into your device's local memory to detect barcodes and are instantly discarded. Camera data is never saved, photographed, or transmitted over the internet.
+                </li>
+                <li>
+                    <strong>Storage &amp; File Access (System File Picker / Storage Framework):</strong>
+                    <br>
+                    <em>Purpose:</em> Used to allow you to select document files (e.g. PDFs, Office documents, images) from your device storage to view or convert, and to save newly generated PDFs, QR codes, or text files back into your device's local storage folder.
+                </li>
+            </ul>
+        </div>
+
+        <div class="policy-section">
+            <h2>5. Third-Party Services &amp; Advertising</h2>
+            <p>OmniSuite is an ad-free, tracker-free productivity application. We do not partner with third-party ad networks, data brokers, or monetization SDKs. No personal data is gathered for profiling or targeted advertising.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>6. Data Security</h2>
+            <p>Because all processing is performed offline, your document security is protected by Android's operating system application sandboxing. When you use OmniSuite's PDF Password Protection feature, your document is encrypted using standard AES-128 encryption with a password of your choice, ensuring only authorized readers can open the file.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>7. Children's Privacy (COPPA Compliance)</h2>
+            <p>OmniSuite does not collect any personal information from any user, including children under the age of 13. Our application is safe for all audiences and complies with the Children's Online Privacy Protection Act (COPPA) and international children's privacy standards.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>8. User Rights (GDPR &amp; CCPA Compliance)</h2>
+            <p>Under the General Data Protection Regulation (GDPR) and California Consumer Privacy Act (CCPA), users have rights regarding their personal data. Because OmniSuite does not collect, process, or retain any personal data on external servers, there is no personal data held by us to access, rectify, or delete.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>9. Changes to This Privacy Policy</h2>
+            <p>We may update our Privacy Policy from time to time to reflect future feature additions or legal requirements. Any updates will be posted on this page with an updated effective date.</p>
+        </div>
+
+        <div class="policy-section">
+            <h2>10. Contact Information</h2>
+            <p>If you have any questions, suggestions, or concerns regarding this Privacy Policy or OmniSuite, please feel free to reach out to us:</p>
+            <ul>
+                <li><strong>Developer:</strong> Karna Digital</li>
+                <li><strong>Email:</strong> <a href="mailto:supportkarnadigital@gmail.com" style="color: var(--primary-light);">supportkarnadigital@gmail.com</a></li>
+                <li><strong>Application:</strong> OmniSuite (com.karnadigital.omnisuite)</li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-links">
+            <a href="index.html">Home</a>
+            <a href="index.html#features">Features</a>
+            <a href="privacy-policy.html">Privacy Policy</a>
+        </div>
+        <p class="footer-copy">&copy; 2026 Karna Digital. OmniSuite. All rights reserved.</p>
+    </footer>
+</body>
+</html>

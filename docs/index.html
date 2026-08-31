@@ -1,0 +1,490 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniSuite - All-in-One Offline Document Suite & PDF Power Tools</title>
+    <meta name="description" content="OmniSuite is an ultra-fast, 100% offline document suite for Android. View PDFs, PPTX, DOCX, XLSX, EPUB, convert documents to PDF, generate QR/barcodes, and scan with zero cloud dependency.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #60a5fa;
+            --accent: #f59e0b;
+            --accent-green: #10b981;
+            --bg: #0b0f19;
+            --surface: #111827;
+            --surface-card: #1f2937;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(37, 99, 235, 0.3);
+            --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font);
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(12px);
+            background: rgba(11, 15, 25, 0.85);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: var(--text-main);
+            font-weight: 800;
+            font-size: 1.3rem;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), #8b5cf6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-main);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), #3b82f6);
+            color: #fff;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+            color: #fff;
+        }
+
+        .hero {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 5rem 1.5rem 3rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, rgba(0, 0, 0, 0) 70%);
+            z-index: -1;
+            filter: blur(40px);
+        }
+
+        .badge-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(37, 99, 235, 0.12);
+            border: 1px solid var(--border-highlight);
+            padding: 0.4rem 1rem;
+            border-radius: 100px;
+            color: var(--primary-light);
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero h1 {
+            font-size: clamp(2.3rem, 5vw, 3.8rem);
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            margin-bottom: 1.25rem;
+            background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            max-width: 680px;
+            margin: 0 auto 2.5rem;
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .hero-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-large {
+            padding: 0.85rem 1.75rem;
+            font-size: 1rem;
+            border-radius: 12px;
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.85rem 1.75rem;
+            border-radius: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .stats-bar {
+            max-width: 1000px;
+            margin: 3rem auto 5rem;
+            padding: 1.5rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-item h3 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: var(--primary-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-item p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto 3rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.02em;
+        }
+
+        .section-header p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .features-grid {
+            max-width: 1200px;
+            margin: 0 auto 6rem;
+            padding: 0 1.5rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.75rem;
+        }
+
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-highlight);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        .feature-icon {
+            width: 52px;
+            height: 52px;
+            background: rgba(37, 99, 235, 0.12);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            margin-bottom: 1.25rem;
+            border: 1px solid rgba(37, 99, 235, 0.25);
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 0.6rem;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .privacy-highlight {
+            max-width: 1200px;
+            margin: 0 auto 6rem;
+            padding: 3rem 2rem;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(37, 99, 235, 0.08) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            border-radius: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .privacy-highlight h2 {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            color: #34d399;
+        }
+
+        .privacy-highlight p {
+            max-width: 700px;
+            color: var(--text-muted);
+            font-size: 1.05rem;
+            margin-bottom: 1.75rem;
+        }
+
+        footer {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 3rem 1.5rem;
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--text-main);
+        }
+
+        .footer-copy {
+            color: rgba(156, 163, 175, 0.6);
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            .hero {
+                padding: 3.5rem 1rem 2rem;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="index.html" class="brand">
+                <div class="brand-icon">📂</div>
+                <span>OmniSuite</span>
+            </a>
+            <nav class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#privacy">Privacy</a>
+                <a href="privacy-policy.html">Privacy Policy</a>
+            </nav>
+            <a href="privacy-policy.html" class="btn-primary">
+                <span>Privacy Policy</span>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="badge-pill">
+                <span>🛡️ 100% Offline &amp; Private</span>
+            </div>
+            <h1>All-in-One Offline Document Suite &amp; PDF Tools</h1>
+            <p>View, convert, edit, and secure your files directly on your Android device with zero cloud dependency. Ultra-fast, lightweight, and completely private.</p>
+            <div class="hero-actions">
+                <a href="privacy-policy.html" class="btn-primary btn-large">
+                    <span>Read Privacy Policy</span>
+                </a>
+                <a href="#features" class="btn-outline">
+                    <span>Explore Features</span>
+                </a>
+            </div>
+        </section>
+
+        <section class="stats-bar">
+            <div class="stat-item">
+                <h3>6+ Formats</h3>
+                <p>PDF, PPTX, DOCX, XLSX, EPUB, TXT</p>
+            </div>
+            <div class="stat-item">
+                <h3>0 Cloud Uploads</h3>
+                <p>100% Local Device Processing</p>
+            </div>
+            <div class="stat-item">
+                <h3>AES-128</h3>
+                <p>Military-Grade PDF Encryption</p>
+            </div>
+            <div class="stat-item">
+                <h3>10+ Barcodes</h3>
+                <p>Code-128, QR, EAN, UPC &amp; More</p>
+            </div>
+        </section>
+
+        <section id="features">
+            <div class="section-header">
+                <h2>Engineered for Power &amp; Speed</h2>
+                <p>Every tool you need to manage documents on Android without ever uploading your personal files to external servers.</p>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📖</div>
+                    <h3>Advanced Document Viewers</h3>
+                    <p>High-fidelity parsers for PowerPoint (PPTX), Word (DOCX), Excel (XLSX), PDF, EPUB, and TXT with vector graphics, pinch-to-zoom, and smooth text layout.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Office to PDF Converter</h3>
+                    <p>Accurately synthesize PPTX slides, DOCX paragraphs, and XLSX spreadsheets into beautiful, paginated A4 and widescreen PDF documents.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🛠️</div>
+                    <h3>Comprehensive PDF Toolbox</h3>
+                    <p>Merge multiple PDFs, split page ranges, reorder pages, compile image galleries to PDF, and protect sensitive files with AES encryption passwords.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Barcode &amp; QR Generator</h3>
+                    <p>Generate Code-128, EAN-13, QR codes (WiFi, vCard, URLs) with custom color gradients, margin controls, and real-time live preview.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📷</div>
+                    <h3>Hardware Scanner &amp; OCR</h3>
+                    <p>Real-time CameraX viewfinder and photo gallery scanner with instant on-device text recognition (OCR) and barcode decoding.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Zero-Data Collection</h3>
+                    <p>Designed strictly offline. OmniSuite contains no ad trackers, no telemetry, no analytics SDKs, and never requires an account or internet access.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="privacy" class="privacy-highlight">
+            <h2>Your Privacy is Our Priority</h2>
+            <p>Unlike other document tools that process your files in the cloud, OmniSuite operates entirely within your device's isolated application sandbox. Your files, contacts, and photos never leave your device.</p>
+            <a href="privacy-policy.html" class="btn-primary">
+                <span>View Full Privacy Policy</span>
+            </a>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-links">
+            <a href="index.html">Home</a>
+            <a href="#features">Features</a>
+            <a href="privacy-policy.html">Privacy Policy</a>
+        </div>
+        <p class="footer-copy">&copy; 2026 Karna Digital. OmniSuite. All rights reserved.</p>
+    </footer>
+</body>
+</html>
