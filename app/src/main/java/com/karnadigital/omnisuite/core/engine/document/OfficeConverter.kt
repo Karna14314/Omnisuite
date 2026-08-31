@@ -22,6 +22,9 @@ import org.apache.poi.xslf.usermodel.XSLFSlide
 import org.apache.poi.xslf.usermodel.XSLFShape
 import org.apache.poi.xslf.usermodel.XSLFTextShape
 import org.apache.poi.xslf.usermodel.XSLFSimpleShape
+import org.apache.poi.xslf.usermodel.XSLFPictureData
+import org.apache.poi.xslf.usermodel.XSLFPictureShape
+import org.apache.poi.xslf.usermodel.XSLFGroupShape
 import org.apache.poi.sl.usermodel.Placeholder
 import org.apache.poi.sl.usermodel.Shape
 import java.io.File
@@ -488,11 +491,232 @@ class OfficeConverter @Inject constructor(
         }
     }
 
+    data class PicCrop(val l: Float = 0f, val t: Float = 0f, val r: Float = 0f, val b: Float = 0f)
+
+    private fun extractBlipCrop(xml: Any): PicCrop? {
+        val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
+        if (xmlStr.isBlank()) return null
+        val match = Regex("""<[^>]*srcRect[^>]*>""", RegexOption.IGNORE_CASE).find(xmlStr)
+        if (match != null) {
+            val tag = match.value
+            fun getAttr(attr: String): Float {
+                val m = Regex("""$attr=["'](\d+)["']""", RegexOption.IGNORE_CASE).find(tag)
+                val v = m?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                return (v.toFloat() / 100000f).coerceIn(0f, 0.99f)
+            }
+            val l = getAttr("l")
+            val t = getAttr("t")
+            val r = getAttr("r")
+            val b = getAttr("b")
+            if (l > 0f || t > 0f || r > 0f || b > 0f) {
+                return PicCrop(l, t, r, b)
+            }
+        }
+        return null
+    }
+
+    private fun extractBlipEmbedId(xml: Any): String? {
+        val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
+        if (xmlStr.isNotBlank()) {
+            val svgMatch = Regex("""(?:asvg:svgBlip|svgBlip)[^>]*(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(xmlStr)
+            if (svgMatch != null) return svgMatch.groupValues[1]
+        }
+        try {
+            var blipFill: Any? = null
+            try { blipFill = xml.javaClass.getMethod("getBlipFill").invoke(xml) } catch (_: Throwable) {}
+            if (blipFill == null) {
+                try {
+                    val spPr = xml.javaClass.getMethod("getSpPr").invoke(xml)
+                    if (spPr != null) blipFill = spPr.javaClass.getMethod("getBlipFill").invoke(spPr)
+                } catch (_: Throwable) {}
+            }
+            if (blipFill != null) {
+                val blip = try { blipFill.javaClass.getMethod("getBlip").invoke(blipFill) } catch (_: Throwable) { null }
+                if (blip != null) {
+                    val blipXmlStr = try { blip.toString() } catch (_: Throwable) { "" }
+                    if (blipXmlStr.isNotBlank()) {
+                        val svgMatch = Regex("""(?:asvg:svgBlip|svgBlip)[^>]*(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(blipXmlStr)
+                        if (svgMatch != null) return svgMatch.groupValues[1]
+                    }
+                    val embed = try { blip.javaClass.getMethod("getEmbed").invoke(blip) as? String } catch (_: Throwable) { null }
+                    if (!embed.isNullOrBlank()) return embed
+                }
+            }
+        } catch (_: Throwable) { }
+        if (xmlStr.isNotBlank()) {
+            val match = Regex("""(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(xmlStr)
+            if (match != null) return match.groupValues[1]
+        }
+        return null
+    }
+
+    private fun resolvePictureBytesFromBlipId(slide: Any, blipId: String): Pair<ByteArray, String?>? {
+        if (slide !is XSLFSlide) return null
+        try {
+            val relDoc = slide.getRelationById(blipId)
+            if (relDoc is XSLFPictureData) {
+                return Pair(relDoc.data, relDoc.contentType)
+            }
+        } catch (_: Throwable) { }
+        try {
+            val sheetPart = slide.packagePart
+            val rel = sheetPart?.getRelationship(blipId)
+            if (rel != null) {
+                val part = sheetPart.getRelatedPart(rel) ?: sheetPart.getPackage()?.getPart(rel)
+                val bytes = part?.inputStream?.use { stream -> stream.readBytes() }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    return Pair(bytes, part.contentType)
+                }
+            }
+        } catch (_: Throwable) { }
+        try {
+            val slideShow = slide.slideShow
+            for (pd in slideShow.pictureData) {
+                if (pd.packagePart?.partName?.name?.contains(blipId, ignoreCase = true) == true) {
+                    return Pair(pd.data, pd.contentType)
+                }
+            }
+        } catch (_: Throwable) { }
+        return null
+    }
+
+    private fun extractPictureDataFromShape(shape: Any, slide: Any): Triple<ByteArray, String?, PicCrop?>? {
+        try {
+            val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) {
+                try {
+                    val m = shape.javaClass.getDeclaredMethod("fetchXmlObject")
+                    m.isAccessible = true
+                    m.invoke(shape)
+                } catch (_: Throwable) { null }
+            }
+            if (xml != null) {
+                val crop = extractBlipCrop(xml)
+                val blipId = extractBlipEmbedId(xml)
+                if (!blipId.isNullOrBlank()) {
+                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
+                    if (resolved != null) return Triple(resolved.first, resolved.second, crop)
+                }
+            }
+        } catch (_: Throwable) { }
+
+        if (shape is XSLFPictureShape) {
+            try {
+                val pd = shape.pictureData
+                val data = pd?.data
+                if (data != null && data.isNotEmpty()) {
+                    val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+                    val crop = if (xml != null) extractBlipCrop(xml) else null
+                    return Triple(data, pd.contentType, crop)
+                }
+            } catch (_: Throwable) { }
+        }
+
+        try {
+            val method = shape.javaClass.getMethod("getPictureData")
+            val pd = method.invoke(shape)
+            if (pd != null) {
+                val data = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
+                if (data != null && data.isNotEmpty()) {
+                    val ct = try { pd.javaClass.getMethod("getContentType").invoke(pd) as? String } catch (_: Throwable) { null }
+                    val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+                    val crop = if (xml != null) extractBlipCrop(xml) else null
+                    return Triple(data, ct, crop)
+                }
+            }
+        } catch (_: Throwable) { }
+
+        return null
+    }
+
+    private fun extractThemeColorScheme(slide: Any?): Map<String, String> {
+        val colorMap = mutableMapOf<String, String>()
+        if (slide !is XSLFSlide) return colorMap
+        try {
+            val theme = slide.theme
+            if (theme != null) {
+                val ctTheme = try { theme.javaClass.getMethod("getXmlObject").invoke(theme) } catch (_: Throwable) { null }
+                val xmlStr = ctTheme?.toString() ?: ""
+                val clrSchemeMatch = Regex("""<[^>]*clrScheme[^>]*name=["']([^"']*)["'][^>]*>(.*?)</[^>]*clrScheme>""", RegexOption.DOT_MATCHES_ALL).find(xmlStr)
+                val schemeContent = clrSchemeMatch?.groupValues?.get(2) ?: xmlStr
+
+                val schemeColorTags = listOf("dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink")
+                for (tag in schemeColorTags) {
+                    val tagMatch = Regex("""<a:$tag>\s*<a:srgbClr\s+val=["']([0-9A-Fa-f]{6})["']""", RegexOption.IGNORE_CASE).find(schemeContent)
+                    if (tagMatch != null) {
+                        colorMap[tag] = "#${tagMatch.groupValues[1]}"
+                    } else {
+                        val sysMatch = Regex("""<a:$tag>\s*<a:sysClr\s+[^>]*lastClr=["']([0-9A-Fa-f]{6})["']""", RegexOption.IGNORE_CASE).find(schemeContent)
+                        if (sysMatch != null) {
+                            colorMap[tag] = "#${sysMatch.groupValues[1]}"
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+        return colorMap
+    }
+
+    private fun extractRunColor(run: Any?, defaultColor: Int): Int {
+        if (run == null) return defaultColor
+        try {
+            val xmlRun = try {
+                run.javaClass.getMethod("getXmlObject").invoke(run)
+            } catch (t: Throwable) {
+                try {
+                    val m = run.javaClass.getDeclaredMethod("fetchXmlObject")
+                    m.isAccessible = true
+                    m.invoke(run)
+                } catch (t2: Throwable) { null }
+            }
+            if (xmlRun != null) {
+                val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (t: Throwable) { null }
+                if (rPr != null) {
+                    val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (t: Throwable) { null }
+                    if (solidFill != null) {
+                        val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
+                        if (srgb != null) {
+                            val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (t: Throwable) { null }
+                            if (hexBytes != null && hexBytes.size >= 3) {
+                                return android.graphics.Color.rgb(
+                                    hexBytes[0].toInt() and 0xFF,
+                                    hexBytes[1].toInt() and 0xFF,
+                                    hexBytes[2].toInt() and 0xFF
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+        return defaultColor
+    }
+
+    private fun cropAndDrawBitmap(canvas: android.graphics.Canvas, dataBytes: ByteArray, crop: PicCrop?, destRect: android.graphics.Rect) {
+        try {
+            val bitmap = BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size) ?: return
+            val origW = bitmap.width
+            val origH = bitmap.height
+            val finalBmp = if (crop != null && (crop.l > 0f || crop.t > 0f || crop.r > 0f || crop.b > 0f)) {
+                val startX = (crop.l * origW).toInt().coerceIn(0, origW - 1)
+                val startY = (crop.t * origH).toInt().coerceIn(0, origH - 1)
+                val cropW = ((1f - crop.l - crop.r) * origW).toInt().coerceIn(1, origW - startX)
+                val cropH = ((1f - crop.t - crop.b) * origH).toInt().coerceIn(1, origH - startY)
+                val cropped = Bitmap.createBitmap(bitmap, startX, startY, cropW, cropH)
+                if (cropped != bitmap) bitmap.recycle()
+                cropped
+            } else {
+                bitmap
+            }
+            canvas.drawBitmap(finalBmp, null, destRect, null)
+            finalBmp.recycle()
+        } catch (_: Throwable) { }
+    }
+
     /**
-     * Renders a PowerPoint PPTX file to high-resolution bitmaps for mobile preview without WebView.
+     * Renders a PowerPoint PPTX file to high-resolution bitmaps with full layout, image, and typography fidelity.
      * Returns a list of Bitmaps, one per slide.
      */
-    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1440): List<Bitmap> = withContext(Dispatchers.IO) {
+    suspend fun renderPptxToBitmaps(pptxFile: File, targetWidth: Int = 1920): List<Bitmap> = withContext(Dispatchers.IO) {
         var pptxStream: FileInputStream? = null
         var ppt: XMLSlideShow? = null
         val bitmaps = mutableListOf<Bitmap>()
@@ -505,29 +729,68 @@ class OfficeConverter @Inject constructor(
             val slideWidthEmu = slideDimEmu.first
             val slideHeightEmu = slideDimEmu.second
 
-            // Calculate target height maintaining aspect ratio
+            // Calculate target height maintaining exact aspect ratio
             val targetHeight = if (slideWidthEmu > 0) (targetWidth * slideHeightEmu / slideWidthEmu).toInt() else (targetWidth * 9 / 16)
+            val slideWidthPt = if (slideWidthEmu > 0) (slideWidthEmu / 12700f) else 720f
+            val fontScale = targetWidth.toFloat() / slideWidthPt
 
-            for (slide in ppt.slides) {
+            val themeColors = if (ppt.slides.isNotEmpty()) extractThemeColorScheme(ppt.slides[0]) else emptyMap()
+
+            fun resolveColor(schemeOrHex: String?, fallback: Int): Int {
+                if (schemeOrHex == null) return fallback
+                if (schemeOrHex.startsWith("#")) {
+                    return try { android.graphics.Color.parseColor(schemeOrHex) } catch (_: Throwable) { fallback }
+                }
+                val mapped = themeColors[schemeOrHex]
+                if (mapped != null) {
+                    return try { android.graphics.Color.parseColor(mapped) } catch (_: Throwable) { fallback }
+                }
+                return when (schemeOrHex.lowercase()) {
+                    "tx1", "dk1" -> android.graphics.Color.rgb(15, 23, 42)
+                    "tx2", "dk2" -> android.graphics.Color.rgb(30, 41, 59)
+                    "bg1", "lt1" -> android.graphics.Color.WHITE
+                    "bg2", "lt2" -> android.graphics.Color.rgb(248, 250, 252)
+                    "accent1" -> android.graphics.Color.rgb(37, 99, 235)
+                    else -> fallback
+                }
+            }
+
+            for ((slideIndex, slide) in ppt.slides.withIndex()) {
                 val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawColor(android.graphics.Color.WHITE)
 
-                // Draw slide background
-                val bgColor = getSlideBgColor(slide)
-                if (bgColor != null) {
+                // 1. Slide Background Color
+                val bgColorHex = getSlideBgColor(slide)
+                if (bgColorHex != null) {
                     try {
-                        canvas.drawColor(android.graphics.Color.parseColor(bgColor))
-                    } catch (e: Exception) {
-                        canvas.drawColor(android.graphics.Color.WHITE)
-                    }
+                        canvas.drawColor(android.graphics.Color.parseColor(bgColorHex))
+                    } catch (_: Throwable) { }
                 }
 
-                // Flatten all shapes (including group children)
+                // Background picture if present
+                try {
+                    val ctSlide = try { slide.javaClass.getMethod("getXmlObject").invoke(slide) } catch (_: Throwable) { null }
+                    if (ctSlide != null) {
+                        val cSld = try { ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide) } catch (_: Throwable) { null }
+                        val bg = try { cSld?.javaClass?.getMethod("getBg")?.invoke(cSld) } catch (_: Throwable) { null }
+                        if (bg != null) {
+                            val bgBlipId = extractBlipEmbedId(bg)
+                            if (!bgBlipId.isNullOrBlank()) {
+                                val resolved = resolvePictureBytesFromBlipId(slide, bgBlipId)
+                                if (resolved != null && resolved.first.isNotEmpty()) {
+                                    cropAndDrawBitmap(canvas, resolved.first, null, android.graphics.Rect(0, 0, targetWidth, targetHeight))
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Throwable) { }
+
+                // 2. Flatten all shapes (including nested group children)
                 val allSlideShapes = mutableListOf<org.apache.poi.xslf.usermodel.XSLFShape>()
                 fun collectBitmapShapes(shapes: List<org.apache.poi.xslf.usermodel.XSLFShape>) {
                     for (s in shapes) {
-                        if (s is org.apache.poi.xslf.usermodel.XSLFGroupShape) {
+                        if (s is XSLFGroupShape) {
                             try { collectBitmapShapes(s.shapes) } catch (_: Throwable) { }
                         } else {
                             allSlideShapes.add(s)
@@ -536,52 +799,19 @@ class OfficeConverter @Inject constructor(
                 }
                 try { collectBitmapShapes(slide.shapes) } catch (_: Throwable) { }
 
-                // Draw all shapes — check PictureShape / blipFill FIRST
+                // 3. Draw all shapes in z-order
                 for (shape in allSlideShapes) {
                     val normBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
 
-                    // Check if this shape is a picture (XSLFPictureShape or shape with blipFill)
-                    var dataBytes: ByteArray? = null
-                    if (shape is org.apache.poi.xslf.usermodel.XSLFPictureShape) {
-                        try { dataBytes = shape.pictureData?.data } catch (_: Throwable) { }
-                        if (dataBytes == null) {
-                            try {
-                                val pd = shape.javaClass.getMethod("getPictureData").invoke(shape)
-                                if (pd != null) dataBytes = pd.javaClass.getMethod("getData").invoke(pd) as? ByteArray
-                            } catch (_: Throwable) { }
-                        }
-                    }
-                    if (dataBytes == null) {
-                        try {
-                            val xml = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
-                            if (xml != null) {
-                                val xmlStr = xml.toString()
-                                val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
-                                if (match != null) {
-                                    val rId = match.groupValues[1]
-                                    val rel = slide.packagePart?.getRelationship(rId)
-                                    if (rel != null) {
-                                        val part = slide.packagePart?.getRelatedPart(rel) ?: slide.packagePart?.getPackage()?.getPart(rel)
-                                        dataBytes = part?.inputStream?.use { stream -> stream.readBytes() }
-                                    }
-                                }
-                            }
-                        } catch (_: Throwable) { }
-                    }
-
-                    if (dataBytes != null && dataBytes.isNotEmpty()) {
-                        try {
-                            val bmp = BitmapFactory.decodeByteArray(dataBytes, 0, dataBytes.size)
-                            if (bmp != null) {
-                                val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
-                                val destRect = android.graphics.Rect(
-                                    (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
-                                    ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
-                                )
-                                canvas.drawBitmap(bmp, null, destRect, null)
-                                bmp.recycle()
-                            }
-                        } catch (_: Throwable) { }
+                    // Priority: PictureShape / blipFill
+                    val picTriple = extractPictureDataFromShape(shape, slide)
+                    if (picTriple != null && picTriple.first.isNotEmpty()) {
+                        val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
+                        val destRect = android.graphics.Rect(
+                            (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
+                            ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
+                        )
+                        cropAndDrawBitmap(canvas, picTriple.first, picTriple.third, destRect)
                         continue
                     }
 
@@ -593,9 +823,11 @@ class OfficeConverter @Inject constructor(
 
                     val isEllipse = try {
                         val st = (shape as? org.apache.poi.sl.usermodel.SimpleShape<*, *>)?.shapeType
-                        st == org.apache.poi.sl.usermodel.ShapeType.ELLIPSE || st?.name?.contains("OVAL", ignoreCase = true) == true
+                        val stName = st?.name ?: ""
+                        st == org.apache.poi.sl.usermodel.ShapeType.ELLIPSE || stName.contains("ELLIPSE", ignoreCase = true) || stName.contains("OVAL", ignoreCase = true)
                     } catch (_: Throwable) { false }
 
+                    // Draw geometry fill & stroke
                     if (shape is XSLFSimpleShape) {
                         val fillColor = getShapeFillColor(shape)
                         if (fillColor != null) {
@@ -605,65 +837,68 @@ class OfficeConverter @Inject constructor(
                         }
                         val lineColor = getShapeLineColor(shape)
                         if (lineColor != null) {
-                            val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                            val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f * (targetWidth / 960f); isAntiAlias = true }
                             if (isEllipse) canvas.drawOval(px, py, px + pw, py + ph, strokePaint)
                             else canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
+                        } else if (isEllipse) {
+                            val strokePaint = Paint().apply { color = android.graphics.Color.rgb(30, 41, 59); style = Paint.Style.STROKE; strokeWidth = 1.5f * (targetWidth / 960f); isAntiAlias = true }
+                            canvas.drawOval(px, py, px + pw, py + ph, strokePaint)
                         }
                     }
 
+                    // Draw text content
                     if (shape is XSLFTextShape) {
                         val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
-                        val text = try { shape.text ?: "" } catch (t: Throwable) { "" }
-                        if (paragraphs.isNotEmpty()) {
-                            val isTitle = try {
-                                shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
-                            } catch (_: Throwable) { false }
-                            val textColor = getTextColor(shape)
-                            val textPaint = Paint().apply {
-                                color = textColor
-                                textSize = if (isTitle) (28f * (targetWidth / 960f)) else (16f * (targetWidth / 960f))
-                                isAntiAlias = true
-                                isFakeBoldText = isTitle
-                            }
+                        val isTitle = try {
+                            shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
+                        } catch (_: Throwable) { shape.shapeName.contains("title", ignoreCase = true) }
 
-                            var curY = py + textPaint.textSize + 4f
+                        val defaultTextColor = resolveColor(if (isTitle) "accent1" else "tx1", if (isTitle) android.graphics.Color.rgb(30, 58, 138) else android.graphics.Color.rgb(15, 23, 42))
+
+                        if (paragraphs.isNotEmpty()) {
+                            var curY = py
                             for (p in paragraphs) {
-                                val pText = try {
-                                    p.textRuns.joinToString("") { it.rawText ?: "" }
-                                } catch (t: Throwable) { "" }
-                                if (pText.isNotBlank()) {
-                                    val bulletPrefix = if (p.indentLevel > 0 || (!isTitle && paragraphs.size > 1)) "• " else ""
-                                    val fullLine = bulletPrefix + pText.trim()
-                                    val indentOffset = (p.indentLevel * 14f * (targetWidth / 960f))
-                                    val lines = wrapTextForCanvas(fullLine, textPaint, (pw - 12f - indentOffset).coerceAtLeast(50f))
-                                    for (line in lines) {
-                                        if (curY < py + ph - 4f) {
-                                            val drawX = if (isEllipse) (px + (pw - textPaint.measureText(line)) / 2f) else (px + 6f + indentOffset)
-                                            canvas.drawText(line, drawX, curY, textPaint)
-                                            curY += textPaint.textSize * 1.3f
+                                val pRuns = try { p.textRuns } catch (_: Throwable) { emptyList() }
+                                val pText = try { pRuns.joinToString("") { it.rawText ?: "" } } catch (_: Throwable) { "" }
+                                if (pText.isBlank()) continue
+
+                                val maxFontPt = pRuns.mapNotNull {
+                                    val fs = try { it.fontSize } catch (_: Throwable) { null }
+                                    if (fs != null && fs > 0) fs.toFloat() else null
+                                }.maxOrNull() ?: (if (isTitle) 26f else (if (isEllipse) 12f else 14f))
+
+                                val scaledFontSize = maxFontPt * fontScale
+                                val runColor = extractRunColor(pRuns.firstOrNull(), defaultTextColor)
+
+                                val textPaint = Paint().apply {
+                                    color = runColor
+                                    textSize = scaledFontSize
+                                    isAntiAlias = true
+                                    isFakeBoldText = pRuns.any { try { it.isBold } catch (_: Throwable) { false } } || isTitle
+                                }
+
+                                curY += textPaint.textSize + (4f * fontScale)
+
+                                val bulletLevel = try { p.indentLevel } catch (_: Throwable) { 0 }
+                                val hasBullet = bulletLevel > 0 || (paragraphs.size > 1 && !isTitle && !isEllipse)
+                                val bulletPrefix = if (hasBullet) "• " else ""
+                                val indentOffset = (bulletLevel * 16f * fontScale)
+                                val fullLine = bulletPrefix + pText.trim()
+                                val maxLineWidth = (pw - 12f * fontScale - indentOffset).coerceAtLeast(50f)
+                                val lines = wrapTextForCanvas(fullLine, textPaint, maxLineWidth)
+
+                                for (line in lines) {
+                                    if (curY <= py + ph + (20f * fontScale)) {
+                                        val drawX = if (isEllipse || (isTitle && pw >= targetWidth * 0.4f)) {
+                                            (px + (pw - textPaint.measureText(line)) / 2f)
+                                        } else {
+                                            (px + 6f * fontScale + indentOffset)
                                         }
+                                        canvas.drawText(line, drawX, curY, textPaint)
+                                        curY += textPaint.textSize * 1.35f
                                     }
-                                    curY += 3f
                                 }
-                            }
-                        } else if (text.isNotBlank()) {
-                            val isTitle = try {
-                                shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
-                            } catch (_: Throwable) { false }
-                            val textPaint = Paint().apply {
-                                color = getTextColor(shape)
-                                textSize = if (isTitle) (28f * (targetWidth / 960f)) else (16f * (targetWidth / 960f))
-                                isAntiAlias = true
-                                isFakeBoldText = isTitle
-                            }
-                            val lines = wrapTextForCanvas(text.trim(), textPaint, pw - 12f)
-                            var curY = py + textPaint.textSize + 4f
-                            for (line in lines) {
-                                if (curY < py + ph - 4f) {
-                                    val drawX = if (isEllipse) (px + (pw - textPaint.measureText(line)) / 2f) else (px + 6f)
-                                    canvas.drawText(line, drawX, curY, textPaint)
-                                    curY += textPaint.textSize * 1.3f
-                                }
+                                curY += 2f * fontScale
                             }
                         }
                     }
@@ -680,281 +915,38 @@ class OfficeConverter @Inject constructor(
     }
 
     /**
-     * Extracts text color from a text shape.
-     * Returns Android Color int.
-     */
-    private fun getTextColor(shape: XSLFTextShape): Int {
-        return try {
-            val paragraphs = shape.textParagraphs
-            if (paragraphs.isNotEmpty()) {
-                val runs = paragraphs[0].textRuns
-                if (runs.isNotEmpty()) {
-                    val run = runs[0]
-                    if (run is org.apache.poi.xslf.usermodel.XSLFTextRun) {
-                        // Try getting color via reflection on the XML run
-                        val xmlRun = try {
-                            run.javaClass.getMethod("getXmlObject").invoke(run)
-                        } catch (t: Throwable) {
-                            try {
-                                val m = run.javaClass.getDeclaredMethod("fetchXmlObject")
-                                m.isAccessible = true
-                                m.invoke(run)
-                            } catch (t2: Throwable) { null }
-                        }
-                        if (xmlRun != null) {
-                            val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (t: Throwable) { null }
-                            if (rPr != null) {
-                                val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (t: Throwable) { null }
-                                if (solidFill != null) {
-                                    val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
-                                    if (srgb != null) {
-                                        val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (t: Throwable) { null }
-                                        if (hexBytes != null && hexBytes.size >= 3) {
-                                            return android.graphics.Color.rgb(
-                                                hexBytes[0].toInt() and 0xFF,
-                                                hexBytes[1].toInt() and 0xFF,
-                                                hexBytes[2].toInt() and 0xFF
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            android.graphics.Color.BLACK
-        } catch (e: Exception) {
-            android.graphics.Color.BLACK
-        }
-    }
-
-    /**
-     * Converts a PPTX presentation file slide-by-slide to A4 PDF.
-     * Supports "image" mode (accurate slide shapes and text locations rendered to bitmaps)
-     * and "text" mode (clean reflowed text and title elements).
+     * Converts a PPTX presentation file slide-by-slide to A4 PDF with high visual fidelity.
      */
     suspend fun convertPptxToPdf(pptxFile: File, pdfFile: File, renderMode: String) = withContext(Dispatchers.IO) {
         PDFBoxResourceLoader.init(context)
 
-        var pptxStream: FileInputStream? = null
-        var ppt: XMLSlideShow? = null
         var pdf: PDDocument? = null
-        var contentStream: PDPageContentStream? = null
-
         try {
-            pptxStream = FileInputStream(pptxFile)
-            ppt = XMLSlideShow(pptxStream)
             pdf = PDDocument()
+            val bitmaps = renderPptxToBitmaps(pptxFile, targetWidth = 1920)
 
-            // Landscape A4 bounds
-            val pageBounds = PDRectangle(PDRectangle.A4.height, PDRectangle.A4.width)
-            val margin = 50f
-            val printableWidth = pageBounds.width - (2 * margin)
+            for (bitmap in bitmaps) {
+                // Calculate page bounds matching the slide aspect ratio
+                val aspect = if (bitmap.height > 0) bitmap.width.toFloat() / bitmap.height.toFloat() else (16f / 9f)
+                val pageWidth = 842f // A4 landscape width points
+                val pageHeight = (pageWidth / aspect)
+                val pageBounds = PDRectangle(pageWidth, pageHeight)
 
-            val fontNormal = PDType1Font.HELVETICA
-            val fontBold = PDType1Font.HELVETICA_BOLD
-            val fontSizeTitle = 18f
-            val fontSizeBody = 12f
-            val leadingTitle = fontSizeTitle * 1.3f
-            val leadingBody = fontSizeBody * 1.3f
+                val page = PDPage(pageBounds)
+                pdf.addPage(page)
 
-            // Get slide dimensions in EMUs for coordinate conversion
-            val slideDimEmu = getSlideDimensionsEmu(ppt)
-            val slideWidthEmu = slideDimEmu.first.toFloat()
-            val slideHeightEmu = slideDimEmu.second.toFloat()
-
-            for ((slideIndex, slide) in ppt.slides.withIndex()) {
-                val currentPage = PDPage(pageBounds)
-                pdf.addPage(currentPage)
-                contentStream = PDPageContentStream(pdf, currentPage)
-
-                if (renderMode.lowercase() == "image") {
-                    // Render slide to bitmap with proper EMU-to-pixel coordinate conversion
-                    val canvasWidth = 1440
-                    val canvasHeight = 1080
-                    val bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
-                    val canvas = android.graphics.Canvas(bitmap)
-                    canvas.drawColor(android.graphics.Color.WHITE)
-
-                    // Calculate scale factors: EMU -> pixels
-                    val scaleX = canvasWidth.toFloat() / slideWidthEmu
-                    val scaleY = canvasHeight.toFloat() / slideHeightEmu
-
-                    // Extract slide content
-                    val bodyBlocks = mutableListOf<String>()
-
-                    // Draw slide background if present
-                    val bgColor = getSlideBgColor(slide)
-                    if (bgColor != null) {
-                        canvas.drawColor(android.graphics.Color.parseColor(bgColor))
-                    }
-
-                    // Collect and draw all shapes
-                    for (shape in slide.shapes) {
-                        val bounds = getShapeBoundsEmu(shape)
-                        if (bounds != null) {
-                            // Convert EMU coordinates to canvas pixels
-                            val px = bounds[0] * scaleX
-                            val py = bounds[1] * scaleY
-                            val pw = bounds[2] * scaleX
-                            val ph = bounds[3] * scaleY
-
-                            if (shape is XSLFSimpleShape) {
-                                // Draw shape fill
-                                val fillColor = getShapeFillColor(shape)
-                                if (fillColor != null) {
-                                    val fillPaint = Paint().apply {
-                                        color = fillColor
-                                        style = Paint.Style.FILL
-                                    }
-                                    canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
-                                }
-
-                                // Draw shape border
-                                val lineColor = getShapeLineColor(shape)
-                                if (lineColor != null) {
-                                    val strokePaint = Paint().apply {
-                                        color = lineColor
-                                        style = Paint.Style.STROKE
-                                        strokeWidth = 2f
-                                    }
-                                    canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
-                                }
-                            }
-
-                            if (shape is XSLFTextShape) {
-                                val text = shape.text ?: ""
-                                if (text.isNotBlank()) {
-                                    val isTitle = shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)
-                                    if (!isTitle) {
-                                        bodyBlocks.add(text)
-                                    }
-
-                                    val textPaint = Paint().apply {
-                                        color = android.graphics.Color.BLACK
-                                        textSize = if (isTitle) 28f else 16f
-                                        isAntiAlias = true
-                                        isFakeBoldText = isTitle
-                                    }
-
-                                    // Draw text within shape bounds
-                                    val lines = text.split("\n")
-                                    var curY = py + textPaint.textSize + 8f
-                                    for (line in lines) {
-                                        if (curY < py + ph - 4f) {
-                                            canvas.drawText(line, px + 8f, curY, textPaint)
-                                            curY += textPaint.textSize * 1.4f
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Convert Bitmap to PDImageXObject and draw on PDF page
+                PDPageContentStream(pdf, page).use { contentStream ->
                     val pdImage = LosslessFactory.createFromImage(pdf, bitmap)
-                    contentStream?.drawImage(pdImage, 0f, 0f, pageBounds.width, pageBounds.height)
-                    bitmap.recycle()
-                } else {
-                    // 2. Clean Text Reflow Mode
-                    var slideTitle = ""
-                    val bodyBlocks = mutableListOf<String>()
-
-                    for (shape in slide.shapes) {
-                        if (shape is XSLFTextShape) {
-                            val text = shape.text ?: ""
-                            if (text.isNotBlank()) {
-                                if (shape.isPlaceholder && (shape.textType == Placeholder.TITLE || shape.textType == Placeholder.CENTERED_TITLE)) {
-                                    slideTitle = text
-                                } else {
-                                    bodyBlocks.add(text)
-                                }
-                            }
-                        }
-                    }
-
-                    if (slideTitle.isBlank()) {
-                        slideTitle = "Slide ${slideIndex + 1}"
-                    }
-
-                    var yPosition = pageBounds.height - margin
-
-                    // Draw Title
-                    val sanitizedTitle = sanitizeText(slideTitle)
-                    contentStream?.beginText()
-                    contentStream?.setFont(fontBold, fontSizeTitle)
-                    contentStream?.newLineAtOffset(margin, yPosition)
-                    contentStream?.showText(sanitizedTitle)
-                    contentStream?.endText()
-                    
-                    yPosition -= leadingTitle
-
-                    // Draw a visual separator line
-                    contentStream?.setStrokingColor(180, 180, 180)
-                    contentStream?.setLineWidth(1f)
-                    contentStream?.moveTo(margin, yPosition + 6f)
-                    contentStream?.lineTo(pageBounds.width - margin, yPosition + 6f)
-                    contentStream?.stroke()
-                    
-                    yPosition -= 12f
-
-                    // Draw body text blocks
-                    for (block in bodyBlocks) {
-                        val lines = wrapText(block, fontNormal, fontSizeBody, printableWidth)
-                        for (line in lines) {
-                            val sanitizedLine = sanitizeText(line)
-
-                            if (yPosition - leadingBody < margin) {
-                                // Add a sub-page if slide text overflows
-                                contentStream?.close()
-                                val nextSubPage = PDPage(pageBounds)
-                                pdf.addPage(nextSubPage)
-                                contentStream = PDPageContentStream(pdf, nextSubPage)
-                                yPosition = pageBounds.height - margin
-                            }
-
-                            contentStream?.beginText()
-                            contentStream?.setFont(fontNormal, fontSizeBody)
-                            contentStream?.newLineAtOffset(margin, yPosition)
-                            contentStream?.showText("• $sanitizedLine")
-                            contentStream?.endText()
-
-                            yPosition -= leadingBody
-                        }
-                        yPosition -= 8f
-                    }
+                    contentStream.drawImage(pdImage, 0f, 0f, pageWidth, pageHeight)
                 }
-
-                contentStream?.close()
-                contentStream = null
+                bitmap.recycle()
             }
 
             FileOutputStream(pdfFile).use { out ->
                 pdf.save(out)
             }
-
         } finally {
-            try {
-                contentStream?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            try {
-                pdf?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            try {
-                ppt?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            try {
-                pptxStream?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            try { pdf?.close() } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
