@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,7 +76,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.toDp
+import kotlin.math.max
+import kotlin.math.min
 import androidx.hilt.navigation.compose.hiltViewModel
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1329,7 +1331,7 @@ fun SlideCardItem(
             // Combine foreground images and text shapes into a single z-ordered list
             val imageElements = slide.images.map { img -> SlideElement.ImageElement(img) }
             val titleElement = if (title.fullText.isNotBlank() && title.id == "title") {
-                listOf(SlideElement.TextElement(title, true, -1))
+                listOf(SlideElement.TextElement(title, true, title.zOrder))
             } else emptyList()
             val bodyElements = slide.textShapes.mapIndexed { idx, shape ->
                 SlideElement.TextElement(shape, shape.isTitle, idx)
@@ -1434,12 +1436,37 @@ fun TextShapeItem(
     isEditMode: Boolean,
     onClick: () -> Unit
 ) {
+    val shapeGeom = shape.shapeGeometry
+    val shapeBorder = shape.shapeBorder
     val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
+
+    val shapeShape = when (shapeGeom) {
+        ShapeGeometryType.ELLIPSE -> androidx.compose.foundation.shape.CircleShape
+        ShapeGeometryType.ROUNDED_RECTANGLE -> RoundedCornerShape(8.dp)
+        else -> RoundedCornerShape(if (shape.id.startsWith("table_cell_")) 0.dp else 2.dp)
+    }
+
+    val borderWidth = when {
+        shapeBorder != null && shapeBorder.strokeColorHex != null -> shapeBorder.strokeWidthDp.dp
+        shape.id.startsWith("table_cell_") -> 1.dp
+        isEditMode -> 1.dp
+        else -> 0.dp
+    }
+
+    val borderColor = when {
+        shapeBorder != null && shapeBorder.strokeColorHex != null -> safeParseColor(shapeBorder.strokeColorHex, MaterialTheme.colorScheme.primary)
+        shape.id.startsWith("table_cell_") -> MaterialTheme.colorScheme.outlineVariant
+        isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+        isEditMode -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+        else -> Color.Transparent
+    }
+
     // Proportional font scale: reference 720dp slide width
-    val baseFontScale = (slideW / 720f).coerceIn(0.25f, 1.2f) * 0.82f
+    val baseFontScale = (slideW / 720f).coerceIn(0.35f, 1.2f) * 0.88f
     val isTableCell = shape.id.startsWith("table_cell_")
-    val defaultFontSize = if (isTitle) 20f else 12f
-    val maxSpCap = if (isTitle) 20f else 16f
+    val defaultFontSize = if (isTitle) 24f else 13f
+    val maxSpCap = if (isTitle) 32f else 22f
+    val defaultColor = if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
 
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
@@ -1478,7 +1505,7 @@ fun TextShapeItem(
                 "CENTER" -> TextAlign.Center
                 "RIGHT" -> TextAlign.Right
                 "JUSTIFY" -> TextAlign.Justify
-                else -> TextAlign.Start
+                else -> if (shapeGeom == ShapeGeometryType.ELLIPSE) TextAlign.Center else TextAlign.Start
             }
             val maxFontSizeSp = paragraph.runs.maxOfOrNull { run ->
                 val basePt = if (run.fontSizePt > 0) run.fontSizePt else defaultFontSize
@@ -1515,7 +1542,7 @@ fun TextShapeItem(
             val sizeSp = (basePt * baseFontScale * scale).coerceIn(6f, maxSpCap)
             val runColor = run.textColorHex?.let {
                 try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { null }
-            } ?: (if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            } ?: defaultColor
             withStyle(
                 SpanStyle(
                     color = runColor,
@@ -1534,13 +1561,16 @@ fun TextShapeItem(
     fun measureTotalHeight(scale: Float): Float {
         var total = 0f
         paraLayouts.forEach { pl ->
+            val markerW = if (pl.markerText.isNotBlank()) with(density) { (pl.indentSp * scale + 20f).dp.toPx() } else 0f
+            val availableTextW = (contentWidthPx - markerW).coerceAtLeast(10f)
             val fontSize = pl.maxFontSizeSp * scale
             val lineHeight = pl.lineHeightSp * scale
             val style = TextStyle(fontSize = fontSize.sp, lineHeight = lineHeight.sp)
+            val annotatedText: AnnotatedString = buildAnnotated(pl, scale)
             val result = measurer.measure(
-                text = buildAnnotated(pl, scale),
+                text = annotatedText,
                 style = style,
-                constraints = Constraints(maxWidth = contentWidthPx.toInt()),
+                constraints = Constraints(maxWidth = availableTextW.toInt()),
                 layoutDirection = LayoutDirection.Ltr,
                 density = density
             )
@@ -1550,14 +1580,14 @@ fun TextShapeItem(
         return total
     }
 
-    // Determine shrink scale: honor baked-in normAutofit fontScale, then fit-to-box if needed.
+    // Determine shrink scale: binary search to guarantee fit within available height.
     val shrinkScale = remember(shape, contentWidthPx, contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)) {
         val availableHeightPx = contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)
-        if (shape.autoFit != AutoFitMode.NORM_AUTOFIT || availableHeightPx <= 0f) {
-            shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
+        val baked = shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
+        if (availableHeightPx <= 0f) {
+            baked
         } else {
-            val baked = shape.fontScale?.let { (it / 100000f).coerceIn(0.5f, 1f) } ?: 1f
-            val minScale = 0.5f
+            val minScale = 0.55f
             if (measureTotalHeight(baked) <= availableHeightPx) {
                 baked
             } else {
@@ -1590,7 +1620,7 @@ fun TextShapeItem(
         modifier = Modifier
             .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
             .size(width = (shape.shapeWidth * slideW).dp, height = finalHeightDp)
-            .clip(RoundedCornerShape(if (isTableCell) 0.dp else 2.dp))
+            .clip(shapeShape)
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
                 if (isEditMode) {
@@ -1599,29 +1629,21 @@ fun TextShapeItem(
                 } else shapeBgColor
             )
             .border(
-                width = when {
-                    isTableCell -> 1.dp
-                    isEditMode -> 1.dp
-                    else -> 0.dp
-                },
-                color = when {
-                    isTableCell -> MaterialTheme.colorScheme.outlineVariant
-                    isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    isEditMode -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
-                    else -> Color.Transparent
-                },
-                shape = RoundedCornerShape(if (isTableCell) 0.dp else 4.dp)
+                width = borderWidth,
+                color = borderColor,
+                shape = shapeShape
             )
             .padding(
-                start = (shape.insets.left * slideW).dp,
-                top = (shape.insets.top * slideH).dp,
-                end = (shape.insets.right * slideW).dp,
-                bottom = (shape.insets.bottom * slideH).dp
+                start = (shape.insets.left * slideW).coerceAtLeast(if (isTitle) 8f else (if (shapeGeom == ShapeGeometryType.ELLIPSE) 6f else 2f)).dp,
+                top = (shape.insets.top * slideH).coerceAtLeast(if (shapeGeom == ShapeGeometryType.ELLIPSE) 4f else 1f).dp,
+                end = (shape.insets.right * slideW).coerceAtLeast(if (isTitle) 8f else (if (shapeGeom == ShapeGeometryType.ELLIPSE) 6f else 2f)).dp,
+                bottom = (shape.insets.bottom * slideH).coerceAtLeast(if (shapeGeom == ShapeGeometryType.ELLIPSE) 4f else 1f).dp
             )
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Top
+            verticalArrangement = if (shapeGeom == ShapeGeometryType.ELLIPSE) Arrangement.Center else Arrangement.Top,
+            horizontalAlignment = if (shapeGeom == ShapeGeometryType.ELLIPSE) Alignment.CenterHorizontally else Alignment.Start
         ) {
             paraLayouts.forEach { pl ->
                 val textAlign = pl.textAlign
@@ -1637,8 +1659,9 @@ fun TextShapeItem(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = (pl.spaceAfterSp * shrinkScale).sp),
-                    verticalAlignment = Alignment.Top
+                        .padding(bottom = (pl.spaceAfterSp * shrinkScale).coerceAtLeast(0f).dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = if (shapeGeom == ShapeGeometryType.ELLIPSE) Arrangement.Center else Arrangement.Start
                 ) {
                     if (showMarker) {
                         if (bulletLevel > 0) {
@@ -1661,7 +1684,7 @@ fun TextShapeItem(
                         maxLines = if (isTitle) 100 else 1000,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
-                            .padding(top = (pl.spaceBeforeSp * shrinkScale).sp)
+                            .padding(top = (pl.spaceBeforeSp * shrinkScale).coerceAtLeast(0f).dp)
                             .weight(1f, fill = false)
                     )
                 }

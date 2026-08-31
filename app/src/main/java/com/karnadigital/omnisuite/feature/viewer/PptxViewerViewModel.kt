@@ -78,10 +78,19 @@ data class PptxParagraph(
     val fontSizePt: Float get() = runs.firstOrNull()?.fontSizePt ?: 14f
 }
 
+enum class ShapeGeometryType { RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, NONE }
+
+data class ShapeBorder(
+    val strokeColorHex: String? = null,
+    val strokeWidthDp: Float = 1.5f
+)
+
 data class PptxTextShape(
     val id: String,
     val isTitle: Boolean = false,
     val paragraphs: List<PptxParagraph> = emptyList(),
+    val shapeGeometry: ShapeGeometryType = ShapeGeometryType.RECTANGLE,
+    val shapeBorder: ShapeBorder? = null,
     val shapeLeft: Float = 0.05f,
     val shapeTop: Float = 0.05f,
     val shapeWidth: Float = 0.9f,
@@ -369,10 +378,10 @@ class PptxViewerViewModel @Inject constructor(
             val rIns = extractLongAttr(bodyPr, "getRIns")
             val bIns = extractLongAttr(bodyPr, "getBIns")
             insets = Insets(
-                left = (lIns ?: 91440L).toFloat() / w,
-                top = (tIns ?: 45720L).toFloat() / h,
-                right = (rIns ?: 91440L).toFloat() / w,
-                bottom = (bIns ?: 45720L).toFloat() / h
+                left = ((lIns ?: 91440L).toFloat() / w).coerceAtLeast(0f),
+                top = ((tIns ?: 45720L).toFloat() / h).coerceAtLeast(0f),
+                right = ((rIns ?: 91440L).toFloat() / w).coerceAtLeast(0f),
+                bottom = ((bIns ?: 45720L).toFloat() / h).coerceAtLeast(0f)
             )
 
             // normAutofit (shrink text on overflow)
@@ -479,10 +488,11 @@ class PptxViewerViewModel @Inject constructor(
                 @Suppress("UNCHECKED_CAST")
                 val rowList = tbl.javaClass.getMethod("getTrList").invoke(tbl) as? List<*>
                 rowList?.map { tr ->
-                    val rowH = extractLongAttr(tr, "getH") ?: 0L
+                    val trObj = tr ?: return@map TableRow(0L, emptyList())
+                    val rowH = extractLongAttr(trObj, "getH") ?: 0L
                     val cells = try {
                         @Suppress("UNCHECKED_CAST")
-                        val tcList = tr.javaClass.getMethod("getTcList").invoke(tr) as? List<*>
+                        val tcList = trObj.javaClass.getMethod("getTcList").invoke(trObj) as? List<*>
                         tcList?.map { tc ->
                             val tcPr = try { tc?.javaClass?.getMethod("getTcPr")?.invoke(tc) } catch (_: Throwable) { null }
                             CellMargins(
@@ -638,6 +648,44 @@ class PptxViewerViewModel @Inject constructor(
             .replace(Regex("""^[\'`‘’-]\s*"""), "")
     }
 
+    private fun resolveSchemeColor(schemeName: String): String? {
+        val s = schemeName.lowercase()
+        return when {
+            s.contains("accent1") -> "#1E40AF" // Blue
+            s.contains("accent2") -> "#EA580C" // Orange
+            s.contains("accent3") -> "#0D9488" // Teal
+            s.contains("accent4") -> "#7C3AED" // Purple
+            s.contains("accent5") -> "#16A34A" // Green
+            s.contains("accent6") -> "#E11D48" // Rose/Red
+            s.contains("tx1") || s.contains("dk1") -> "#0F172A" // Dark slate
+            s.contains("tx2") || s.contains("dk2") -> "#334155" // Slate
+            s.contains("bg1") || s.contains("lt1") -> "#FFFFFF"
+            s.contains("bg2") || s.contains("lt2") -> "#F8FAFC"
+            s.contains("hlink") -> "#2563EB"
+            else -> null
+        }
+    }
+
+    private fun extractColorFromSolidFill(solidFill: Any?): String? {
+        if (solidFill == null) return null
+        try {
+            val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (_: Throwable) { null }
+            if (srgb != null) {
+                val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (_: Throwable) { null }
+                val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
+                if (!hex.isNullOrBlank()) return "#$hex"
+            }
+            val schemeClr = try { solidFill.javaClass.getMethod("getSchemeClr").invoke(solidFill) } catch (_: Throwable) { null }
+            if (schemeClr != null) {
+                val valObj = try { schemeClr.javaClass.getMethod("getVal").invoke(schemeClr) } catch (_: Throwable) { null }
+                val valStr = valObj?.toString() ?: ""
+                val resolved = resolveSchemeColor(valStr)
+                if (resolved != null) return resolved
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
     /**
      * Safely reads slide background color in hex from XMLBeans without touching java.awt.Color.
      */
@@ -649,12 +697,7 @@ class PptxViewerViewModel @Inject constructor(
             val bg = try { cSld.javaClass.getMethod("getBg").invoke(cSld) } catch (t: Throwable) { null } ?: return null
             val bgPr = try { bg.javaClass.getMethod("getBgPr").invoke(bg) } catch (t: Throwable) { null } ?: return null
             val solidFill = try { bgPr.javaClass.getMethod("getSolidFill").invoke(bgPr) } catch (t: Throwable) { null } ?: return null
-            val srgbClr = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
-            if (srgbClr != null) {
-                val hexBytes = try { srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray } catch (t: Throwable) { null }
-                val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
-                if (!hex.isNullOrBlank()) return "#$hex"
-            }
+            return extractColorFromSolidFill(solidFill)
         } catch (t: Throwable) {
             // Safe fallback
         }
@@ -670,17 +713,80 @@ class PptxViewerViewModel @Inject constructor(
                 val xmlRun = getXmlObjectReflection(run) ?: return null
                 val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (t: Throwable) { null } ?: return null
                 val solidFill = try { rPr.javaClass.getMethod("getSolidFill").invoke(rPr) } catch (t: Throwable) { null } ?: return null
-                val srgb = try { solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill) } catch (t: Throwable) { null }
-                if (srgb != null) {
-                    val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (t: Throwable) { null }
-                    val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
-                    if (!hex.isNullOrBlank()) return "#$hex"
-                }
+                return extractColorFromSolidFill(solidFill)
             } catch (t: Throwable) {
                 // Ignore
             }
         }
         return null
+    }
+
+    /**
+     * Extracts shape preset geometry (ellipse, roundRect, etc.), border outline, and fill color.
+     */
+    private fun extractShapeGeometryAndBorder(shape: Any): Triple<ShapeGeometryType, ShapeBorder?, String?> {
+        var geometry = ShapeGeometryType.RECTANGLE
+        var border: ShapeBorder? = null
+        var bgColor: String? = null
+
+        try {
+            // 1. POI shape type
+            if (shape is org.apache.poi.sl.usermodel.SimpleShape<*, *>) {
+                val st = try { shape.shapeType } catch (_: Throwable) { null }
+                if (st != null) {
+                    val stName = st.name.lowercase()
+                    if (stName.contains("ellipse") || stName.contains("oval") || stName.contains("circle")) {
+                        geometry = ShapeGeometryType.ELLIPSE
+                    } else if (stName.contains("round") && stName.contains("rect")) {
+                        geometry = ShapeGeometryType.ROUNDED_RECTANGLE
+                    }
+                }
+            }
+
+            // 2. XML SpPr
+            val xml = getXmlObjectReflection(shape)
+            if (xml != null) {
+                val spPr = try { xml.javaClass.getMethod("getSpPr").invoke(xml) } catch (_: Throwable) { null }
+                if (spPr != null) {
+                    // Check prstGeom
+                    val prstGeom = try { spPr.javaClass.getMethod("getPrstGeom").invoke(spPr) } catch (_: Throwable) { null }
+                    if (prstGeom != null) {
+                        val prst = try { prstGeom.javaClass.getMethod("getPrst").invoke(prstGeom)?.toString()?.lowercase() } catch (_: Throwable) { null }
+                        if (prst != null) {
+                            if (prst.contains("ellipse") || prst.contains("oval") || prst.contains("circle")) {
+                                geometry = ShapeGeometryType.ELLIPSE
+                            } else if (prst.contains("roundrect")) {
+                                geometry = ShapeGeometryType.ROUNDED_RECTANGLE
+                            }
+                        }
+                    }
+
+                    // Check background fill: solidFill
+                    val solidFill = try { spPr.javaClass.getMethod("getSolidFill").invoke(spPr) } catch (_: Throwable) { null }
+                    if (solidFill != null) {
+                        bgColor = extractColorFromSolidFill(solidFill)
+                    }
+
+                    // Check line outline: ln
+                    val ln = try { spPr.javaClass.getMethod("getLn").invoke(spPr) } catch (_: Throwable) { null }
+                    if (ln != null) {
+                        val lnFill = try { ln.javaClass.getMethod("getSolidFill").invoke(ln) } catch (_: Throwable) { null }
+                        val lnColor = if (lnFill != null) extractColorFromSolidFill(lnFill) else null
+                        val lnW = extractLongAttr(ln, "getW")
+                        val widthDp = if (lnW != null && lnW > 0) (lnW.toFloat() / 12700f).coerceIn(0.5f, 6f) else 1.5f
+                        if (lnColor != null) {
+                            border = ShapeBorder(strokeColorHex = lnColor, strokeWidthDp = widthDp)
+                        } else if (geometry == ShapeGeometryType.ELLIPSE || geometry == ShapeGeometryType.ROUNDED_RECTANGLE) {
+                            border = ShapeBorder(strokeColorHex = "#7C3AED", strokeWidthDp = widthDp)
+                        }
+                    } else if (geometry == ShapeGeometryType.ELLIPSE) {
+                        border = ShapeBorder(strokeColorHex = "#7C3AED", strokeWidthDp = 1.5f)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        return Triple(geometry, border, bgColor)
     }
 
     private fun setRunProperties(r: XSLFTextRun, textColorHex: String?, fontSizePt: Float) {
@@ -988,6 +1094,7 @@ class PptxViewerViewModel @Inject constructor(
                                              else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
                                          } catch (_: Throwable) { null }
 
+                                         val defaultFontSize = if (isTitle) 24f else 14f
                                          // Reference font size for exact (pt) line spacing: largest run font.
                                          val refFontPt = paragraphRuns.maxOfOrNull {
                                              if (it.fontSizePt > 0) it.fontSizePt else defaultFontSize
@@ -1028,7 +1135,6 @@ class PptxViewerViewModel @Inject constructor(
                                              rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
                                              else -> "•"
                                          }
-
                                          val alignment = try {
                                              when (p.textAlign) {
                                                  org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
@@ -1038,8 +1144,8 @@ class PptxViewerViewModel @Inject constructor(
                                              }
                                          } catch (t: Throwable) { "LEFT" }
 
-                                         val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
-                                         val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat() } catch (t: Throwable) { 0f }
+                                         val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
+                                         val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
                                          val lineSpacingMul = extractLineSpacingMul(pPr, refFontPt)
 
                                          shapeParagraphs.add(
@@ -1056,8 +1162,8 @@ class PptxViewerViewModel @Inject constructor(
                                              )
                                          )
                                      }
-                                }
-                            }
+                                 }
+                             }
 
                             // If no paragraphs parsed but shape has text
                             if (shapeParagraphs.isEmpty() &&
@@ -1082,25 +1188,29 @@ class PptxViewerViewModel @Inject constructor(
                                 )
                             }
 
-                             if (shapeParagraphs.isNotEmpty()) {
-                                 val isDistinctTitle = isTitle && titleShape == null
-                                 val textZOrder = zOrderCounter++
-                                 // Read text-box padding + autofit from <a:bodyPr>.
-                                 val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
-                                 val parsedShape = PptxTextShape(
-                                     id = if (isDistinctTitle) "title" else "body_$bodyCount",
-                                     isTitle = isTitle,
-                                     paragraphs = shapeParagraphs,
-                                     shapeLeft = shapeLeft,
-                                     shapeTop = shapeTop,
-                                     shapeWidth = shapeWidthVal,
-                                     shapeHeight = shapeHeightVal,
-                                     zOrder = textZOrder,
-                                     insets = bodyPr.insets,
-                                     autoFit = bodyPr.autoFit,
-                                     fontScale = bodyPr.fontScale,
-                                     lnSpcReduction = bodyPr.lnSpcReduction
-                                 )
+                            if (shapeParagraphs.isNotEmpty()) {
+                                val isDistinctTitle = isTitle && titleShape == null
+                                val textZOrder = zOrderCounter++
+                                val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
+                                val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
+                                val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
+                                val parsedShape = PptxTextShape(
+                                    id = if (isDistinctTitle) "title" else "body_$bodyCount",
+                                    isTitle = isTitle,
+                                    paragraphs = shapeParagraphs,
+                                    shapeGeometry = shapeGeom,
+                                    shapeBorder = shapeBorder,
+                                    shapeLeft = shapeLeft,
+                                    shapeTop = shapeTop,
+                                    shapeWidth = clampedWidth,
+                                    shapeHeight = shapeHeightVal,
+                                    backgroundColorHex = shapeBg,
+                                    zOrder = textZOrder,
+                                    insets = bodyPr.insets,
+                                    autoFit = bodyPr.autoFit,
+                                    fontScale = bodyPr.fontScale,
+                                    lnSpcReduction = bodyPr.lnSpcReduction
+                                )
 
                                 if (isDistinctTitle) {
                                     titleShape = parsedShape
@@ -1110,105 +1220,137 @@ class PptxViewerViewModel @Inject constructor(
                                 }
                             }
                         }
-                     } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
-                         val numRows = try { shape.numberOfRows } catch (t: Throwable) { 0 }
-                         val numCols = try { shape.numberOfColumns } catch (t: Throwable) { 0 }
-                         val tableBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                         val tLeft = tableBounds?.get(0) ?: 0.05f
-                         val tTop = tableBounds?.get(1) ?: 0.35f
-                         val tWidth = tableBounds?.get(2) ?: 0.9f
-                         val tHeight = tableBounds?.get(3) ?: 0.5f
+                    } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
+                        val numRows = try { shape.numberOfRows } catch (t: Throwable) { 0 }
+                        val numCols = try { shape.numberOfColumns } catch (t: Throwable) { 0 }
+                        val tableBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                        val tLeft = tableBounds?.get(0) ?: 0.05f
+                        val tTop = tableBounds?.get(1) ?: 0.35f
+                        val tWidth = tableBounds?.get(2) ?: 0.9f
+                        val tHeight = tableBounds?.get(3) ?: 0.5f
 
-                         // Real grid geometry: column widths + row heights (EMU) and cell margins.
-                         val tableGeo = extractTableGeometry(shape, slideWidthEmu, slideHeightEmu)
+                        val tableGeo = extractTableGeometry(shape, slideWidthEmu, slideHeightEmu)
 
-                         // Cumulative column offsets (normalized to the grid's total width).
-                         val colWidths = tableGeo?.gridColWidthsEmu?.takeIf { it.size == numCols }
-                             ?: List(numCols) { (slideWidthEmu / numCols) }
-                         val totalGridW = colWidths.sum().toFloat().coerceAtLeast(1f)
-                         val colOffset = FloatArray(numCols + 1)
-                         for (c in 0 until numCols) {
-                             colOffset[c + 1] = colOffset[c] + colWidths[c].toFloat() / totalGridW
-                         }
+                        val colWidths = tableGeo?.gridColWidthsEmu?.takeIf { it.size == numCols }
+                            ?: List(numCols) { (slideWidthEmu / numCols) }
+                        val totalGridW = colWidths.sum().toFloat().coerceAtLeast(1f)
+                        val colOffset = FloatArray(numCols + 1)
+                        for (c in 0 until numCols) {
+                            colOffset[c + 1] = colOffset[c] + colWidths[c].toFloat() / totalGridW
+                        }
 
-                         // Cumulative row offsets (normalized to the grid's total height).
-                         val rowHeights = tableGeo?.rows?.map { it.heightEmu }?.takeIf { it.size == numRows }
-                             ?: List(numRows) { (slideHeightEmu / numRows) }
-                         val totalGridH = rowHeights.sum().toFloat().coerceAtLeast(1f)
-                         val rowOffset = FloatArray(numRows + 1)
-                         for (r in 0 until numRows) {
-                             rowOffset[r + 1] = rowOffset[r] + rowHeights[r].toFloat() / totalGridH
-                         }
+                        val rowHeights = tableGeo?.rows?.map { it.heightEmu }?.takeIf { it.size == numRows }
+                            ?: List(numRows) { (slideHeightEmu / numRows) }
+                        val totalGridH = rowHeights.sum().toFloat().coerceAtLeast(1f)
+                        val rowOffset = FloatArray(numRows + 1)
+                        for (r in 0 until numRows) {
+                            rowOffset[r + 1] = rowOffset[r] + rowHeights[r].toFloat() / totalGridH
+                        }
 
-                         for (r in 0 until numRows) {
-                             for (c in 0 until numCols) {
-                                 val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
-                                 val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
-                                 if (text.isNotBlank()) {
-                                     val cellLeft = (tLeft + colOffset[c] * tWidth).coerceIn(0f, 1f)
-                                     val cellTop = (tTop + rowOffset[r] * tHeight).coerceIn(0f, 1f)
-                                     val cellW = ((colOffset[c + 1] - colOffset[c]) * tWidth).coerceIn(0.05f, 1f)
-                                     val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.05f, 1f)
+                        for (r in 0 until numRows) {
+                            for (c in 0 until numCols) {
+                                val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
+                                val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
+                                if (text.isNotBlank()) {
+                                    val cellLeft = (tLeft + colOffset[c] * tWidth).coerceIn(0f, 1f)
+                                    val cellTop = (tTop + rowOffset[r] * tHeight).coerceIn(0f, 1f)
+                                    val cellW = ((colOffset[c + 1] - colOffset[c]) * tWidth).coerceIn(0.05f, 1f)
+                                    val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.05f, 1f)
 
-                                     val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
-                                     val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
-                                     val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
-                                     val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
-                                     val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
-                                     val colorHex = firstRun?.let { extractTextRunColorHex(it) }
-                                     val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
-                                     val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+                                    val cellParas = try { cell.textParagraphs } catch (_: Throwable) { emptyList() }
+                                    val cellShapeParas = mutableListOf<PptxParagraph>()
+                                    
+                                    if (cellParas.isNotEmpty()) {
+                                        for (cp in cellParas) {
+                                            val cpRuns = try { cp.textRuns } catch (_: Throwable) { emptyList() }
+                                            val cRuns = mutableListOf<PptxTextRun>()
+                                            for (cr in cpRuns) {
+                                                val crText = cleanTextRunString(try { cr.rawText ?: "" } catch (_: Throwable) { "" })
+                                                if (crText.isNotEmpty()) {
+                                                    val isB = try { cr.isBold } catch (_: Throwable) { false }
+                                                    val isI = try { cr.isItalic } catch (_: Throwable) { false }
+                                                    val isU = try { cr.isUnderlined } catch (_: Throwable) { false }
+                                                    val cHex = extractTextRunColorHex(cr)
+                                                    val fS = try { cr.fontSize?.toFloat() } catch (_: Throwable) { null } ?: 14f
+                                                    cRuns.add(PptxTextRun(crText, isB, isI, isU, cHex, fS))
+                                                }
+                                            }
+                                            if (cRuns.isNotEmpty()) {
+                                                cellShapeParas.add(
+                                                    PptxParagraph(
+                                                        runs = cRuns,
+                                                        bulletLevel = cp.indentLevel,
+                                                        hasBullet = cp.indentLevel > 0,
+                                                        bulletChar = if (cp.indentLevel > 0) "•" else "",
+                                                        alignment = "LEFT"
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (cellShapeParas.isEmpty()) {
+                                        val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
+                                        val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
+                                        val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
+                                        val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                        val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                        val colorHex = firstRun?.let { extractTextRunColorHex(it) }
+                                        val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
+                                        val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+                                        cellShapeParas.add(
+                                            PptxParagraph(
+                                                runs = listOf(
+                                                    PptxTextRun(
+                                                        text = text.trim(),
+                                                        isBold = isBold,
+                                                        isItalic = isItalic,
+                                                        isUnderline = isUnderline,
+                                                        textColorHex = colorHex,
+                                                        fontSizePt = fontSizePt
+                                                    )
+                                                ),
+                                                bulletLevel = 0,
+                                                hasBullet = false,
+                                                bulletChar = "",
+                                                alignment = "LEFT"
+                                            )
+                                        )
+                                    }
 
-                                     // Cell margins (from <a:tcPr> marL/T/R/B) are stored as insets so the
-                                     // renderer pads cell text away from its borders.
-                                     val cellMargins = tableGeo?.rows?.getOrNull(r)?.cells?.getOrNull(c)
-                                         ?: CellMargins(
-                                             left = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
-                                             top = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f),
-                                             right = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
-                                             bottom = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f)
-                                         )
+                                    val cellMargins = tableGeo?.rows?.getOrNull(r)?.cells?.getOrNull(c)
+                                        ?: CellMargins(
+                                            left = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
+                                            top = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f),
+                                            right = 45720f / (if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f),
+                                            bottom = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f)
+                                        )
 
-                                      textShapes.add(
-                                          PptxTextShape(
-                                              id = "table_cell_${r}_${c}",
-                                              isTitle = false,
-                                              paragraphs = listOf(
-                                                  PptxParagraph(
-                                                      runs = listOf(
-                                                          PptxTextRun(
-                                                              text = text.trim(),
-                                                              isBold = isBold,
-                                                              isItalic = isItalic,
-                                                              isUnderline = isUnderline,
-                                                              textColorHex = colorHex,
-                                                              fontSizePt = fontSizePt
-                                                          )
-                                                      ),
-                                                      bulletLevel = 0,
-                                                      hasBullet = false,
-                                                      bulletChar = "",
-                                                      alignment = "LEFT"
-                                                  )
-                                              ),
-                                              shapeLeft = cellLeft,
-                                              shapeTop = cellTop,
-                                              shapeWidth = cellW,
-                                              shapeHeight = cellH,
-                                              zOrder = zOrderCounter++,
-                                              insets = Insets(
-                                                  left = cellMargins.left,
-                                                  top = cellMargins.top,
-                                                  right = cellMargins.right,
-                                                  bottom = cellMargins.bottom
-                                              )
-                                          )
-                                      )
-                                     bodyCount++
-                                 }
-                             }
-                         }
-                     }
+                                    textShapes.add(
+                                        PptxTextShape(
+                                            id = "table_cell_${r}_${c}",
+                                            isTitle = false,
+                                            paragraphs = cellShapeParas,
+                                            shapeGeometry = ShapeGeometryType.RECTANGLE,
+                                            shapeBorder = ShapeBorder(strokeColorHex = "#CBD5E1", strokeWidthDp = 1f),
+                                            shapeLeft = cellLeft,
+                                            shapeTop = cellTop,
+                                            shapeWidth = cellW,
+                                            shapeHeight = cellH,
+                                            zOrder = zOrderCounter++,
+                                            insets = Insets(
+                                                left = cellMargins.left,
+                                                top = cellMargins.top,
+                                                right = cellMargins.right,
+                                                bottom = cellMargins.bottom
+                                            )
+                                        )
+                                    )
+                                    bodyCount++
+                                }
+                            }
+                        }
+                    }
                 } catch (t: Throwable) {
                     t.printStackTrace()
                 }

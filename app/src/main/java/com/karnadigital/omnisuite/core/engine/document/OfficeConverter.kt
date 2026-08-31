@@ -591,6 +591,26 @@ class OfficeConverter @Inject constructor(
                     val pw = normBounds[2] * targetWidth.toFloat()
                     val ph = normBounds[3] * targetHeight.toFloat()
 
+                    val isEllipse = try {
+                        val st = (shape as? org.apache.poi.sl.usermodel.SimpleShape<*, *>)?.shapeType
+                        st == org.apache.poi.sl.usermodel.ShapeType.ELLIPSE || st?.name?.contains("OVAL", ignoreCase = true) == true
+                    } catch (_: Throwable) { false }
+
+                    if (shape is XSLFSimpleShape) {
+                        val fillColor = getShapeFillColor(shape)
+                        if (fillColor != null) {
+                            val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL; isAntiAlias = true }
+                            if (isEllipse) canvas.drawOval(px, py, px + pw, py + ph, fillPaint)
+                            else canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
+                        }
+                        val lineColor = getShapeLineColor(shape)
+                        if (lineColor != null) {
+                            val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                            if (isEllipse) canvas.drawOval(px, py, px + pw, py + ph, strokePaint)
+                            else canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
+                        }
+                    }
+
                     if (shape is XSLFTextShape) {
                         val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
                         val text = try { shape.text ?: "" } catch (t: Throwable) { "" }
@@ -618,7 +638,8 @@ class OfficeConverter @Inject constructor(
                                     val lines = wrapTextForCanvas(fullLine, textPaint, (pw - 12f - indentOffset).coerceAtLeast(50f))
                                     for (line in lines) {
                                         if (curY < py + ph - 4f) {
-                                            canvas.drawText(line, px + 6f + indentOffset, curY, textPaint)
+                                            val drawX = if (isEllipse) (px + (pw - textPaint.measureText(line)) / 2f) else (px + 6f + indentOffset)
+                                            canvas.drawText(line, drawX, curY, textPaint)
                                             curY += textPaint.textSize * 1.3f
                                         }
                                     }
@@ -639,21 +660,11 @@ class OfficeConverter @Inject constructor(
                             var curY = py + textPaint.textSize + 4f
                             for (line in lines) {
                                 if (curY < py + ph - 4f) {
-                                    canvas.drawText(line, px + 6f, curY, textPaint)
+                                    val drawX = if (isEllipse) (px + (pw - textPaint.measureText(line)) / 2f) else (px + 6f)
+                                    canvas.drawText(line, drawX, curY, textPaint)
                                     curY += textPaint.textSize * 1.3f
                                 }
                             }
-                        }
-                    } else if (shape is XSLFSimpleShape) {
-                        val fillColor = getShapeFillColor(shape)
-                        if (fillColor != null) {
-                            val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL }
-                            canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
-                        }
-                        val lineColor = getShapeLineColor(shape)
-                        if (lineColor != null) {
-                            val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f }
-                            canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
                         }
                     }
                 }
