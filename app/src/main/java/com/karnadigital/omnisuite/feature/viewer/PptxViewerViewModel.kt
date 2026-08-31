@@ -525,9 +525,9 @@ class PptxViewerViewModel @Inject constructor(
     private fun extractBlipEmbedId(xml: Any): String? {
         val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
 
-        // Priority 1: Check for SVG vector blip (asvg:svgBlip) in XML
+        // Priority 1: Check for SVG vector blip (asvg:svgBlip) in XML string or extLst
         if (xmlStr.isNotBlank()) {
-            val svgMatch = Regex("""<[^>]*svgBlip[^>]*embed=["'](rId\d+)["']""").find(xmlStr)
+            val svgMatch = Regex("""(?:asvg:svgBlip|svgBlip)[^>]*(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(xmlStr)
             if (svgMatch != null) {
                 return svgMatch.groupValues[1]
             }
@@ -546,6 +546,13 @@ class PptxViewerViewModel @Inject constructor(
             if (blipFill != null) {
                 val blip = try { blipFill.javaClass.getMethod("getBlip").invoke(blipFill) } catch (_: Throwable) { null }
                 if (blip != null) {
+                    val blipXmlStr = try { blip.toString() } catch (_: Throwable) { "" }
+                    if (blipXmlStr.isNotBlank()) {
+                        val svgMatch = Regex("""(?:asvg:svgBlip|svgBlip)[^>]*(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(blipXmlStr)
+                        if (svgMatch != null) {
+                            return svgMatch.groupValues[1]
+                        }
+                    }
                     val embed = try { blip.javaClass.getMethod("getEmbed").invoke(blip) as? String } catch (_: Throwable) { null }
                     if (!embed.isNullOrBlank()) return embed
                 }
@@ -554,7 +561,7 @@ class PptxViewerViewModel @Inject constructor(
 
         // Priority 3: Any embed/link
         if (xmlStr.isNotBlank()) {
-            val match = Regex("""(?:embed|link)=["'](rId\d+)["']""").find(xmlStr)
+            val match = Regex("""(?:r:embed|embed|r:link|link)=["'](rId\d+)["']""", RegexOption.IGNORE_CASE).find(xmlStr)
             if (match != null) {
                 return match.groupValues[1]
             }
@@ -601,8 +608,22 @@ class PptxViewerViewModel @Inject constructor(
 
     /**
      * Extracts picture data from ANY shape (PictureShape, Shape with blipFill, etc.).
+     * Prioritizes modern vector graphics (SVG) in XML before falling back to POI raster PictureData.
      */
     private fun extractPictureDataFromShape(shape: Any, slide: Any): Pair<ByteArray, String?>? {
+        // Priority 1: Check XML for <asvg:svgBlip> or modern vector graphic embed ID FIRST
+        try {
+            val xml = getXmlObjectReflection(shape)
+            if (xml != null) {
+                val blipId = extractBlipEmbedId(xml)
+                if (!blipId.isNullOrBlank()) {
+                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
+                    if (resolved != null) return resolved
+                }
+            }
+        } catch (_: Throwable) { }
+
+        // Priority 2: POI PictureShape pictureData
         if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) {
             try {
                 val pd = shape.pictureData
@@ -621,17 +642,6 @@ class PptxViewerViewModel @Inject constructor(
                 if (data != null && data.isNotEmpty()) {
                     val ct = try { pd.javaClass.getMethod("getContentType").invoke(pd) as? String } catch (_: Throwable) { null }
                     return Pair(data, ct)
-                }
-            }
-        } catch (_: Throwable) { }
-
-        try {
-            val xml = getXmlObjectReflection(shape)
-            if (xml != null) {
-                val blipId = extractBlipEmbedId(xml)
-                if (!blipId.isNullOrBlank()) {
-                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
-                    if (resolved != null) return resolved
                 }
             }
         } catch (_: Throwable) { }
@@ -862,13 +872,11 @@ class PptxViewerViewModel @Inject constructor(
                         val lnColor = if (lnFill != null) extractColorFromSolidFill(lnFill) else null
                         val lnW = extractLongAttr(ln, "getW")
                         val widthDp = if (lnW != null && lnW > 0) (lnW.toFloat() / 12700f).coerceIn(0.5f, 4f) else 0.75f
-                        if (lnColor != null) {
-                            border = ShapeBorder(strokeColorHex = lnColor, strokeWidthDp = widthDp)
-                        } else if (geometry == ShapeGeometryType.ELLIPSE || geometry == ShapeGeometryType.ROUNDED_RECTANGLE) {
-                            border = ShapeBorder(strokeColorHex = "#7C3AED", strokeWidthDp = widthDp)
-                        }
+                        val strokeHex = lnColor ?: resolveSchemeColor("tx1") ?: "#1E293B"
+                        border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = widthDp)
                     } else if (geometry == ShapeGeometryType.ELLIPSE) {
-                        border = ShapeBorder(strokeColorHex = "#7C3AED", strokeWidthDp = 0.75f)
+                        val strokeHex = resolveSchemeColor("tx1") ?: "#1E293B"
+                        border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = 0.75f)
                     }
                 }
             }
