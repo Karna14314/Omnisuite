@@ -103,6 +103,9 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPptxToTxt -> navController.navigate(Screen.PptxToTxt.createRoute())
                         is NavigationEvent.NavigateToTarTools -> navController.navigate(Screen.TarTools.route)
                         is NavigationEvent.NavigateToHistory -> navController.navigate(Screen.History.route)
+                        is NavigationEvent.NavigateToPdfPageNumber -> navController.navigate(Screen.PdfPageNumber.route)
+                        is NavigationEvent.NavigateToPdfReorder -> navController.navigate(Screen.PdfReorder.route)
+                        is NavigationEvent.NavigateToPdfExtractImages -> navController.navigate(Screen.PdfExtractImages.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -712,6 +715,27 @@ fun OmniNavGraph(
                 onOpenFile = { fileUri ->
                     navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
                 },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 30. PDF Page Numbering Screen
+        composable(route = Screen.PdfPageNumber.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfPageNumberScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 31. PDF Reorder Pages Screen
+        composable(route = Screen.PdfReorder.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfReorderScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 32. PDF Extract Images Screen
+        composable(route = Screen.PdfExtractImages.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfExtractImagesScreen(
                 onBack = { navController.popBackStack() }
             )
         }

@@ -884,4 +884,135 @@ class PdfToolsRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    suspend fun addPageNumbers(inputUri: Uri, startNumber: Int, position: String, fontSize: Int, customFilename: String?): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "pagenums_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                val pageCount = document.numberOfPages
+                for (i in 0 until pageCount) {
+                    val page = document.getPage(i)
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND, true)
+                    val pageNum = (startNumber + i).toString()
+                    val textWidth = font.getStringWidth(pageNum) * fontSize / 1000f
+                    val mediaBox = page.mediaBox
+                    val pageWidth = mediaBox.width
+                    val pageHeight = mediaBox.height
+                    val x = when (position) {
+                        "top-left", "bottom-left" -> 30f
+                        "top-center", "bottom-center" -> (pageWidth - textWidth) / 2f
+                        "top-right", "bottom-right" -> pageWidth - textWidth - 30f
+                        else -> (pageWidth - textWidth) / 2f
+                    }
+                    val y = when (position) {
+                        "top-left", "top-center", "top-right" -> pageHeight - 30f
+                        "bottom-left", "bottom-center", "bottom-right" -> 20f
+                        else -> 20f
+                    }
+                    contentStream.beginText()
+                    contentStream.setFont(font, fontSize.toFloat())
+                    contentStream.newLineAtOffset(x, y)
+                    contentStream.showText(pageNum)
+                    contentStream.endText()
+                    contentStream.close()
+                }
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_numbered.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save numbered PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reorderPdfPages(inputUri: Uri, newOrder: List<Int>): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "reordered_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                val pageCount = document.numberOfPages
+                if (newOrder.size != pageCount) throw Exception("New order must contain exactly $pageCount pages.")
+                val seen = mutableSetOf<Int>()
+                for (idx in newOrder) {
+                    if (idx < 0 || idx >= pageCount) throw Exception("Invalid page index: $idx")
+                    if (!seen.add(idx)) throw Exception("Duplicate page index: $idx")
+                }
+                val pages = (0 until pageCount).map { document.getPage(it) }
+                val newDoc = PDDocument()
+                for (idx in newOrder) {
+                    newDoc.addPage(pages[idx])
+                }
+                FileOutputStream(tempOutputFile).use { newDoc.save(it) }
+                newDoc.close()
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = "${originalName}_reordered.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save reordered PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun extractImagesFromPdf(inputUri: Uri): Result<List<Uri>> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val savedUris = mutableListOf<Uri>()
+            var totalSize = 0L
+            PDDocument.load(tempInputFile).use { document ->
+                var imageIndex = 0
+                for (pageNum in 0 until document.numberOfPages) {
+                    val page = document.getPage(pageNum)
+                    val resources = page.resources ?: continue
+                    for (name in resources.xObjectNames) {
+                        if (resources.isImageXObject(name)) {
+                            val xObject = resources.getXObject(name)
+                            if (xObject is PDImageXObject) {
+                                val image = xObject.image ?: continue
+                                val stream = java.io.ByteArrayOutputStream()
+                                val success = android.graphics.Bitmap.CompressFormat.PNG.let { format ->
+                                    image.compress(format, 100, stream)
+                                }
+                                if (success) {
+                                    val bytes = stream.toByteArray()
+                                    val imageName = "${originalName}_page${pageNum + 1}_img${imageIndex + 1}.png"
+                                    val savedUri = fileOutputManager.saveToDefault(bytes, imageName, "image/png", "Images")
+                                        ?: continue
+                                    savedUris.add(savedUri)
+                                    totalSize += bytes.size.toLong()
+                                    imageIndex++
+                                }
+                                image.recycle()
+                            }
+                        }
+                    }
+                }
+            }
+            if (savedUris.isEmpty()) throw Exception("No images found in the PDF.")
+            val batchUriString = savedUris.joinToString("|||") { it.toString() }
+            registerRecentFile(Uri.parse(batchUriString), "${originalName} (Extracted Images)", "image/png", totalSize)
+            if (tempInputFile.exists()) tempInputFile.delete()
+            Result.success(savedUris)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

@@ -151,6 +151,9 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToXlsToPdf) }) }
         item { ToolListRow("🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }) }
         item { ToolListRow("<html>", "HTML to PDF", "Compile custom HTML text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }) }
+        item { ToolListRow("🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }) }
+        item { ToolListRow("🔀", "Reorder Pages", "Drag and drop to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }) }
+        item { ToolListRow("🖼️", "Extract Images", "Extract embedded images from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }) }
     }
 }
 

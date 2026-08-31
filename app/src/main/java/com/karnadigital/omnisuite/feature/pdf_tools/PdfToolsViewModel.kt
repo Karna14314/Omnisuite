@@ -93,6 +93,16 @@ class PdfToolsViewModel @Inject constructor(
     var tarInputUris by mutableStateOf<List<Uri>>(emptyList())
     var tarExtractUri by mutableStateOf<Uri?>(null)
 
+    var pageNumberInputUri by mutableStateOf<Uri?>(null)
+    var pageNumberStart by mutableStateOf("1")
+    var pageNumberPosition by mutableStateOf("bottom-center")
+    var pageNumberFontSize by mutableStateOf(12)
+
+    var reorderInputUri by mutableStateOf<Uri?>(null)
+    var reorderPageOrder by mutableStateOf<List<Int>>(emptyList())
+
+    var extractImagesInputUri by mutableStateOf<Uri?>(null)
+
     fun registerRecentFile(recent: RecentFile) {
         viewModelScope.launch(Dispatchers.IO) {
             recentFileRepository.insertRecentFile(recent)
@@ -712,6 +722,74 @@ class PdfToolsViewModel @Inject constructor(
                 errorMessage = "WebView print initialization error: ${e.localizedMessage}"
                 isProcessing = false
             }
+        }
+    }
+
+    fun addPageNumbers(customFilename: String? = null) {
+        val inputUri = pageNumberInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        val startNum = pageNumberStart.toIntOrNull() ?: 1
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addPageNumbers(inputUri, startNum, pageNumberPosition, pageNumberFontSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successName = customFilename ?: "numbered_${System.currentTimeMillis()}.pdf"
+                successMessage = "Page numbers added successfully!"
+                pageNumberInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to add page numbers: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun reorderPdfPages() {
+        val inputUri = reorderInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        if (reorderPageOrder.isEmpty()) {
+            errorMessage = "Please specify the new page order."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.reorderPdfPages(inputUri, reorderPageOrder)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Pages reordered successfully!"
+                reorderInputUri = null
+                reorderPageOrder = emptyList()
+            }.onFailure { e ->
+                errorMessage = "Failed to reorder pages: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun extractImagesFromPdf() {
+        val inputUri = extractImagesInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractImagesFromPdf(inputUri)
+            result.onSuccess { uris ->
+                successUris = uris
+                successUri = uris.firstOrNull()
+                successMessage = "Extracted ${uris.size} images from PDF!"
+                extractImagesInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to extract images: ${e.localizedMessage}"
+            }
+            isProcessing = false
         }
     }
 }

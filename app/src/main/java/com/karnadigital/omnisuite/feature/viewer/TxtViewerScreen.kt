@@ -3,49 +3,45 @@ package com.karnadigital.omnisuite.feature.viewer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Warning
-
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextRange
+import com.karnadigital.omnisuite.core.engine.EncodingDetector
+import com.karnadigital.omnisuite.core.engine.SyntaxHighlighter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 
-/**
- * Premium Plain Text Viewer and Editor Core.
- * Allows safe stream reading/writing offline and distraction-free visual canvas editing.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TxtViewerScreen(
@@ -54,242 +50,352 @@ fun TxtViewerScreen(
     onToolAction: (ViewerTool) -> Unit = {},
     viewModel: TxtViewerViewModel = hiltViewModel()
 ) {
-    LaunchedEffect(fileUri) {
-        viewModel.loadTextFile(fileUri)
-    }
-
-    val state by viewModel.loadState.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var isInitialized by remember { mutableStateOf(false) }
+    val loadState by viewModel.loadState.collectAsState()
 
-    // Synchronize content state when loaded successfully
-    val currentState = state
-    if (currentState is TxtLoadState.Success && !isInitialized) {
-        textFieldValue = TextFieldValue(currentState.content)
-        isInitialized = true
+    var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var replaceQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var currentMatchIndex by remember { mutableIntStateOf(-1) }
+    var showReplace by remember { mutableStateOf(false) }
+
+    var showGoToLine by remember { mutableStateOf(false) }
+    var goToLineInput by remember { mutableStateOf("") }
+
+    var showEncodingPicker by remember { mutableStateOf(false) }
+    var currentEncoding by remember { mutableStateOf("UTF-8") }
+    var detectedEncoding by remember { mutableStateOf<String?>(null) }
+
+    var fontSize by remember { mutableFloatStateOf(14f) }
+    var showLineNumbers by remember { mutableStateOf(true) }
+    var wordWrap by remember { mutableStateOf(false) }
+    var themeIndex by remember { mutableIntStateOf(0) }
+
+    val fileExtension = remember {
+        fileUri.substringAfterLast('.', "").lowercase()
     }
 
-    // Capture save confirmation signals to trigger success/failure Snackbars
+    val themes = listOf(
+        Color.White to Color.Black,
+        Color(0xFFF4ECD8) to Color(0xFF5B4636),
+        Color(0xFF1E1E1E) to Color(0xFFD4D4D4),
+        Color(0xFF2D2D2D) to Color(0xFFA0A0A0)
+    )
+    val currentTheme = themes[themeIndex]
+
+    val horizontalScrollState = rememberScrollState()
+    val verticalScrollState = rememberScrollState()
+
+    val isCodeFile = fileExtension in setOf(
+        "kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "c", "h", "cpp",
+        "hpp", "cc", "cxx", "cs", "php", "sql", "html", "htm", "css", "xml",
+        "json", "yaml", "yml", "md", "markdown", "gradle", "groovy", "properties",
+        "ini", "cfg", "conf", "config", "log", "csv", "tsv", "sh", "bash", "rb",
+        "go", "rs", "swift", "dart", "scala", "r", "lua", "pl"
+    )
+
+    LaunchedEffect(fileUri) {
+        withContext(Dispatchers.IO) {
+            val file = File(fileUri)
+            if (file.exists()) {
+                val encoding = EncodingDetector.detectEncoding(file)
+                val encodingName = when (encoding.charset) {
+                    StandardCharsets.UTF_8 -> "UTF-8"
+                    StandardCharsets.UTF_16LE -> "UTF-16LE"
+                    StandardCharsets.UTF_16BE -> "UTF-16BE"
+                    StandardCharsets.US_ASCII -> "ASCII"
+                    StandardCharsets.ISO_8859_1 -> "ISO-8859-1"
+                    else -> encoding.charset.name()
+                }
+                detectedEncoding = encodingName
+                currentEncoding = encodingName
+                val content = EncodingDetector.readTextWithEncoding(file, encoding.charset)
+                textFieldValue = TextFieldValue(content)
+                isInitialized = true
+            }
+        }
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.saveStatus.collect { success ->
             if (success) {
-                snackbarHostState.showSnackbar(
-                    message = "Changes saved offline successfully",
-                    duration = SnackbarDuration.Short
-                )
+                snackbarHostState.showSnackbar("Changes saved successfully")
             } else {
-                snackbarHostState.showSnackbar(
-                    message = "Failed to write changes back to local storage",
-                    duration = SnackbarDuration.Short
-                )
+                snackbarHostState.showSnackbar("Failed to save changes")
             }
         }
     }
 
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val searchResults by viewModel.searchResults.collectAsState()
-    val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
-    var searchExpanded by remember { mutableStateOf(false) }
-
-    val currentMatchOffset = if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
-        searchResults[currentMatchIndex]
-    } else {
-        -1
-    }
-
-    // Scroll/selection effect for search matches
-    LaunchedEffect(currentMatchIndex) {
-        if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
-            val offset = searchResults[currentMatchIndex]
-            val endOffset = minOf(textFieldValue.text.length, offset + searchQuery.length)
-            if (offset in 0..textFieldValue.text.length) {
-                textFieldValue = textFieldValue.copy(
-                    selection = TextRange(offset, endOffset)
-                )
-            }
+    fun performSearch(query: String, content: String) {
+        if (query.isEmpty()) {
+            searchResults = emptyList()
+            currentMatchIndex = -1
+            return
         }
+        val matches = mutableListOf<Int>()
+        var idx = content.indexOf(query, 0, ignoreCase = true)
+        while (idx >= 0) {
+            matches.add(idx)
+            idx = content.indexOf(idx + query.length, ignoreCase = true)
+        }
+        searchResults = matches
+        currentMatchIndex = if (matches.isNotEmpty()) 0 else -1
     }
 
-    var showFormatting by remember { mutableStateOf(false) }
-    var fontSize by remember { mutableFloatStateOf(16f) }
-    var themeIndex by remember { mutableIntStateOf(0) }
-    var fontIndex by remember { mutableIntStateOf(0) }
-    val fonts = listOf(FontFamily.Monospace, FontFamily.Default, FontFamily.Serif, FontFamily.SansSerif)
-    val fontNames = listOf("Monospace", "Default", "Serif", "SansSerif")
-    val themes = listOf(
-        Color.White to Color.Black, // Light
-        Color(0xFFF4ECD8) to Color(0xFF5B4636), // Sepia
-        Color(0xFF2D2D2D) to Color(0xFFE0E0E0), // Cinematic Dark
-        Color(0xFF1E1E1E) to Color(0xFFA0A0A0) // Grey
-    )
-    val currentTheme = themes[themeIndex]
+    fun replaceAll(query: String, replacement: String, content: String): String {
+        if (query.isEmpty()) return content
+        return content.replace(query, replacement, ignoreCase = true)
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            if (searchExpanded) {
+            if (showSearch) {
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding(),
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 3.dp
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {
-                            searchExpanded = false
-                            viewModel.setSearchQuery("", textFieldValue.text)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close search"
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = {
+                                showSearch = false
+                                searchQuery = ""
+                                searchResults = emptyList()
+                                currentMatchIndex = -1
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close search")
+                            }
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = {
+                                    searchQuery = it
+                                    performSearch(it, textFieldValue.text)
+                                },
+                                placeholder = { Text("Search...") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium
                             )
+                            if (searchResults.isNotEmpty()) {
+                                Text(
+                                    text = "${currentMatchIndex + 1}/${searchResults.size}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                IconButton(onClick = {
+                                    if (currentMatchIndex > 0) currentMatchIndex--
+                                    else currentMatchIndex = searchResults.size - 1
+                                }) {
+                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous")
+                                }
+                                IconButton(onClick = {
+                                    if (currentMatchIndex < searchResults.size - 1) currentMatchIndex++
+                                    else currentMatchIndex = 0
+                                }) {
+                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next")
+                                }
+                            }
+                            IconButton(onClick = { showReplace = !showReplace }) {
+                                Icon(
+                                    if (showReplace) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Toggle replace"
+                                )
+                            }
                         }
-
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it, textFieldValue.text) },
-                            placeholder = { Text("Search text...") },
-                            modifier = Modifier.weight(1f),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            singleLine = true
-                        )
-
-                        if (searchResults.isNotEmpty()) {
-                            Text(
-                                text = "${currentMatchIndex + 1} of ${searchResults.size}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                            IconButton(onClick = { viewModel.prevMatch() }) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Prev match"
+                        if (showReplace) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = replaceQuery,
+                                    onValueChange = { replaceQuery = it },
+                                    placeholder = { Text("Replace with...") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(onClick = {
+                                    val newContent = replaceAll(searchQuery, replaceQuery, textFieldValue.text)
+                                    textFieldValue = TextFieldValue(
+                                        text = newContent,
+                                        selection = androidx.compose.ui.text.TextRange.Zero
+                                    )
+                                    performSearch(searchQuery, newContent)
+                                }) {
+                                    Text("All")
+                                }
                             }
-                            IconButton(onClick = { viewModel.nextMatch() }) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Next match"
-                                )
-                            }
-                        } else if (searchQuery.isNotEmpty()) {
-                            Text(
-                                text = "No matches",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
                         }
                     }
                 }
             } else {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = when (currentState) {
-                                is TxtLoadState.Success -> currentState.fileName
-                                else -> "Plain Text Editor"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column {
+                            Text(
+                                text = fileUri.substringAfterLast('/'),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isCodeFile) {
+                                Text(
+                                    text = fileExtension.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back"
-                            )
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
                     },
                     actions = {
-                        if (currentState is TxtLoadState.Success) {
-                            var showMenu by remember { mutableStateOf(false) }
-
-                            IconButton(onClick = { searchExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search text"
-                                )
-                            }
-
-                            IconButton(onClick = { showFormatting = !showFormatting }) {
-                                Icon(Icons.Default.Build, contentDescription = "Format")
-                            }
-
-                            IconButton(onClick = { viewModel.saveTextFile(textFieldValue.text) }) {
-                                Icon(
-                                    imageVector = Icons.Default.Save,
-                                    contentDescription = "Save changes",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
-                            }
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Print") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Print)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Share)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
-                                )
-                            }
+                        IconButton(onClick = { showSearch = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    )
+                        IconButton(onClick = { showGoToLine = true }) {
+                            Icon(Icons.Default.FormatListNumbered, contentDescription = "Go to line")
+                        }
+                        IconButton(onClick = { showEncodingPicker = true }) {
+                            Icon(Icons.Default.Code, contentDescription = "Encoding")
+                        }
+                        IconButton(onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    val file = File(fileUri)
+                                    val charset = try {
+                                        Charset.forName(currentEncoding)
+                                    } catch (e: Exception) {
+                                        StandardCharsets.UTF_8
+                                    }
+                                    file.bufferedWriter(charset).use { it.write(textFieldValue.text) }
+                                }
+                                viewModel.emitSaveStatus(true)
+                            }
+                        }) {
+                            Icon(Icons.Default.Save, contentDescription = "Save", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        var showMenu by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (showLineNumbers) "Hide line numbers" else "Show line numbers") },
+                                onClick = {
+                                    showMenu = false
+                                    showLineNumbers = !showLineNumbers
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        if (showLineNumbers) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (wordWrap) "Disable word wrap" else "Enable word wrap") },
+                                onClick = {
+                                    showMenu = false
+                                    wordWrap = !wordWrap
+                                },
+                                leadingIcon = { Icon(Icons.Default.WrapText, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Change theme") },
+                                onClick = {
+                                    showMenu = false
+                                    themeIndex = (themeIndex + 1) % themes.size
+                                },
+                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null) }
+                            )
+                        }
+                    }
                 )
+            }
+        },
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val lineCount = textFieldValue.text.count { it == '\n' } + 1
+                    val wordCount = if (textFieldValue.text.isBlank()) 0
+                    else textFieldValue.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    val charCount = textFieldValue.text.length
+
+                    Text(
+                        text = "Ln $lineCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$wordCount words",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$charCount chars",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = currentEncoding,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { fontSize = maxOf(8f, fontSize - 1f) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.TextDecrease, contentDescription = "Decrease font", modifier = Modifier.size(16.dp))
+                        }
+                        Text(
+                            text = "${fontSize.toInt()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.width(20.dp),
+                            textAlign = TextAlign.Center
+                        )
+                        IconButton(
+                            onClick = { fontSize = minOf(32f, fontSize + 1f) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.TextIncrease, contentDescription = "Increase font", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .background(currentTheme.first)
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(currentTheme.first)
-            ) {
-                when (currentState) {
+            when (loadState) {
                 is TxtLoadState.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -303,85 +409,163 @@ fun TxtViewerScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Reading stream safely...",
+                            text = "Loading file...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = currentTheme.second.copy(alpha = 0.7f)
                         )
                     }
                 }
                 is TxtLoadState.Success -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp)
-                    ) {
-                        TextField(
-                            value = textFieldValue,
-                            onValueChange = { newValue ->
-                                textFieldValue = newValue
-                                if (searchExpanded && searchQuery.isNotEmpty()) {
-                                    viewModel.setSearchQuery(searchQuery, newValue.text)
-                                }
-                            },
+                    val lines = textFieldValue.text.split("\n")
+                    val lineCountStr = lines.size.toString()
+                    val gutterWidth = if (showLineNumbers) {
+                        (lineCountStr.length * (fontSize * 0.6f) + 16f).dp
+                    } else 0.dp
+
+                    val textStyle = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = fontSize.sp,
+                        color = currentTheme.second,
+                        lineHeight = (fontSize * 1.5f).sp
+                    )
+
+                    val searchMatchOffset = if (currentMatchIndex in searchResults.indices) {
+                        searchResults[currentMatchIndex]
+                    } else -1
+
+                    LaunchedEffect(searchMatchOffset) {
+                        if (searchMatchOffset >= 0) {
+                            val text = textFieldValue.text
+                            val lineNum = text.substring(0, searchMatchOffset).count { it == '\n' }
+                            val lineHeight = (fontSize * 1.5f).value
+                            val targetScroll = ((lineNum - 5) * lineHeight).toInt().coerceAtLeast(0)
+                            verticalScrollState.animateScrollTo(targetScroll)
+                        }
+                    }
+
+                    val annotatedText = if (isCodeFile) {
+                        SyntaxHighlighter.highlight(textFieldValue.text, fileExtension)
+                    } else {
+                        androidx.compose.ui.text.AnnotatedString(textFieldValue.text)
+                    }
+
+                    if (wordWrap) {
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f, fill = false)
-                                .minimumInteractiveComponentSize(),
-                            textStyle = TextStyle(
-                                fontFamily = fonts[fontIndex],
-                                fontSize = fontSize.sp,
-                                color = currentTheme.second,
-                                lineHeight = (fontSize + 6).sp
-                            ),
-                            placeholder = {
-                                Text(
-                                    text = "Start typing documents...",
-                                    fontFamily = fonts[fontIndex],
-                                    fontSize = fontSize.sp,
-                                    color = currentTheme.second.copy(alpha = 0.4f)
+                                .fillMaxSize()
+                                .verticalScroll(verticalScrollState)
+                                .padding(8.dp)
+                        ) {
+                            if (showLineNumbers) {
+                                Row {
+                                    Column(
+                                        modifier = Modifier.width(gutterWidth),
+                                        horizontalAlignment = Alignment.End
+                                    ) {
+                                        lines.forEachIndexed { index, _ ->
+                                            Text(
+                                                text = "${index + 1}",
+                                                style = textStyle.copy(
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                    fontSize = (fontSize * 0.85f).sp
+                                                ),
+                                                modifier = Modifier.padding(end = 8.dp)
+                                            )
+                                        }
+                                    }
+                                    BasicTextField(
+                                            value = textFieldValue,
+                                            onValueChange = { textFieldValue = it },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textStyle = textStyle,
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            decorationBox = { innerTextField ->
+                                                innerTextField()
+                                            }
+                                }
+                            } else {
+                                SelectionContainer {
+                                    BasicTextField(
+                                        value = textFieldValue,
+                                        onValueChange = { textFieldValue = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = textStyle,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (showLineNumbers) {
+                                Column(
+                                    modifier = Modifier
+                                        .width(gutterWidth)
+                                        .fillMaxHeight()
+                                        .verticalScroll(verticalScrollState)
+                                        .background(currentTheme.first.copy(alpha = 0.95f))
+                                        .padding(end = 8.dp),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    lines.forEachIndexed { index, _ ->
+                                        Text(
+                                            text = "${index + 1}",
+                                            style = textStyle.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                fontSize = (fontSize * 0.85f).sp
+                                            )
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(
+                                    modifier = Modifier.fillMaxHeight().width(1.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                 )
-                            },
-                            visualTransformation = TxtSearchVisualTransformation(
-                                searchQuery = searchQuery,
-                                currentMatchOffset = currentMatchOffset,
-                                highlightColor = Color.Yellow.copy(alpha = 0.6f),
-                                currentHighlightColor = Color(0xFFFF9800)
-                            ),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            )
-                        )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .horizontalScroll(horizontalScrollState)
+                                    .verticalScroll(verticalScrollState)
+                                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                            ) {
+                                SelectionContainer {
+                                    BasicTextField(
+                                        value = textFieldValue,
+                                        onValueChange = { textFieldValue = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = textStyle,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 is TxtLoadState.Error -> {
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Error Icon",
+                            Icons.Default.Warning,
+                            contentDescription = "Error",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(56.dp)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Failed to open document",
+                            text = "Failed to open file",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = currentState.message,
+                            text = loadState.message,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center
@@ -390,235 +574,155 @@ fun TxtViewerScreen(
                 }
             }
         }
+    }
 
-        // Formatting & Word Count Analyser Drawer
-        if (showFormatting) {
-            ModalBottomSheet(
-                onDismissRequest = { showFormatting = false },
-                sheetState = rememberModalBottomSheetState()
+    if (showGoToLine) {
+        Dialog(onDismissRequest = { showGoToLine = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = "Reader View & Formatting",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium
+                        text = "Go to Line",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                    
-                    // Reader Theme Presets
-                    Column {
-                        Text(
-                            text = "Reader Theme Preset",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            listOf("Paper", "Sepia", "Dark", "Grey").forEachIndexed { idx, name ->
-                                val isSelected = themeIndex == idx
-                                val swatchColors = themes[idx]
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(42.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(swatchColors.first)
-                                        .border(
-                                            width = if (isSelected) 2.dp else 1.dp,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.3f),
-                                            shape = RoundedCornerShape(8.dp)
+                    OutlinedTextField(
+                        value = goToLineInput,
+                        onValueChange = { goToLineInput = it.filter { c -> c.isDigit() } },
+                        label = { Text("Line number") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                val lineNum = goToLineInput.toIntOrNull()
+                                if (lineNum != null && lineNum > 0) {
+                                    val lines = textFieldValue.text.split("\n")
+                                    if (lineNum <= lines.size) {
+                                        var offset = 0
+                                        for (i in 0 until lineNum - 1) {
+                                            offset += lines[i].length + 1
+                                        }
+                                        textFieldValue = textFieldValue.copy(
+                                            selection = androidx.compose.ui.text.TextRange(offset)
                                         )
-                                        .clickable { themeIndex = idx },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = name,
-                                        color = swatchColors.second,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                        showGoToLine = false
+                                    }
                                 }
                             }
-                        }
-                    }
-
-                                        // Font Family Selector
-                    Column {
-                        Text(
-                            text = "Font Family",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            fontNames.forEachIndexed { idx, name ->
-                                val isSelected = fontIndex == idx
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(42.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
-                                        .clickable { fontIndex = idx },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = name,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Font Size Slider
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Font Scale Size",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "${fontSize.toInt()} sp",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 14.sp
-                            )
-                        }
-                        Slider(
-                            value = fontSize,
-                            onValueChange = { fontSize = it },
-                            valueRange = 12f..32f,
-                            steps = 9
-                        )
-                    }
-
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    // Word Count & Estimated Reading Time Metrics
-                    Text(
-                        text = "Word Count Analyser",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium
                     )
-
-                    // Calculate metrics dynamically
-                    val paragraphs = if (textFieldValue.text.isBlank()) 0 else textFieldValue.text.split(Regex("\n+")).filter { it.isNotBlank() }.size
-                    val words = if (textFieldValue.text.isBlank()) 0 else textFieldValue.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-                    val charsWithSpaces = textFieldValue.text.length
-                    val charsWithoutSpaces = textFieldValue.text.filter { !it.isWhitespace() }.length
-                    val readingTimeMin = (words / 200.0).let { if (it > 0 && it < 1.0) 1 else it.toInt() }
-
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Paragraphs Count", fontSize = 13.sp)
-                                Text("$paragraphs", fontWeight = FontWeight.Bold)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Words Count", fontSize = 13.sp)
-                                Text("$words", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Characters (with spaces)", fontSize = 13.sp)
-                                Text("$charsWithSpaces", fontWeight = FontWeight.Bold)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Characters (no spaces)", fontSize = 13.sp)
-                                Text("$charsWithoutSpaces", fontWeight = FontWeight.Bold)
-                            }
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("⏱️", fontSize = 14.sp)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Estimated Reading Time", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = { showGoToLine = false }) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            val lineNum = goToLineInput.toIntOrNull()
+                            if (lineNum != null && lineNum > 0) {
+                                val lines = textFieldValue.text.split("\n")
+                                if (lineNum <= lines.size) {
+                                    var offset = 0
+                                    for (i in 0 until lineNum - 1) {
+                                        offset += lines[i].length + 1
+                                    }
+                                    textFieldValue = textFieldValue.copy(
+                                        selection = androidx.compose.ui.text.TextRange(offset)
+                                    )
+                                    showGoToLine = false
                                 }
-                                Text(
-                                    text = if (words == 0) "0 min" else "$readingTimeMin min",
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
                             }
+                        }) {
+                            Text("Go")
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
+        }
+    }
+
+    if (showEncodingPicker) {
+        Dialog(onDismissRequest = { showEncodingPicker = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Select Encoding",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    if (detectedEncoding != null) {
+                        Text(
+                            text = "Detected: $detectedEncoding",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    HorizontalDivider()
+                    EncodingDetector.SUPPORTED_ENCODINGS.forEach { encoding ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    currentEncoding = encoding
+                                    showEncodingPicker = false
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            val file = File(fileUri)
+                                            val charset = try {
+                                                Charset.forName(encoding)
+                                            } catch (e: Exception) {
+                                                StandardCharsets.UTF_8
+                                            }
+                                            val content = EncodingDetector.readTextWithEncoding(file, charset)
+                                            textFieldValue = TextFieldValue(content)
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = currentEncoding == encoding,
+                                onClick = {
+                                    currentEncoding = encoding
+                                    showEncodingPicker = false
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            val file = File(fileUri)
+                                            val charset = try {
+                                                Charset.forName(encoding)
+                                            } catch (e: Exception) {
+                                                StandardCharsets.UTF_8
+                                            }
+                                            val content = EncodingDetector.readTextWithEncoding(file, charset)
+                                            textFieldValue = TextFieldValue(content)
+                                        }
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = encoding,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
-
-class TxtSearchVisualTransformation(
-    private val searchQuery: String,
-    private val currentMatchOffset: Int,
-    private val highlightColor: Color = Color(0xFFFFEB3B), // Yellow
-    private val currentHighlightColor: Color = Color(0xFFFF9800), // Orange
-    private val textColor: Color = Color.Black
-) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        if (searchQuery.isEmpty()) {
-            return TransformedText(text, OffsetMapping.Identity)
-        }
-        val builder = AnnotatedString.Builder()
-        builder.append(text.text)
-        
-        val fullText = text.text
-        var idx = fullText.indexOf(searchQuery, ignoreCase = true)
-        while (idx >= 0) {
-            val isCurrent = idx == currentMatchOffset
-            val bg = if (isCurrent) currentHighlightColor else highlightColor
-            builder.addStyle(
-                SpanStyle(background = bg, color = textColor),
-                idx,
-                idx + searchQuery.length
-            )
-            idx = fullText.indexOf(searchQuery, idx + 1, ignoreCase = true)
-        }
-        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
-    }
-}
-

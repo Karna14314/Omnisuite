@@ -292,6 +292,21 @@ sealed class Screen(val route: String) {
             return "sequential_image_viewer?uris=$encodedUris&title=$encodedTitle"
         }
     }
+
+    /**
+     * PDF Page Numbering Screen
+     */
+    object PdfPageNumber : Screen("pdf_page_number")
+
+    /**
+     * PDF Page Reorder Screen
+     */
+    object PdfReorder : Screen("pdf_reorder")
+
+    /**
+     * PDF Extract Images Screen
+     */
+    object PdfExtractImages : Screen("pdf_extract_images")
 }
 
 

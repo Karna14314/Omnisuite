@@ -31,32 +31,13 @@ class TxtViewerViewModel @Inject constructor(
     private val _loadState = MutableStateFlow<TxtLoadState>(TxtLoadState.Loading)
     val loadState: StateFlow<TxtLoadState> = _loadState.asStateFlow()
 
-    // SharedFlow to trigger one-time UI events like snackbars
     private val _saveStatus = MutableSharedFlow<Boolean>()
     val saveStatus: SharedFlow<Boolean> = _saveStatus.asSharedFlow()
 
     private var currentFile: File? = null
 
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    private val maxTextFileSize = 50L * 1024 * 1024
 
-    private val _searchResults = MutableStateFlow<List<Int>>(emptyList())
-    val searchResults: StateFlow<List<Int>> = _searchResults.asStateFlow()
-
-    private val _currentMatchIndex = MutableStateFlow(-1)
-    val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
-
-    /**
-     * Maximum text file size (in bytes) loaded fully into the editor. Larger files are
-     * truncated to this limit to avoid OutOfMemoryErrors; the user is informed via the
-     * error message. 5 MB of plain text is ~5 million characters, far beyond what a
-     * user edits on a phone.
-     */
-    private val maxTextFileSize = 5L * 1024 * 1024
-
-    /**
-     * Safely reads the text file content inside Dispatchers.IO scope using Kotlin buffer streams.
-     */
     fun loadTextFile(filePath: String) {
         viewModelScope.launch {
             _loadState.value = TxtLoadState.Loading
@@ -69,7 +50,6 @@ class TxtViewerViewModel @Inject constructor(
                     }
                     currentFile = file
 
-                    // Guard against loading arbitrarily large files that would OOM the editor.
                     if (file.length() > maxTextFileSize) {
                         _loadState.value = TxtLoadState.Error(
                             "File is too large to edit (${file.length() / (1024 * 1024)} MB). " +
@@ -78,9 +58,7 @@ class TxtViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    // Safe Kotlin stream buffering
                     val content = file.bufferedReader().use { it.readText() }
-
 
                     _loadState.value = TxtLoadState.Success(
                         content = content,
@@ -95,18 +73,12 @@ class TxtViewerViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Writes edited content back to the local file descriptor safely on an IO thread.
-     */
     fun saveTextFile(content: String) {
         val file = currentFile ?: return
         viewModelScope.launch {
             val success = withContext(Dispatchers.IO) {
                 try {
-                    // Safe stream write
                     file.bufferedWriter().use { it.write(content) }
-
-
                     true
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -117,36 +89,18 @@ class TxtViewerViewModel @Inject constructor(
         }
     }
 
+    fun emitSaveStatus(success: Boolean) {
+        viewModelScope.launch {
+            _saveStatus.emit(success)
+        }
+    }
+
     fun setSearchQuery(query: String, content: String) {
-        _searchQuery.value = query
-        if (query.isBlank()) {
-            _searchResults.value = emptyList()
-            _currentMatchIndex.value = -1
-            return
-        }
-        val matches = mutableListOf<Int>()
-        var idx = content.indexOf(query, ignoreCase = true)
-        while (idx >= 0) {
-            matches.add(idx)
-            idx = content.indexOf(query, idx + 1, ignoreCase = true)
-        }
-        _searchResults.value = matches
-        if (matches.isNotEmpty()) {
-            _currentMatchIndex.value = 0
-        } else {
-            _currentMatchIndex.value = -1
-        }
     }
 
     fun nextMatch() {
-        val matches = _searchResults.value
-        if (matches.isEmpty()) return
-        _currentMatchIndex.value = (_currentMatchIndex.value + 1) % matches.size
     }
 
     fun prevMatch() {
-        val matches = _searchResults.value
-        if (matches.isEmpty()) return
-        _currentMatchIndex.value = (_currentMatchIndex.value - 1 + matches.size) % matches.size
     }
 }
