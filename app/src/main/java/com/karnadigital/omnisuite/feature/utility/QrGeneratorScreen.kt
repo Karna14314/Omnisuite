@@ -191,13 +191,13 @@ fun QrGeneratorScreen(
 
     // --- Barcode Builder States ---
     val barcodeFormats = listOf(
+        BarcodeFormat.CODE_128 to "Code-128 (Standard)",
         BarcodeFormat.EAN_13 to "EAN-13",
         BarcodeFormat.EAN_8 to "EAN-8",
         BarcodeFormat.UPC_A to "UPC-A",
         BarcodeFormat.UPC_E to "UPC-E",
-        BarcodeFormat.CODE_128 to "Code-128",
-        BarcodeFormat.ITF to "ITF (Interleaved 2 of 5)",
         BarcodeFormat.CODE_39 to "Code-39",
+        BarcodeFormat.ITF to "ITF (Interleaved 2 of 5)",
         BarcodeFormat.CODABAR to "Codabar",
         BarcodeFormat.CODE_93 to "Code-93",
         BarcodeFormat.PDF_417 to "PDF-417"
