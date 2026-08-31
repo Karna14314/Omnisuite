@@ -34,7 +34,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1348,8 +1350,8 @@ fun SlideCardItem(
             val titleElement = if (title.fullText.isNotBlank() && title.id == "title") {
                 listOf(SlideElement.TextElement(title, true, title.zOrder))
             } else emptyList()
-            val bodyElements = slide.textShapes.mapIndexed { idx, shape ->
-                SlideElement.TextElement(shape, shape.isTitle, idx)
+            val bodyElements = slide.textShapes.map { shape ->
+                SlideElement.TextElement(shape, shape.isTitle, shape.zOrder)
             }
             val allElements = (imageElements + titleElement + bodyElements).sortedBy { it.zOrder }
 
@@ -1392,6 +1394,11 @@ fun SlideCardItem(
 private sealed class SlideElement(val zOrder: Int) {
     data class ImageElement(val image: PptxImage) : SlideElement(image.zOrder)
     data class TextElement(val shape: PptxTextShape, val isTitle: Boolean, val index: Int) : SlideElement(shape.zOrder)
+}
+
+/** True geometric ellipse shape matching PowerPoint's oval geometry */
+private val EllipseShape = GenericShape { size, _ ->
+    addOval(Rect(0f, 0f, size.width, size.height))
 }
 
 /**
@@ -1472,7 +1479,7 @@ fun TextShapeItem(
     val isTableCell = shape.id.startsWith("table_cell_")
 
     val shapeShape = when (shapeGeom) {
-        ShapeGeometryType.ELLIPSE -> RoundedCornerShape(percent = 50)
+        ShapeGeometryType.ELLIPSE -> EllipseShape
         ShapeGeometryType.ROUNDED_RECTANGLE -> RoundedCornerShape(8.dp)
         else -> RoundedCornerShape(if (isTableCell) 0.dp else 2.dp)
     }
