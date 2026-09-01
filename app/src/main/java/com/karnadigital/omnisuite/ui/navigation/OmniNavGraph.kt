@@ -149,6 +149,7 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToStickerImport -> navController.navigate(Screen.StickerImport.route)
                         is NavigationEvent.NavigateToExactResize -> navController.navigate(Screen.ExactResize.route)
                         is NavigationEvent.NavigateToReadAloud -> navController.navigate(Screen.ReadAloud.route)
+                        is NavigationEvent.NavigateToPdfBlockEditor -> navController.navigate(Screen.PdfBlockEditor.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -1080,6 +1081,13 @@ fun OmniNavGraph(
         // 75. Read Aloud Screen
         composable(route = Screen.ReadAloud.route) {
             com.karnadigital.omnisuite.feature.utility.ReadAloudScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 76. PDF Block Editor Screen (Experimental)
+        composable(route = Screen.PdfBlockEditor.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfBlockEditorScreen(
                 onBack = { navController.popBackStack() }
             )
         }

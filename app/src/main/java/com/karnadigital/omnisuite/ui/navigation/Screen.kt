@@ -522,6 +522,11 @@ sealed class Screen(val route: String) {
      * Read Aloud Screen
      */
     object ReadAloud : Screen("read_aloud")
+
+    /**
+     * PDF Block Editor Screen (Experimental)
+     */
+    object PdfBlockEditor : Screen("pdf_block_editor")
 }
 
 

@@ -183,6 +183,7 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("📝", "MD to PDF (Enhanced)", "Full GFM support", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdfEnhanced) }) }
         item { ToolListRow("🎨", "SVG to PDF", "Convert SVG to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSvgToPdf) }) }
         item { ToolListRow("🔢", "Word Count (Advanced)", "Reading time, chars, lines", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }) }
+        item { ToolListRow("🧩", "Block Editor (Experimental)", "Edit PDF block-by-block like LightPDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBlockEditor) }) }
     }
 }
 
