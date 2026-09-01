@@ -292,6 +292,7 @@ fun PptxViewerScreen(
                         actions = {
                             if (state is PptxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
+                                var showEditMenu by remember { mutableStateOf(false) }
 
                                 // Toggle Continuous Flow vs Single Slide Pager
                                 IconButton(onClick = {
@@ -316,10 +317,38 @@ fun PptxViewerScreen(
                                 }
 
                                 IconButton(onClick = { searchExpanded = true }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Search text"
+                                    Icon(Icons.Default.Search, contentDescription = "Search text")
+                                }
+
+                                // Edit Menu
+                                Box {
+                                    EditMenuButton(onClick = {
+                                        isEditMode = !isEditMode
+                                        showEditMenu = true
+                                    })
+                                    EditMenuPopup(
+                                        expanded = showEditMenu,
+                                        onDismiss = { showEditMenu = false },
+                                        items = listOf(
+                                            EditMenuItem(Icons.Default.Title, "Edit Title", onClick = {
+                                                activeIndexToEdit = pagerState.currentPage
+                                                isTitleEdit = true
+                                                blockIndexToEdit = 0
+                                                showFormatter = true
+                                            }),
+                                            EditMenuItem(Icons.Default.TextFields, "Edit Text", onClick = {
+                                                activeIndexToEdit = pagerState.currentPage
+                                                isTitleEdit = false
+                                                blockIndexToEdit = 0
+                                                showFormatter = true
+                                            }),
+                                            EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { }),
+                                            EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { }),
+                                            EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { }),
+                                            EditMenuItem(Icons.Default.Image, "Insert Image", onClick = { imagePickerLauncher.launch("image/*") })
+                                        )
                                     )
+                                }
                                 }
                                 // Edit button temporarily hidden
                                 // IconButton(onClick = {
