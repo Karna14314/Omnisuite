@@ -397,6 +397,61 @@ sealed class Screen(val route: String) {
      * PDF Replace Pages Screen
      */
     object PdfReplacePages : Screen("pdf_replace_pages")
+
+    /**
+     * PDF Bookmark Editor Screen
+     */
+    object PdfBookmarks : Screen("pdf_bookmarks")
+
+    /**
+     * Password ZIP Extract Screen
+     */
+    object PasswordZipExtract : Screen("password_zip_extract")
+
+    /**
+     * PDF Split by Bookmarks Screen
+     */
+    object PdfSplitByBookmarks : Screen("pdf_split_by_bookmarks")
+
+    /**
+     * PDF Underlay Screen
+     */
+    object PdfUnderlay : Screen("pdf_underlay")
+
+    /**
+     * PDF Form Creation Screen
+     */
+    object PdfFormCreation : Screen("pdf_form_creation")
+
+    /**
+     * File Encrypt Screen
+     */
+    object FileEncrypt : Screen("file_encrypt")
+
+    /**
+     * File Decrypt Screen
+     */
+    object FileDecrypt : Screen("file_decrypt")
+
+    /**
+     * PDF Selective Image Extract Screen
+     */
+    object PdfSelectiveImageExtract : Screen("pdf_selective_image_extract")
+
+    /**
+     * PDF All Pages to Image Screen
+     */
+    object PdfAllPagesToImage : Screen("pdf_all_pages_to_image")
+
+    /**
+     * File Checksum Screen
+     */
+    object FileChecksum : Screen("file_checksum")
+
+    /**
+     * Text Compare Screen
+     */
+    object TextCompare : Screen("text_compare")
 }
 
 

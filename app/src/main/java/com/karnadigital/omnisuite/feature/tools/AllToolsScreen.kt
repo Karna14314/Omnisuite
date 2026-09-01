@@ -171,6 +171,12 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("✂️", "Split by Size", "Split PDF into size-based chunks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplitBySize) }) }
         item { ToolListRow("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }) }
         item { ToolListRow("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }) }
+        item { ToolListRow("🔖", "Edit Bookmarks", "Add bookmarks to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }) }
+        item { ToolListRow("📑", "Split by Bookmarks", "Split at bookmark boundaries", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplitByBookmarks) }) }
+        item { ToolListRow("📋", "PDF Underlay", "Place PDF behind content", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfUnderlay) }) }
+        item { ToolListRow("📝", "Create Form", "Add fillable form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormCreation) }) }
+        item { ToolListRow("🖼️", "Extract Images (Selective)", "Choose specific images to extract", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSelectiveImageExtract) }) }
+        item { ToolListRow("🖼️", "Extract All Pages as Images", "Render every page as PNG", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAllPagesToImage) }) }
     }
 }
 
@@ -250,9 +256,14 @@ fun ArchiveQrToolsList(
         item { ToolListRow("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }) }
         item { ToolListRow("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }) }
         item { ToolListRow("🔐", "Password ZIP", "Create password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }) }
+        item { ToolListRow("🔓", "Extract Password ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }) }
+        item { ToolListRow("🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }) }
+        item { ToolListRow("🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }) }
         item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
         item { ToolListRow("📷", "QR Scanner", "Live viewfinder decoding", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
         item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
         item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBatchTools) }) }
+        item { ToolListRow("🔢", "File Checksum", "Calculate MD5/SHA-256 hash", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileChecksum) }) }
+        item { ToolListRow("⚖️", "Text Compare", "Compare two texts with diff", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTextCompare) }) }
     }
 }

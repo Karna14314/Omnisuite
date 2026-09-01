@@ -1170,4 +1170,159 @@ class PdfToolsViewModel @Inject constructor(
             isProcessing = false
         }
     }
+
+    var bookmarkInputUri by mutableStateOf<Uri?>(null)
+    var bookmarkTitles by mutableStateOf("")
+    var bookmarkPages by mutableStateOf("")
+    var passwordZipExtractUri by mutableStateOf<Uri?>(null)
+    var passwordZipExtractPassword by mutableStateOf("")
+    var splitByBookmarksInputUri by mutableStateOf<Uri?>(null)
+    var underlayBaseUri by mutableStateOf<Uri?>(null)
+    var underlayUnderlayUri by mutableStateOf<Uri?>(null)
+    var underlayPage by mutableIntStateOf(0)
+    var formCreationInputUri by mutableStateOf<Uri?>(null)
+    var fileEncryptInputUri by mutableStateOf<Uri?>(null)
+    var fileEncryptPassword by mutableStateOf("")
+    var fileDecryptInputUri by mutableStateOf<Uri?>(null)
+    var fileDecryptPassword by mutableStateOf("")
+    var selectiveImageInputUri by mutableStateOf<Uri?>(null)
+    var selectiveImageIndices by mutableStateOf("")
+    var allPagesImageInputUri by mutableStateOf<Uri?>(null)
+    var checksumInputUri by mutableStateOf<Uri?>(null)
+    var checksumAlgorithm by mutableStateOf("SHA-256")
+    var checksumResult by mutableStateOf<String?>(null)
+    var textCompare1 by mutableStateOf("")
+    var textCompare2 by mutableStateOf("")
+    var textCompareResult by mutableStateOf<String?>(null)
+
+    fun editBookmarks(customFilename: String? = null) {
+        val inputUri = bookmarkInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val titles = bookmarkTitles.lines().filter { it.isNotBlank() }
+        val pages = bookmarkPages.lines().filter { it.isNotBlank() }.mapNotNull { it.trim().toIntOrNull()?.minus(1) }
+        if (titles.isEmpty() || pages.isEmpty() || titles.size != pages.size) { errorMessage = "Titles and pages must match."; return }
+        val bookmarks = titles.mapIndexed { i, title -> Triple(title.trim(), pages.getOrElse(i) { 0 }, 700f) }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.editBookmarks(inputUri, bookmarks, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Bookmarks added!"; bookmarkInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractPasswordZip() {
+        val inputUri = passwordZipExtractUri ?: run { errorMessage = "Please select a ZIP file."; return }
+        if (passwordZipExtractPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Extracted ${uris.size} files!"; passwordZipExtractUri = null; passwordZipExtractPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun splitPdfByBookmarks() {
+        val inputUri = splitByBookmarksInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.splitPdfByBookmarks(inputUri)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitByBookmarksInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun addPdfUnderlay(customFilename: String? = null) {
+        val baseUri = underlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
+        val underlayUri = underlayUnderlayUri ?: run { errorMessage = "Please select underlay PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addPdfUnderlay(baseUri, underlayUri, underlayPage, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Underlay applied!"; underlayBaseUri = null; underlayUnderlayUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun createPdfForm(customFilename: String? = null) {
+        val inputUri = formCreationInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createPdfForm(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Form fields added!"; formCreationInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun encryptFile(customFilename: String? = null) {
+        val inputUri = fileEncryptInputUri ?: run { errorMessage = "Please select a file."; return }
+        if (fileEncryptPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.encryptFile(inputUri, fileEncryptPassword, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "File encrypted!"; fileEncryptInputUri = null; fileEncryptPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun decryptFile(customFilename: String? = null) {
+        val inputUri = fileDecryptInputUri ?: run { errorMessage = "Please select an encrypted file."; return }
+        if (fileDecryptPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.decryptFile(inputUri, fileDecryptPassword, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "File decrypted!"; fileDecryptInputUri = null; fileDecryptPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractSelectiveImages() {
+        val inputUri = selectiveImageInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val indices = selectiveImageIndices.lines().filter { it.isNotBlank() }.mapNotNull { it.trim().toIntOrNull()?.minus(1) }
+        if (indices.isEmpty()) { errorMessage = "Enter image numbers (1-indexed)."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPdfImagesSelective(inputUri, indices)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Extracted ${uris.size} images!"; selectiveImageInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractAllPagesAsImages() {
+        val inputUri = allPagesImageInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPdfImagesAllPages(inputUri)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Rendered ${uris.size} pages!"; allPagesImageInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun getFileChecksum() {
+        val inputUri = checksumInputUri ?: run { errorMessage = "Please select a file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.getFileChecksum(inputUri, checksumAlgorithm)
+            result.onSuccess { hash -> checksumResult = "$checksumAlgorithm: $hash"; successMessage = "Checksum calculated!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun compareText() {
+        if (textCompare1.isBlank() && textCompare2.isBlank()) { errorMessage = "Enter text to compare."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.compareText(textCompare1, textCompare2)
+            result.onSuccess { diff -> textCompareResult = diff; successMessage = "Comparison complete!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
 }
