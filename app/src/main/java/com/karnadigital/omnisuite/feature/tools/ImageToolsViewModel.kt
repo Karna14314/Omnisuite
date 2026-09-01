@@ -732,7 +732,12 @@ class ImageToolsViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Force garbage collector memory recycling
+        // Release all bitmap resources to prevent memory leaks
+        originalBitmap?.recycle()
         originalBitmap = null
+        originalPreviewBitmap?.recycle()
+        originalPreviewBitmap = null
+        previewJob?.cancel()
+        previewJob = null
     }
 }
