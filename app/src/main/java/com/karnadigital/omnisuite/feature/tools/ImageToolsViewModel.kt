@@ -734,5 +734,6 @@ class ImageToolsViewModel @Inject constructor(
         super.onCleared()
         // Force garbage collector memory recycling
         originalBitmap = null
+        originalPreviewBitmap = null
     }
 }
