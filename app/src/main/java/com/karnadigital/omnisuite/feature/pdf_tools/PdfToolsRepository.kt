@@ -1015,4 +1015,440 @@ class PdfToolsRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    suspend fun convertTxtToPdf(inputUri: Uri, fontSize: Int = 12, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source text file.")
+            val tempOutputFile = File(context.cacheDir, "txt_converted_${System.currentTimeMillis()}.pdf")
+            val content = tempInputFile.readText(Charsets.UTF_8)
+            PDDocument().use { doc ->
+                val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                val margin = 50f
+                val lineHeight = fontSize + 4f
+                val lines = content.split("\n")
+                var page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                doc.addPage(page)
+                var contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                var yOffset = page.mediaBox.height - margin
+                for (line in lines) {
+                    if (yOffset < margin + lineHeight) {
+                        contentStream.close()
+                        page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                        doc.addPage(page)
+                        contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                        yOffset = page.mediaBox.height - margin
+                    }
+                    val wrappedLines = wrapText(line, font, fontSize.toFloat(), page.mediaBox.width - 2 * margin)
+                    for (wrappedLine in wrappedLines) {
+                        if (yOffset < margin + lineHeight) {
+                            contentStream.close()
+                            page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                            doc.addPage(page)
+                            contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                            yOffset = page.mediaBox.height - margin
+                        }
+                        contentStream.beginText()
+                        contentStream.setFont(font, fontSize.toFloat())
+                        contentStream.newLineAtOffset(margin, yOffset)
+                        contentStream.showText(wrappedLine)
+                        contentStream.endText()
+                        yOffset -= lineHeight
+                    }
+                }
+                contentStream.close()
+                FileOutputStream(tempOutputFile).use { doc.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".txt")
+            val outName = customFilename ?: "${originalName}_converted.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertCsvToPdf(inputUri: Uri, fontSize: Int = 10, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source CSV file.")
+            val tempOutputFile = File(context.cacheDir, "csv_converted_${System.currentTimeMillis()}.pdf")
+            val lines = tempInputFile.readLines(Charsets.UTF_8)
+            if (lines.isEmpty()) throw Exception("CSV file is empty.")
+            val tableData = lines.map { parseCsvLine(it) }
+            val maxCols = tableData.maxOfOrNull { it.size } ?: 1
+            PDDocument().use { doc ->
+                val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                val fontBold = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                val margin = 40f
+                val lineHeight = fontSize + 4f
+                val pageWidth = com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4.width
+                val colWidth = (pageWidth - 2 * margin) / maxCols
+                var page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                doc.addPage(page)
+                var contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                var yOffset = page.mediaBox.height - margin
+                for ((rowIdx, row) in tableData.withIndex()) {
+                    if (yOffset < margin + lineHeight) {
+                        contentStream.close()
+                        page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                        doc.addPage(page)
+                        contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                        yOffset = page.mediaBox.height - margin
+                    }
+                    var xOffset = margin
+                    val currentFont = if (rowIdx == 0) fontBold else font
+                    for (cell in row) {
+                        val cellText = if (cell.length > 20) cell.take(17) + "..." else cell
+                        contentStream.beginText()
+                        contentStream.setFont(currentFont, fontSize.toFloat())
+                        contentStream.newLineAtOffset(xOffset, yOffset)
+                        contentStream.showText(cellText)
+                        contentStream.endText()
+                        xOffset += colWidth
+                    }
+                    yOffset -= lineHeight
+                }
+                contentStream.close()
+                FileOutputStream(tempOutputFile).use { doc.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".csv")
+            val outName = customFilename ?: "${originalName}_converted.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertPdfToTxt(inputUri: Uri, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "pdf_to_txt_${System.currentTimeMillis()}.txt")
+            val textBuilder = StringBuilder()
+            PDDocument.load(tempInputFile).use { document ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                textBuilder.append(stripper.getText(document))
+            }
+            tempOutputFile.writeText(textBuilder.toString(), Charsets.UTF_8)
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_text.txt"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "text/plain", "Documents")
+                ?: throw Exception("Failed to save TXT file.")
+            registerRecentFile(savedUri, outName, "text/plain", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertImagesToPdfWithLayout(inputUris: List<Uri>, imagesPerPage: Int = 1, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempFiles = mutableListOf<File>()
+            inputUris.forEach { uri ->
+                val file = uriCacheUtils.cacheUriToFile(uri)
+                if (file != null) tempFiles.add(file)
+            }
+            if (tempFiles.isEmpty()) throw Exception("No valid images found.")
+            val tempOutputFile = File(context.cacheDir, "images_layout_${System.currentTimeMillis()}.pdf")
+            PDDocument().use { doc ->
+                val pageWidth = com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4.width
+                val pageHeight = com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4.height
+                val margin = 20f
+                val cols = when (imagesPerPage) {
+                    1 -> 1; 2 -> 1; 4 -> 2; 6 -> 2; 9 -> 3; else -> 1
+                }
+                val rows = when (imagesPerPage) {
+                    1 -> 1; 2 -> 2; 4 -> 2; 6 -> 3; 9 -> 3; else -> 1
+                }
+                val cellWidth = (pageWidth - 2 * margin) / cols
+                val cellHeight = (pageHeight - 2 * margin) / rows
+                var page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                doc.addPage(page)
+                var imgIdx = 0
+                for (file in tempFiles) {
+                    if (imgIdx > 0 && imgIdx % imagesPerPage == 0) {
+                        page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                        doc.addPage(page)
+                    }
+                    val slotInPage = imgIdx % imagesPerPage
+                    val col = slotInPage % cols
+                    val row = slotInPage / cols
+                    val imgBytes = file.readBytes()
+                    val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromByteArray(doc, imgBytes, "img_$imgIdx")
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                    val maxImgWidth = cellWidth - 10f
+                    val maxImgHeight = cellHeight - 10f
+                    val imgWidth = pdImage.width.toFloat()
+                    val imgHeight = pdImage.height.toFloat()
+                    val scale = minOf(maxImgWidth / imgWidth, maxImgHeight / imgHeight, 1f)
+                    val drawWidth = imgWidth * scale
+                    val drawHeight = imgHeight * scale
+                    val x = margin + col * cellWidth + (cellWidth - drawWidth) / 2f
+                    val y = pageHeight - margin - (row + 1) * cellHeight + (cellHeight - drawHeight) / 2f
+                    contentStream.drawImage(pdImage, x, y, drawWidth, drawHeight)
+                    contentStream.close()
+                    imgIdx++
+                }
+                FileOutputStream(tempOutputFile).use { doc.save(it) }
+            }
+            val outName = customFilename ?: "images_compiled.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            tempFiles.forEach { if (it.exists()) it.delete() }
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun wrapText(text: String, font: com.tom_roush.pdfbox.pdmodel.font.PDFont, fontSize: Float, maxWidth: Float): List<String> {
+        if (text.isBlank()) return listOf("")
+        val words = text.split(" ")
+        val lines = mutableListOf<String>()
+        val currentLine = StringBuilder()
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "${currentLine} $word"
+            val width = fontSize * font.getStringWidth(testLine) / 1000f
+            if (width > maxWidth && currentLine.isNotEmpty()) {
+                lines.add(currentLine.toString())
+                currentLine.setLength(0)
+                currentLine.append(word)
+            } else {
+                currentLine.setLength(0)
+                currentLine.append(testLine)
+            }
+        }
+        if (currentLine.isNotEmpty()) lines.add(currentLine.toString())
+        return lines
+    }
+
+    suspend fun addHeaderFooter(inputUri: Uri, headerText: String, footerText: String, fontSize: Int, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "headerfooter_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                for (i in 0 until document.numberOfPages) {
+                    val page = document.getPage(i)
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND, true)
+                    val mediaBox = page.mediaBox
+                    val pageWidth = mediaBox.width
+                    if (headerText.isNotBlank()) {
+                        val headerWidth = fontSize.toFloat() * font.getStringWidth(headerText) / 1000f
+                        contentStream.beginText()
+                        contentStream.setFont(font, fontSize.toFloat())
+                        contentStream.newLineAtOffset((pageWidth - headerWidth) / 2f, mediaBox.height - 30f)
+                        contentStream.showText(headerText)
+                        contentStream.endText()
+                    }
+                    if (footerText.isNotBlank()) {
+                        val footerWidth = fontSize.toFloat() * font.getStringWidth(footerText) / 1000f
+                        contentStream.beginText()
+                        contentStream.setFont(font, fontSize.toFloat())
+                        contentStream.newLineAtOffset((pageWidth - footerWidth) / 2f, 20f)
+                        contentStream.showText(footerText)
+                        contentStream.endText()
+                    }
+                    contentStream.close()
+                }
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_headerfooter.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resizePdfPages(inputUri: Uri, targetSize: String, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "resized_${System.currentTimeMillis()}.pdf")
+            val targetRect = when (targetSize.uppercase()) {
+                "A3" -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A3
+                "A4" -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4
+                "A5" -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A5
+                "LETTER" -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.LETTER
+                "LEGAL" -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.LEGAL
+                else -> com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4
+            }
+            PDDocument.load(tempInputFile).use { document ->
+                for (i in 0 until document.numberOfPages) {
+                    val page = document.getPage(i)
+                    val currentRect = page.mediaBox
+                    val targetWidth = targetRect.width
+                    val targetHeight = targetRect.height
+                    val currentWidth = currentRect.width
+                    val currentHeight = currentRect.height
+                    val scaleX = targetWidth / currentWidth
+                    val scaleY = targetHeight / currentHeight
+                    val scale = minOf(scaleX, scaleY)
+                    page.mediaBox = targetRect
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.PREPEND, true)
+                    contentStream.saveGraphicsState()
+                    contentStream.transform(com.tom_roush.pdfbox.util.Matrix(scale, 0f, 0f, scale, (targetWidth - currentWidth * scale) / 2f, (targetHeight - currentHeight * scale) / 2f))
+                    contentStream.restoreGraphicsState()
+                    contentStream.close()
+                }
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_${targetSize.lowercase()}.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createPasswordZip(uris: List<Uri>, outputName: String, password: String): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val cachedFiles = mutableListOf<Pair<File, String>>()
+            uris.forEach { uri ->
+                val file = uriCacheUtils.cacheUriToFile(uri)
+                val name = getFileNameFromUri(uri) ?: "file_${System.currentTimeMillis()}"
+                if (file != null) cachedFiles.add(Pair(file, name))
+            }
+            if (cachedFiles.isEmpty()) throw Exception("No valid files to compress.")
+            val tempOutputFile = File(context.cacheDir, "archive_${System.currentTimeMillis()}.zip")
+            val zipOutputStream = net.lingala.zip4j.io.outputstream.ZipOutputStream(FileOutputStream(tempOutputFile), password.toCharArray())
+            cachedFiles.forEach { (file, name) ->
+                val parameters = net.lingala.zip4j.model.ZipParameters().apply {
+                    fileNameInZip = name
+                    compressionMethod = net.lingala.zip4j.model.enums.CompressionMethod.DEFLATE
+                    compressionLevel = net.lingala.zip4j.model.enums.CompressionLevel.NORMAL
+                }
+                zipOutputStream.putNextEntry(parameters)
+                file.inputStream().use { it.copyTo(zipOutputStream) }
+                zipOutputStream.closeEntry()
+            }
+            zipOutputStream.close()
+            val outName = if (outputName.endsWith(".zip", ignoreCase = true)) outputName else "$outputName.zip"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/zip", "Archive")
+                ?: throw Exception("Failed to save ZIP archive.")
+            registerRecentFile(savedUri, outName, "application/zip", tempOutputFile.length())
+            cachedFiles.forEach { if (it.first.exists()) it.first.delete() }
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun extractPasswordZip(inputUri: Uri, password: String): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open ZIP file.")
+            val extractedFiles = mutableListOf<File>()
+            val zipFile = net.lingala.zip4j.ZipFile(tempInputFile)
+            zipFile.password = password.toCharArray()
+            val fileHeaders = zipFile.fileHeaders
+            for (header in fileHeaders) {
+                if (!header.isDirectory) {
+                    val outFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_${header.fileName}")
+                    zipFile.extractFile(header, context.cacheDir.path, "extracted_${System.currentTimeMillis()}_${header.fileName}")
+                    extractedFiles.add(outFile)
+                }
+            }
+            if (extractedFiles.isEmpty()) throw Exception("No files were extracted from the archive.")
+            val firstFile = extractedFiles.first()
+            val savedUri = fileOutputManager.saveToDefault(firstFile.readBytes(), firstFile.name.substringAfterLast('_'), "*/*", "Archive")
+                ?: throw Exception("Failed to save extracted file.")
+            registerRecentFile(savedUri, firstFile.name.substringAfterLast('_'), "*/*", firstFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            extractedFiles.forEach { if (it.exists()) it.delete() }
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createGzipArchive(uris: List<Uri>, outputName: String): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            if (uris.size != 1) throw Exception("GZIP supports single file compression only. Use TGZ for multiple files.")
+            val cachedFile = uriCacheUtils.cacheUriToFile(uris.first())
+                ?: throw Exception("Could not open source file.")
+            val fileName = getFileNameFromUri(uris.first()) ?: "file"
+            val tempOutputFile = File(context.cacheDir, "archive_${System.currentTimeMillis()}.tar")
+            FileOutputStream(tempOutputFile).use { fos ->
+                val size = cachedFile.length()
+                val header = ByteArray(512)
+                val nameBytes = fileName.take(99).toByteArray(Charsets.UTF_8)
+                System.arraycopy(nameBytes, 0, header, 0, nameBytes.size)
+                val modeBytes = "0000644\u0000".toByteArray()
+                System.arraycopy(modeBytes, 0, header, 100, modeBytes.size)
+                val sizeOctal = String.format("%011o", size) + " "
+                System.arraycopy(sizeOctal.toByteArray(), 0, header, 124, sizeOctal.toByteArray().size)
+                val modTimeOctal = String.format("%011o", cachedFile.lastModified() / 1000L) + " "
+                System.arraycopy(modTimeOctal.toByteArray(), 0, header, 136, modTimeOctal.toByteArray().size)
+                header[156] = '0'.toByte()
+                System.arraycopy("ustar\u0000".toByteArray(), 0, header, 257, 6)
+                for (j in 148 until 156) header[j] = ' '.toByte()
+                var checksum = 0
+                for (b in header) checksum += (b.toInt() and 0xFF)
+                val checksumOctal = String.format("%06o", checksum) + "\u0000 "
+                System.arraycopy(checksumOctal.toByteArray(), 0, header, 148, checksumOctal.toByteArray().size)
+                fos.write(header)
+                cachedFile.inputStream().use { fis ->
+                    val buf = ByteArray(1024)
+                    var read: Int
+                    while (fis.read(buf).also { read = it } != -1) fos.write(buf, 0, read)
+                }
+                val remainder = (size % 512).toInt()
+                if (remainder > 0) fos.write(ByteArray(512 - remainder))
+                fos.write(ByteArray(1024))
+            }
+            val gzOutputFile = File(context.cacheDir, "archive_${System.currentTimeMillis()}.tgz")
+            FileInputStream(tempOutputFile).use { fis ->
+                java.util.zip.GZIPOutputStream(FileOutputStream(gzOutputFile)).use { gzos ->
+                    val buf = ByteArray(1024)
+                    var read: Int
+                    while (fis.read(buf).also { read = it } != -1) gzos.write(buf, 0, read)
+                }
+            }
+            val outName = if (outputName.endsWith(".tgz", ignoreCase = true) || outputName.endsWith(".tar.gz", ignoreCase = true)) outputName else "$outputName.tgz"
+            val bytes = gzOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/gzip", "Archive")
+                ?: throw Exception("Failed to save TGZ archive.")
+            registerRecentFile(savedUri, outName, "application/gzip", gzOutputFile.length())
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            if (gzOutputFile.exists()) gzOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

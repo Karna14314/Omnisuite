@@ -154,6 +154,12 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }) }
         item { ToolListRow("🔀", "Reorder Pages", "Drag and drop to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }) }
         item { ToolListRow("🖼️", "Extract Images", "Extract embedded images from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }) }
+        item { ToolListRow("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }) }
+        item { ToolListRow("📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }) }
+        item { ToolListRow("📝", "PDF to TXT", "Extract text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }) }
+        item { ToolListRow("🖼️", "Images to PDF+", "Compile images with layout options", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdfLayout) }) }
+        item { ToolListRow("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }) }
+        item { ToolListRow("📐", "Resize Pages", "Change PDF page size (A3/A4/A5/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }) }
     }
 }
 
@@ -232,6 +238,7 @@ fun ArchiveQrToolsList(
         item { ToolListRow("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToZipMaker) }) }
         item { ToolListRow("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }) }
         item { ToolListRow("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }) }
+        item { ToolListRow("🔐", "Password ZIP", "Create password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }) }
         item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
         item { ToolListRow("📷", "QR Scanner", "Live viewfinder decoding", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
         item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }

@@ -106,6 +106,13 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPdfPageNumber -> navController.navigate(Screen.PdfPageNumber.route)
                         is NavigationEvent.NavigateToPdfReorder -> navController.navigate(Screen.PdfReorder.route)
                         is NavigationEvent.NavigateToPdfExtractImages -> navController.navigate(Screen.PdfExtractImages.route)
+                        is NavigationEvent.NavigateToTxtToPdf -> navController.navigate(Screen.TxtToPdf.route)
+                        is NavigationEvent.NavigateToCsvToPdf -> navController.navigate(Screen.CsvToPdf.route)
+                        is NavigationEvent.NavigateToPdfToTxt -> navController.navigate(Screen.PdfToTxt.route)
+                        is NavigationEvent.NavigateToImagesToPdfLayout -> navController.navigate(Screen.ImagesToPdfLayout.route)
+                        is NavigationEvent.NavigateToPdfHeaderFooter -> navController.navigate(Screen.PdfHeaderFooter.route)
+                        is NavigationEvent.NavigateToPdfResize -> navController.navigate(Screen.PdfResize.route)
+                        is NavigationEvent.NavigateToPasswordZip -> navController.navigate(Screen.PasswordZip.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -736,6 +743,55 @@ fun OmniNavGraph(
         // 32. PDF Extract Images Screen
         composable(route = Screen.PdfExtractImages.route) {
             com.karnadigital.omnisuite.feature.pdf_tools.PdfExtractImagesScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 33. TXT to PDF Screen
+        composable(route = Screen.TxtToPdf.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.TxtToPdfScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 34. CSV to PDF Screen
+        composable(route = Screen.CsvToPdf.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.CsvToPdfScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 35. PDF to TXT Screen
+        composable(route = Screen.PdfToTxt.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfToTxtScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 36. Images to PDF with Layout Screen
+        composable(route = Screen.ImagesToPdfLayout.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfLayoutScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 37. PDF Header & Footer Screen
+        composable(route = Screen.PdfHeaderFooter.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfHeaderFooterScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 38. PDF Resize Pages Screen
+        composable(route = Screen.PdfResize.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfResizeScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 39. Password-Protected ZIP Screen
+        composable(route = Screen.PasswordZip.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PasswordZipScreen(
                 onBack = { navController.popBackStack() }
             )
         }

@@ -307,6 +307,41 @@ sealed class Screen(val route: String) {
      * PDF Extract Images Screen
      */
     object PdfExtractImages : Screen("pdf_extract_images")
+
+    /**
+     * TXT to PDF Converter Screen
+     */
+    object TxtToPdf : Screen("txt_to_pdf")
+
+    /**
+     * CSV to PDF Converter Screen
+     */
+    object CsvToPdf : Screen("csv_to_pdf")
+
+    /**
+     * PDF to TXT Converter Screen
+     */
+    object PdfToTxt : Screen("pdf_to_txt")
+
+    /**
+     * Images to PDF with Layout Options Screen
+     */
+    object ImagesToPdfLayout : Screen("images_to_pdf_layout")
+
+    /**
+     * PDF Header & Footer Screen
+     */
+    object PdfHeaderFooter : Screen("pdf_header_footer")
+
+    /**
+     * PDF Resize Pages Screen
+     */
+    object PdfResize : Screen("pdf_resize")
+
+    /**
+     * Password-Protected ZIP Screen
+     */
+    object PasswordZip : Screen("password_zip")
 }
 
 

@@ -129,4 +129,17 @@ object QrCodeGenerator {
             null
         }
     }
+
+    fun getSupportedBarcodeFormats(): List<Pair<String, BarcodeFormat>> {
+        return listOf(
+            "CODE_128" to BarcodeFormat.CODE_128,
+            "CODE_39" to BarcodeFormat.CODE_39,
+            "EAN_13" to BarcodeFormat.EAN_13,
+            "EAN_8" to BarcodeFormat.EAN_8,
+            "UPC_A" to BarcodeFormat.UPC_A,
+            "UPC_E" to BarcodeFormat.UPC_E,
+            "ITF" to BarcodeFormat.ITF,
+            "CODABAR" to BarcodeFormat.CODABAR
+        )
+    }
 }

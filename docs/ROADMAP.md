@@ -591,21 +591,26 @@ OmniSuite is an offline Android document/utility suite (~25,000 LOC) built with 
 - [x] Phase 3: Syntax highlighting engine (SyntaxHighlighter.kt — 30+ language support)
 - [x] Phase 3: Encoding detection utility (EncodingDetector.kt — BOM detection, UTF-8/16/32, heuristics)
 - [x] Phase 3: Universal code editor (TxtViewerScreen.kt — line numbers, search/replace, go-to-line, encoding picker, word wrap, themes)
+- [x] Phase 4: TXT→PDF conversion (TxtToPdfScreen.kt + repository function)
+- [x] Phase 4: CSV→PDF conversion (CsvToPdfScreen.kt + repository function)
+- [x] Phase 4: PDF→TXT conversion (PdfToTxtScreen.kt + repository function)
+- [x] Phase 4: Images→PDF with layout options (ImagesToPdfLayoutScreen.kt + repository function)
 - [x] Phase 5: PDF page numbering (PdfPageNumberScreen.kt + repository function)
 - [x] Phase 5: PDF page reorder with drag-and-drop (PdfReorderScreen.kt + repository function)
 - [x] Phase 5: PDF image extraction (PdfExtractImagesScreen.kt + repository function)
+- [x] Phase 5: PDF header/footer (PdfHeaderFooterScreen.kt + repository function)
+- [x] Phase 5: PDF page resize (PdfResizeScreen.kt + repository function)
+- [x] Phase 6: Password-protected ZIP (PasswordZipScreen.kt + repository function, zip4j dependency)
+- [x] Phase 6: TGZ/GZIP archive creation (repository function)
+- [x] Phase 7: Additional barcode formats (Code 39, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar)
+- [x] Phase 8: Shared UI components (CommonStates.kt — EmptyState, LoadingIndicator, ErrorState, ConfirmationDialog)
 - [x] Navigation routes for all new screens
 
 ### In Progress
-- [ ] Phase 2: Editor Modernization (bottom toolbar system)
-- [ ] Phase 4: Conversion Expansion (quality improvements)
+- [ ] Phase 2: Editor Modernization (bottom toolbar system) — deferred for future work
 
 ### Upcoming
-- [ ] Phase 4: Conversion Expansion
-- [ ] Phase 5: PDF Expansion
-- [ ] Phase 6: ZIP & Archive Enhancement
-- [ ] Phase 7: Barcode & QR Enhancement
-- [ ] Phase 8: Existing Tool Enhancement
+- [ ] Phase 2: Editor Modernization (bottom toolbar system)
 
 ### Already Fixed (Verified)
 - [x] ZipSecurity properly validates paths in ArchiveViewerScreen
@@ -632,7 +637,7 @@ OmniSuite is an offline Android document/utility suite (~25,000 LOC) built with 
 
 ## Implementation Summary
 
-### New Files Created
+### New Files Created (16 files)
 
 | File | Purpose | Lines |
 |------|---------|-------|
@@ -643,31 +648,47 @@ OmniSuite is an offline Android document/utility suite (~25,000 LOC) built with 
 | `feature/pdf_tools/PdfPageNumberScreen.kt` | PDF page numbering UI | ~200 |
 | `feature/pdf_tools/PdfReorderScreen.kt` | PDF page reorder with drag-and-drop | ~320 |
 | `feature/pdf_tools/PdfExtractImagesScreen.kt` | PDF image extraction UI | ~150 |
+| `feature/pdf_tools/TxtToPdfScreen.kt` | TXT to PDF converter UI | ~150 |
+| `feature/pdf_tools/CsvToPdfScreen.kt` | CSV to PDF converter UI | ~150 |
+| `feature/pdf_tools/PdfToTxtScreen.kt` | PDF to TXT converter UI | ~150 |
+| `feature/pdf_tools/ImagesToPdfLayoutScreen.kt` | Images to PDF with layout UI | ~150 |
+| `feature/pdf_tools/PdfHeaderFooterScreen.kt` | PDF header/footer UI | ~150 |
+| `feature/pdf_tools/PdfResizeScreen.kt` | PDF page resize UI | ~150 |
+| `feature/pdf_tools/PasswordZipScreen.kt` | Password-protected ZIP UI | ~150 |
+| `ui/component/CommonStates.kt` | Shared UI state components | ~180 |
+| `core/engine/utility/QrCodeGenerator.kt` | Added barcode format support | +20 |
 
-### Modified Files
+### Modified Files (10 files)
 
 | File | Changes |
 |------|---------|
-| `feature/pdf_tools/PdfToolsRepository.kt` | Added `addPageNumbers`, `reorderPdfPages`, `extractImagesFromPdf` |
-| `feature/pdf_tools/PdfToolsViewModel.kt` | Added state vars and functions for new tools |
-| `ui/navigation/Screen.kt` | Added routes for new screens |
-| `ui/navigation/OmniNavGraph.kt` | Added composable destinations and event handlers |
-| `feature/home/NavigationEvent.kt` | Added navigation events |
-| `feature/tools/AllToolsScreen.kt` | Added new tools to PDF list |
+| `feature/pdf_tools/PdfToolsRepository.kt` | +10 functions (page numbers, reorder, extract images, TXT→PDF, CSV→PDF, PDF→TXT, images→PDF layout, header/footer, resize, password ZIP, TGZ) |
+| `feature/pdf_tools/PdfToolsViewModel.kt` | +state vars and functions for all new tools |
+| `ui/navigation/Screen.kt` | +12 routes for new screens |
+| `ui/navigation/OmniNavGraph.kt` | +12 composable destinations and event handlers |
+| `feature/home/NavigationEvent.kt` | +12 navigation events |
+| `feature/tools/AllToolsScreen.kt` | +10 new tools to lists |
+| `app/build.gradle.kts` | +zip4j dependency for password ZIP |
+| `core/engine/utility/QrCodeGenerator.kt` | +getSupportedBarcodeFormats() |
 
 ### Features Implemented
 
-1. **Syntax Highlighting** — 30+ languages including Kotlin, Java, Python, JS/TS, C/C++, C#, PHP, SQL, HTML/CSS, XML, JSON, YAML, Markdown, Gradle, Shell, Ruby, Go, Rust, Swift, Dart, Scala, R, Lua, Perl, and Log files
-
-2. **Encoding Detection** — BOM detection (UTF-8/16/32), UTF-8 validation, single-byte encoding heuristics (Windows-1252, ISO-8859-1, etc.)
-
-3. **Universal Code Editor** — Line numbers, search & replace, go-to-line, word wrap toggle, 4 color themes, font size control, encoding selection, file type detection
-
-4. **PDF Page Numbering** — Configurable start number, 6 positions (top/bottom × left/center/right), adjustable font size
-
-5. **PDF Page Reorder** — Visual grid with page thumbnails, drag-and-drop reordering, reset option
-
-6. **PDF Image Extraction** — Extract all embedded images as PNG files
+1. **Syntax Highlighting** — 30+ languages
+2. **Encoding Detection** — BOM, UTF-8/16/32 validation, heuristics
+3. **Universal Code Editor** — Line numbers, search/replace, go-to-line, word wrap, themes
+4. **PDF Page Numbering** — Configurable position, start number, font size
+5. **PDF Page Reorder** — Drag-and-drop visual grid
+6. **PDF Image Extraction** — Extract embedded images as PNG
+7. **TXT→PDF** — Convert text files to PDF with word wrap
+8. **CSV→PDF** — Convert CSV to formatted PDF table
+9. **PDF→TXT** — Extract text from PDF
+10. **Images→PDF Layout** — 1/2/4/6 images per page
+11. **PDF Header/Footer** — Add text headers and footers
+12. **PDF Page Resize** — A3/A4/A5/Letter/Legal
+13. **Password ZIP** — Create password-protected ZIP files (zip4j)
+14. **TGZ Archive** — Create GZIP compressed TAR archives
+15. **Additional Barcode Formats** — Code 39, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar
+16. **Shared UI Components** — EmptyState, LoadingIndicator, ErrorState, ConfirmationDialog
 
 ---
 

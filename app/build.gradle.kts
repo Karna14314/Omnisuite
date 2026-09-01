@@ -161,6 +161,9 @@ dependencies {
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
+    // ZIP encryption support (zip4j)
+    implementation("net.lingala.zip4j:zip4j:2.11.5")
+
     // CameraX Hardware Stack
     val cameraXVersion = "1.3.4"
     implementation("androidx.camera:camera-core:$cameraXVersion")

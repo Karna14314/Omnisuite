@@ -792,4 +792,222 @@ class PdfToolsViewModel @Inject constructor(
             isProcessing = false
         }
     }
+
+    var txtToPdfInputUri by mutableStateOf<Uri?>(null)
+    var csvToPdfInputUri by mutableStateOf<Uri?>(null)
+    var pdfToTxtInputUri by mutableStateOf<Uri?>(null)
+    var imagesToPdfInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var imagesToPdfLayout by mutableIntStateOf(1)
+
+    fun convertTxtToPdf(customFilename: String? = null) {
+        val inputUri = txtToPdfInputUri ?: run {
+            errorMessage = "Please select a text file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertTxtToPdf(inputUri, 12, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Text file converted to PDF successfully!"
+                txtToPdfInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertCsvToPdf(customFilename: String? = null) {
+        val inputUri = csvToPdfInputUri ?: run {
+            errorMessage = "Please select a CSV file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertCsvToPdf(inputUri, 10, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "CSV file converted to PDF successfully!"
+                csvToPdfInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertPdfToTxt(customFilename: String? = null) {
+        val inputUri = pdfToTxtInputUri ?: run {
+            errorMessage = "Please select a PDF file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertPdfToTxt(inputUri, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "PDF converted to text successfully!"
+                pdfToTxtInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertImagesToPdfWithLayout(customFilename: String? = null) {
+        if (imagesToPdfInputUris.isEmpty()) {
+            errorMessage = "Please select at least one image."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertImagesToPdfWithLayout(imagesToPdfInputUris, imagesToPdfLayout, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Images compiled to PDF successfully!"
+                imagesToPdfInputUris = emptyList()
+            }.onFailure { e ->
+                errorMessage = "Failed to compile images: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var headerFooterInputUri by mutableStateOf<Uri?>(null)
+    var headerFooterHeaderText by mutableStateOf("")
+    var headerFooterFooterText by mutableStateOf("")
+    var headerFooterFontSize by mutableIntStateOf(10)
+
+    var resizeInputUri by mutableStateOf<Uri?>(null)
+    var resizeTargetSize by mutableStateOf("A4")
+
+    fun addHeaderFooter(customFilename: String? = null) {
+        val inputUri = headerFooterInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addHeaderFooter(inputUri, headerFooterHeaderText, headerFooterFooterText, headerFooterFontSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Header/Footer added successfully!"
+                headerFooterInputUri = null
+                headerFooterHeaderText = ""
+                headerFooterFooterText = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to add header/footer: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun resizePdfPages(customFilename: String? = null) {
+        val inputUri = resizeInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.resizePdfPages(inputUri, resizeTargetSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Pages resized to $resizeTargetSize successfully!"
+                resizeInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to resize pages: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var passwordZipInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var passwordZipOutputName by mutableStateOf("")
+    var passwordZipPassword by mutableStateOf("")
+
+    var passwordZipExtractUri by mutableStateOf<Uri?>(null)
+    var passwordZipExtractPassword by mutableStateOf("")
+
+    var tgzInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var tgzOutputName by mutableStateOf("")
+
+    fun createPasswordZip() {
+        if (passwordZipInputUris.isEmpty()) {
+            errorMessage = "Please select files to compress."
+            return
+        }
+        if (passwordZipPassword.isBlank()) {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createPasswordZip(passwordZipInputUris, passwordZipOutputName, passwordZipPassword)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Password-protected ZIP created successfully!"
+                passwordZipInputUris = emptyList()
+                passwordZipOutputName = ""
+                passwordZipPassword = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to create ZIP: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun extractPasswordZip() {
+        val inputUri = passwordZipExtractUri ?: run {
+            errorMessage = "Please select a ZIP file."
+            return
+        }
+        if (passwordZipExtractPassword.isBlank()) {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "ZIP extracted successfully!"
+                passwordZipExtractUri = null
+                passwordZipExtractPassword = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to extract ZIP: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun createTgzArchive() {
+        if (tgzInputUris.isEmpty()) {
+            errorMessage = "Please select a file to compress."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createGzipArchive(tgzInputUris, tgzOutputName)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "TGZ archive created successfully!"
+                tgzInputUris = emptyList()
+                tgzOutputName = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to create TGZ: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
 }
