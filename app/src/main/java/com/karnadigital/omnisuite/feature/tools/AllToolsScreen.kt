@@ -275,5 +275,9 @@ fun ArchiveQrToolsList(
         item { ToolListRow("🎨", "Color Picker", "Pick colors from images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToColorPicker) }) }
         item { ToolListRow("🖼️", "Collage Maker", "Photo collage with layouts", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToCollageMaker) }) }
         item { ToolListRow("😄", "Meme Maker", "Add top/bottom text to images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToMemeMaker) }) }
+        item { ToolListRow("🏷️", "Sticker Maker", "Extract objects as stickers", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToStickerMaker) }) }
+        item { ToolListRow("📌", "Import Sticker", "Place stickers on images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToStickerImport) }) }
+        item { ToolListRow("📐", "Exact Resize", "Resize to exact dimensions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToExactResize) }) }
+        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech (offline)", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToReadAloud) }) }
     }
 }

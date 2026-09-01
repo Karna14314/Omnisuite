@@ -412,4 +412,74 @@ class UtilityToolsRepository @Inject constructor(
         }
         return result
     }
+
+    fun extractSticker(bitmap: Bitmap, left: Int, top: Int, right: Int, bottom: Int, removeBg: Boolean = true, bgThreshold: Int = 30): Bitmap {
+        val width = (right - left).coerceAtLeast(1)
+        val height = (bottom - top).coerceAtLeast(1)
+        val cropped = Bitmap.createBitmap(bitmap, left.coerceIn(0, bitmap.width - 1), top.coerceIn(0, bitmap.height - 1), width.coerceAtMost(bitmap.width - left), height.coerceAtMost(bitmap.height - top))
+        if (!removeBg) return cropped
+        return removeBackground(cropped, bgThreshold)
+    }
+
+    fun resizeExact(bitmap: Bitmap, targetWidth: Int, targetHeight: Int, keepAspectRatio: Boolean = false, bgColor: Int = Color.TRANSPARENT): Bitmap {
+        if (!keepAspectRatio) {
+            return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        }
+        val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        val targetRatio = targetWidth.toFloat() / targetHeight.toFloat()
+        val (newWidth, newHeight) = if (aspectRatio > targetRatio) {
+            Pair(targetWidth, (targetWidth / aspectRatio).toInt())
+        } else {
+            Pair((targetHeight * aspectRatio).toInt(), targetHeight)
+        }
+        val scaled = Bitmap.createScaledBitmap(bitmap, newWidth.coerceAtLeast(1), newHeight.coerceAtLeast(1), true)
+        val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(result)
+        canvas.drawColor(bgColor)
+        val x = (targetWidth - scaled.width) / 2
+        val y = (targetHeight - scaled.height) / 2
+        canvas.drawBitmap(scaled, x.toFloat(), y.toFloat(), null)
+        return result
+    }
+
+    fun placeSticker(background: Bitmap, sticker: Bitmap, x: Int, y: Int, stickerWidth: Int = sticker.width, stickerHeight: Int = sticker.height): Bitmap {
+        val result = background.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(result)
+        val scaledSticker = Bitmap.createScaledBitmap(sticker, stickerWidth.coerceAtLeast(1), stickerHeight.coerceAtLeast(1), true)
+        canvas.drawBitmap(scaledSticker, x.toFloat(), y.toFloat(), null)
+        return result
+    }
+
+    fun addTextToImage(bitmap: Bitmap, text: String, x: Float, y: Float, size: Float = 48f, color: Int = Color.WHITE, bold: Boolean = true): Bitmap {
+        val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(result)
+        val paint = android.graphics.Paint().apply {
+            this.color = color
+            textSize = size
+            typeface = if (bold) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+            isAntiAlias = true
+            setShadowLayer(3f, 2f, 2f, Color.BLACK)
+        }
+        canvas.drawText(text, x, y, paint)
+        return result
+    }
+
+    fun saveSticker(context: Context, bitmap: Bitmap, name: String): File {
+        val stickersDir = File(context.filesDir, "stickers")
+        if (!stickersDir.exists()) stickersDir.mkdirs()
+        val file = File(stickersDir, "$name.png")
+        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        return file
+    }
+
+    fun loadStickers(context: Context): List<File> {
+        val stickersDir = File(context.filesDir, "stickers")
+        if (!stickersDir.exists()) return emptyList()
+        return stickersDir.listFiles()?.filter { it.extension == "png" } ?: emptyList()
+    }
+
+    fun deleteSticker(context: Context, name: String): Boolean {
+        val file = File(context.filesDir, "stickers/$name.png")
+        return file.delete()
+    }
 }

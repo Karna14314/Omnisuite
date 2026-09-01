@@ -502,6 +502,26 @@ sealed class Screen(val route: String) {
      * Advanced Word Count Screen
      */
     object AdvancedWordCount : Screen("advanced_word_count")
+
+    /**
+     * Sticker Maker Screen
+     */
+    object StickerMaker : Screen("sticker_maker")
+
+    /**
+     * Sticker Import Screen
+     */
+    object StickerImport : Screen("sticker_import")
+
+    /**
+     * Exact Resize Screen
+     */
+    object ExactResize : Screen("exact_resize")
+
+    /**
+     * Read Aloud Screen
+     */
+    object ReadAloud : Screen("read_aloud")
 }
 
 

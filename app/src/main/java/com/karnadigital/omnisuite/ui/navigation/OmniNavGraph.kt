@@ -145,6 +145,10 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToMarkdownToPdfEnhanced -> navController.navigate(Screen.MarkdownToPdfEnhanced.route)
                         is NavigationEvent.NavigateToSvgToPdf -> navController.navigate(Screen.SvgToPdf.route)
                         is NavigationEvent.NavigateToAdvancedWordCount -> navController.navigate(Screen.AdvancedWordCount.route)
+                        is NavigationEvent.NavigateToStickerMaker -> navController.navigate(Screen.StickerMaker.route)
+                        is NavigationEvent.NavigateToStickerImport -> navController.navigate(Screen.StickerImport.route)
+                        is NavigationEvent.NavigateToExactResize -> navController.navigate(Screen.ExactResize.route)
+                        is NavigationEvent.NavigateToReadAloud -> navController.navigate(Screen.ReadAloud.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -1048,6 +1052,34 @@ fun OmniNavGraph(
         // 71. Advanced Word Count Screen
         composable(route = Screen.AdvancedWordCount.route) {
             com.karnadigital.omnisuite.feature.pdf_tools.AdvancedWordCountScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 72. Sticker Maker Screen
+        composable(route = Screen.StickerMaker.route) {
+            com.karnadigital.omnisuite.feature.utility.StickerMakerScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 73. Sticker Import Screen
+        composable(route = Screen.StickerImport.route) {
+            com.karnadigital.omnisuite.feature.utility.StickerImportScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 74. Exact Resize Screen
+        composable(route = Screen.ExactResize.route) {
+            com.karnadigital.omnisuite.feature.utility.ExactResizeScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 75. Read Aloud Screen
+        composable(route = Screen.ReadAloud.route) {
+            com.karnadigital.omnisuite.feature.utility.ReadAloudScreen(
                 onBack = { navController.popBackStack() }
             )
         }
