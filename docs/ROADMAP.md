@@ -700,3 +700,4 @@ OmniSuite is an offline Android document/utility suite (~25,000 LOC) built with 
 - Existing tool improvements take priority over new tools
 - All features must be fully offline — no network dependencies
 - Maintain backward compatibility with existing file formats
+- See `GAP_ANALYSIS.md` for comprehensive competitor feature comparison
