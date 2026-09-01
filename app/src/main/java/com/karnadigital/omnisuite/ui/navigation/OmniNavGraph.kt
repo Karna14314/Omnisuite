@@ -113,6 +113,17 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPdfHeaderFooter -> navController.navigate(Screen.PdfHeaderFooter.route)
                         is NavigationEvent.NavigateToPdfResize -> navController.navigate(Screen.PdfResize.route)
                         is NavigationEvent.NavigateToPasswordZip -> navController.navigate(Screen.PasswordZip.route)
+                        is NavigationEvent.NavigateToPdfToPdfA -> navController.navigate(Screen.PdfToPdfA.route)
+                        is NavigationEvent.NavigateToPdfMetadata -> navController.navigate(Screen.PdfMetadata.route)
+                        is NavigationEvent.NavigateToPdfCropMargins -> navController.navigate(Screen.PdfCropMargins.route)
+                        is NavigationEvent.NavigateToPdfRedact -> navController.navigate(Screen.PdfRedact.route)
+                        is NavigationEvent.NavigateToPdfRepair -> navController.navigate(Screen.PdfRepair.route)
+                        is NavigationEvent.NavigateToPdfOverlay -> navController.navigate(Screen.PdfOverlay.route)
+                        is NavigationEvent.NavigateToPdfCompare -> navController.navigate(Screen.PdfCompare.route)
+                        is NavigationEvent.NavigateToPdfToMarkdown -> navController.navigate(Screen.PdfToMarkdown.route)
+                        is NavigationEvent.NavigateToPdfSplitBySize -> navController.navigate(Screen.PdfSplitBySize.route)
+                        is NavigationEvent.NavigateToPdfInsertPages -> navController.navigate(Screen.PdfInsertPages.route)
+                        is NavigationEvent.NavigateToPdfReplacePages -> navController.navigate(Screen.PdfReplacePages.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -792,6 +803,83 @@ fun OmniNavGraph(
         // 39. Password-Protected ZIP Screen
         composable(route = Screen.PasswordZip.route) {
             com.karnadigital.omnisuite.feature.pdf_tools.PasswordZipScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 40. PDF to PDF/A Screen
+        composable(route = Screen.PdfToPdfA.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfToPdfAScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 41. PDF Metadata Editor Screen
+        composable(route = Screen.PdfMetadata.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfMetadataScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 42. PDF Crop Margins Screen
+        composable(route = Screen.PdfCropMargins.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfCropMarginsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 43. PDF Redact Screen
+        composable(route = Screen.PdfRedact.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfRedactScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 44. PDF Repair Screen
+        composable(route = Screen.PdfRepair.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfRepairScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 45. PDF Overlay Screen
+        composable(route = Screen.PdfOverlay.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfOverlayScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 46. PDF Compare Screen
+        composable(route = Screen.PdfCompare.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfCompareScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 47. PDF to Markdown Screen
+        composable(route = Screen.PdfToMarkdown.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfToMarkdownScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 48. PDF Split by Size Screen
+        composable(route = Screen.PdfSplitBySize.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfSplitBySizeScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 49. PDF Insert Pages Screen
+        composable(route = Screen.PdfInsertPages.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfInsertPagesScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 50. PDF Replace Pages Screen
+        composable(route = Screen.PdfReplacePages.route) {
+            com.karnadigital.omnisuite.feature.pdf_tools.PdfReplacePagesScreen(
                 onBack = { navController.popBackStack() }
             )
         }

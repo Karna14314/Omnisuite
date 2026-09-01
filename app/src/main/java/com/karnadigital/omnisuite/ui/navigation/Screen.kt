@@ -342,6 +342,61 @@ sealed class Screen(val route: String) {
      * Password-Protected ZIP Screen
      */
     object PasswordZip : Screen("password_zip")
+
+    /**
+     * PDF to PDF/A Screen
+     */
+    object PdfToPdfA : Screen("pdf_to_pdfa")
+
+    /**
+     * PDF Metadata Editor Screen
+     */
+    object PdfMetadata : Screen("pdf_metadata")
+
+    /**
+     * PDF Crop Margins Screen
+     */
+    object PdfCropMargins : Screen("pdf_crop_margins")
+
+    /**
+     * PDF Redact Screen
+     */
+    object PdfRedact : Screen("pdf_redact")
+
+    /**
+     * PDF Repair Screen
+     */
+    object PdfRepair : Screen("pdf_repair")
+
+    /**
+     * PDF Overlay Screen
+     */
+    object PdfOverlay : Screen("pdf_overlay")
+
+    /**
+     * PDF Compare Screen
+     */
+    object PdfCompare : Screen("pdf_compare")
+
+    /**
+     * PDF to Markdown Screen
+     */
+    object PdfToMarkdown : Screen("pdf_to_markdown")
+
+    /**
+     * PDF Split by Size Screen
+     */
+    object PdfSplitBySize : Screen("pdf_split_by_size")
+
+    /**
+     * PDF Insert Pages Screen
+     */
+    object PdfInsertPages : Screen("pdf_insert_pages")
+
+    /**
+     * PDF Replace Pages Screen
+     */
+    object PdfReplacePages : Screen("pdf_replace_pages")
 }
 
 

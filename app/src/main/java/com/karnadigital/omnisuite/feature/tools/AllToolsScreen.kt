@@ -160,6 +160,17 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("🖼️", "Images to PDF+", "Compile images with layout options", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdfLayout) }) }
         item { ToolListRow("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }) }
         item { ToolListRow("📐", "Resize Pages", "Change PDF page size (A3/A4/A5/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }) }
+        item { ToolListRow("📑", "PDF to PDF/A", "Convert to archival PDF/A format", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPdfA) }) }
+        item { ToolListRow("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }) }
+        item { ToolListRow("✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }) }
+        item { ToolListRow("⬛", "Redact PDF", "Permanently blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }) }
+        item { ToolListRow("🔧", "Repair PDF", "Fix corrupted PDF files", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRepair) }) }
+        item { ToolListRow("📋", "Overlay PDF", "Overlay one PDF on another", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfOverlay) }) }
+        item { ToolListRow("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }) }
+        item { ToolListRow("📝", "PDF to Markdown", "Convert PDF to Markdown format", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToMarkdown) }) }
+        item { ToolListRow("✂️", "Split by Size", "Split PDF into size-based chunks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplitBySize) }) }
+        item { ToolListRow("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }) }
+        item { ToolListRow("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }) }
     }
 }
 

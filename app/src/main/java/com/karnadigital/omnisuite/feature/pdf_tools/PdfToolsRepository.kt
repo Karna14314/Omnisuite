@@ -1451,4 +1451,386 @@ class PdfToolsRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    suspend fun convertToPdfA(inputUri: Uri, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "pdfa_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                document.documentId = null
+                val catalog = document.documentCatalog
+                catalog.metadata = null
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_pdfa.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF/A.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun editPdfMetadata(inputUri: Uri, title: String, author: String, subject: String, keywords: String, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "metadata_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                val info = document.documentInformation
+                if (title.isNotBlank()) info.title = title
+                if (author.isNotBlank()) info.author = author
+                if (subject.isNotBlank()) info.subject = subject
+                if (keywords.isNotBlank()) info.keywords = keywords
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_metadata.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun cropPdfMargins(inputUri: Uri, topMargin: Float, bottomMargin: Float, leftMargin: Float, rightMargin: Float, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "cropped_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                for (page in document.pages) {
+                    val mediaBox = page.mediaBox
+                    val newLowerLeftX = mediaBox.lowerLeftX + leftMargin
+                    val newLowerLeftY = mediaBox.lowerLeftY + bottomMargin
+                    val newUpperRightX = mediaBox.upperRightX - rightMargin
+                    val newUpperRightY = mediaBox.upperRightY - topMargin
+                    if (newUpperRightX > newLowerLeftX && newUpperRightY > newLowerLeftY) {
+                        page.mediaBox = com.tom_roush.pdfbox.pdmodel.common.PDRectangle(
+                            newLowerLeftX, newLowerLeftY, newUpperRightX - newLowerLeftX, newUpperRightY - newLowerLeftY
+                        )
+                    }
+                }
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_cropped.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun redactPdf(inputUri: Uri, pageNumber: Int, x: Float, y: Float, width: Float, height: Float, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "redacted_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                if (pageNumber < 0 || pageNumber >= document.numberOfPages) throw Exception("Invalid page number.")
+                val page = document.getPage(pageNumber)
+                val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND, true)
+                contentStream.setNonStrokingColor(0f, 0f, 0f)
+                contentStream.addRect(x, y, width, height)
+                contentStream.fill()
+                contentStream.close()
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_redacted.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun repairPdf(inputUri: Uri, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "repaired_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { document ->
+                for (page in document.pages) {
+                    if (page.resources != null) {
+                        val xObjectNames = page.resources.xObjectNames
+                        if (xObjectNames != null) {
+                            for (name in xObjectNames) {
+                                try { page.resources.isImageXObject(name) } catch (e: Exception) { page.resources.put(name, null) }
+                            }
+                        }
+                    }
+                }
+                FileOutputStream(tempOutputFile).use { document.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_repaired.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun overlayPdf(baseUri: Uri, overlayUri: Uri, pageNumber: Int, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempBaseFile = uriCacheUtils.cacheUriToFile(baseUri)
+                ?: throw Exception("Could not open base PDF file.")
+            val tempOverlayFile = uriCacheUtils.cacheUriToFile(overlayUri)
+                ?: throw Exception("Could not open overlay PDF file.")
+            val tempOutputFile = File(context.cacheDir, "overlay_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempBaseFile).use { baseDoc ->
+                val overlayPage = PDDocument.load(tempOverlayFile).use { overlayDoc ->
+                    if (overlayDoc.numberOfPages > 0) overlayDoc.getPage(0) else throw Exception("Overlay PDF has no pages.")
+                }
+                if (pageNumber >= 0 && pageNumber < baseDoc.numberOfPages) {
+                    val page = baseDoc.getPage(pageNumber)
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(baseDoc, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND, true)
+                    val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromFileByExtension(tempOverlayFile, baseDoc)
+                    contentStream.drawImage(pdImage, 0f, 0f, page.mediaBox.width, page.mediaBox.height)
+                    contentStream.close()
+                }
+                FileOutputStream(tempOutputFile).use { baseDoc.save(it) }
+            }
+            val originalName = (getFileNameFromUri(baseUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_overlay.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempBaseFile.exists()) tempBaseFile.delete()
+            if (tempOverlayFile.exists()) tempOverlayFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun comparePdfText(uri1: Uri, uri2: Uri): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val tempFile1 = uriCacheUtils.cacheUriToFile(uri1)
+                ?: throw Exception("Could not open first PDF file.")
+            val tempFile2 = uriCacheUtils.cacheUriToFile(uri2)
+                ?: throw Exception("Could not open second PDF file.")
+            val text1 = StringBuilder()
+            val text2 = StringBuilder()
+            PDDocument.load(tempFile1).use { doc1 ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                text1.append(stripper.getText(doc1))
+            }
+            PDDocument.load(tempFile2).use { doc2 ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                text2.append(stripper.getText(doc2))
+            }
+            val lines1 = text1.toString().lines()
+            val lines2 = text2.toString().lines()
+            val diff = StringBuilder()
+            diff.appendLine("=== PDF Text Comparison ===")
+            diff.appendLine("Document 1: ${lines1.size} lines")
+            diff.appendLine("Document 2: ${lines2.size} lines")
+            diff.appendLine()
+            val maxLines = maxOf(lines1.size, lines2.size)
+            var differences = 0
+            for (i in 0 until maxLines) {
+                val line1 = lines1.getOrElse(i) { "" }
+                val line2 = lines2.getOrElse(i) { "" }
+                if (line1 != line2) {
+                    differences++
+                    diff.appendLine("Line ${i + 1}:")
+                    diff.appendLine("  Doc1: $line1")
+                    diff.appendLine("  Doc2: $line2")
+                    diff.appendLine()
+                }
+            }
+            diff.appendLine("Total differences: $differences lines")
+            if (tempFile1.exists()) tempFile1.delete()
+            if (tempFile2.exists()) tempFile2.delete()
+            Result.success(diff.toString())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertPdfToMarkdown(inputUri: Uri, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempOutputFile = File(context.cacheDir, "pdf_to_md_${System.currentTimeMillis()}.md")
+            val markdown = StringBuilder()
+            PDDocument.load(tempInputFile).use { document ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                val text = stripper.getText(document)
+                val lines = text.lines()
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    when {
+                        trimmed.matches(Regex("^#{1,6}\\s.*")) -> markdown.appendLine(trimmed)
+                        trimmed.matches(Regex("^[-*+]\\s+.*")) -> markdown.appendLine(trimmed)
+                        trimmed.matches(Regex("^\\d+\\.\\s+.*")) -> markdown.appendLine(trimmed)
+                        trimmed.matches(Regex("^>\\s+.*")) -> markdown.appendLine(trimmed)
+                        trimmed.matches(Regex("^```.*")) -> markdown.appendLine(trimmed)
+                        trimmed.length > 60 && trimmed == trimmed.uppercase() -> markdown.appendLine("## $trimmed")
+                        trimmed.isNotEmpty() -> markdown.appendLine(trimmed)
+                        else -> markdown.appendLine()
+                    }
+                }
+            }
+            tempOutputFile.writeText(markdown.toString(), Charsets.UTF_8)
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}.md"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "text/markdown", "Documents")
+                ?: throw Exception("Failed to save Markdown file.")
+            registerRecentFile(savedUri, outName, "text/markdown", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun splitPdfBySize(inputUri: Uri, maxChunkSizeBytes: Long): Result<List<Uri>> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val savedUris = mutableListOf<Uri>()
+            val fileSize = tempInputFile.length()
+            val numChunks = ((fileSize + maxChunkSizeBytes - 1) / maxChunkSizeBytes).toInt().coerceAtLeast(1)
+            PDDocument.load(tempInputFile).use { document ->
+                val totalPages = document.numberOfPages
+                val pagesPerChunk = ((totalPages + numChunks - 1) / numChunks).coerceAtLeast(1)
+                var chunkIndex = 0
+                var pageIndex = 0
+                while (pageIndex < totalPages) {
+                    val endPage = minOf(pageIndex + pagesPerChunk, totalPages)
+                    PDDocument().use { chunkDoc ->
+                        for (p in pageIndex until endPage) {
+                            chunkDoc.addPage(document.getPage(p))
+                        }
+                        val tempChunkFile = File(context.cacheDir, "chunk_${System.currentTimeMillis()}_$chunkIndex.pdf")
+                        FileOutputStream(tempChunkFile).use { chunkDoc.save(it) }
+                        val bytes = tempChunkFile.readBytes()
+                        val chunkName = "${originalName}_part${chunkIndex + 1}.pdf"
+                        val savedUri = fileOutputManager.saveToDefault(bytes, chunkName, "application/pdf", "PDF")
+                            ?: throw Exception("Failed to save chunk $chunkIndex.")
+                        savedUris.add(savedUri)
+                        registerRecentFile(savedUri, chunkName, "application/pdf", tempChunkFile.length())
+                        if (tempChunkFile.exists()) tempChunkFile.delete()
+                    }
+                    chunkIndex++
+                    pageIndex = endPage
+                }
+            }
+            if (tempInputFile.exists()) tempInputFile.delete()
+            Result.success(savedUris)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun insertPages(inputUri: Uri, insertUri: Uri, insertAtPage: Int, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempInsertFile = uriCacheUtils.cacheUriToFile(insertUri)
+                ?: throw Exception("Could not open insert PDF file.")
+            val tempOutputFile = File(context.cacheDir, "inserted_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { mainDoc ->
+                val pagesToInsert = PDDocument.load(tempInsertFile).use { insertDoc ->
+                    (0 until insertDoc.numberOfPages).map { insertDoc.getPage(it) }
+                }
+                val insertIndex = insertAtPage.coerceIn(0, mainDoc.numberOfPages)
+                for ((offset, page) in pagesToInsert.withIndex()) {
+                    mainDoc.importPage(page)
+                    val importedPage = mainDoc.getPage(mainDoc.numberOfPages - 1)
+                    mainDoc.pages.remove(mainDoc.numberOfPages - 1)
+                    mainDoc.pages.add(insertIndex + offset, importedPage)
+                }
+                FileOutputStream(tempOutputFile).use { mainDoc.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_inserted.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempInsertFile.exists()) tempInsertFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun replacePages(inputUri: Uri, replaceUri: Uri, startPage: Int, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+                ?: throw Exception("Could not open source PDF file.")
+            val tempReplaceFile = uriCacheUriToFile(replaceUri)
+                ?: throw Exception("Could not open replacement PDF file.")
+            val tempOutputFile = File(context.cacheDir, "replaced_${System.currentTimeMillis()}.pdf")
+            PDDocument.load(tempInputFile).use { mainDoc ->
+                val replacePages = PDDocument.load(tempReplaceFile).use { replaceDoc ->
+                    (0 until replaceDoc.numberOfPages).map { replaceDoc.getPage(it) }
+                }
+                val validStart = startPage.coerceIn(0, mainDoc.numberOfPages - 1)
+                for (i in replacePages.indices) {
+                    val targetIdx = validStart + i
+                    if (targetIdx < mainDoc.numberOfPages) {
+                        mainDoc.pages.remove(targetIdx)
+                        mainDoc.importPage(replacePages[i])
+                        val imported = mainDoc.getPage(mainDoc.numberOfPages - 1)
+                        mainDoc.pages.remove(mainDoc.numberOfPages - 1)
+                        mainDoc.pages.add(targetIdx, imported)
+                    }
+                }
+                FileOutputStream(tempOutputFile).use { mainDoc.save(it) }
+            }
+            val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+            val outName = customFilename ?: "${originalName}_replaced.pdf"
+            val bytes = tempOutputFile.readBytes()
+            val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                ?: throw Exception("Failed to save PDF.")
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempReplaceFile.exists()) tempReplaceFile.delete()
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun cacheUriToFile(uri: Uri): File? = uriCacheUtils.cacheUriToFile(uri)
 }

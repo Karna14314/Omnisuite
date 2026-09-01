@@ -1010,4 +1010,164 @@ class PdfToolsViewModel @Inject constructor(
             isProcessing = false
         }
     }
+
+    var pdfAInputUri by mutableStateOf<Uri?>(null)
+    var metadataInputUri by mutableStateOf<Uri?>(null)
+    var metadataTitle by mutableStateOf("")
+    var metadataAuthor by mutableStateOf("")
+    var metadataSubject by mutableStateOf("")
+    var metadataKeywords by mutableStateOf("")
+    var cropInputUri by mutableStateOf<Uri?>(null)
+    var cropTop by mutableFloatStateOf(20f)
+    var cropBottom by mutableFloatStateOf(20f)
+    var cropLeft by mutableFloatStateOf(20f)
+    var cropRight by mutableFloatStateOf(20f)
+    var redactInputUri by mutableStateOf<Uri?>(null)
+    var redactPage by mutableIntStateOf(0)
+    var redactX by mutableFloatStateOf(50f)
+    var redactY by mutableFloatStateOf(50f)
+    var redactWidth by mutableFloatStateOf(100f)
+    var redactHeight by mutableFloatStateOf(20f)
+    var repairInputUri by mutableStateOf<Uri?>(null)
+    var overlayBaseUri by mutableStateOf<Uri?>(null)
+    var overlayOverlayUri by mutableStateOf<Uri?>(null)
+    var overlayPage by mutableIntStateOf(0)
+    var compareUri1 by mutableStateOf<Uri?>(null)
+    var compareUri2 by mutableStateOf<Uri?>(null)
+    var compareResult by mutableStateOf<String?>(null)
+    var pdfToMarkdownInputUri by mutableStateOf<Uri?>(null)
+    var splitBySizeInputUri by mutableStateOf<Uri?>(null)
+    var splitBySizeChunkSize by mutableStateOf("10")
+    var insertMainUri by mutableStateOf<Uri?>(null)
+    var insertInsertUri by mutableStateOf<Uri?>(null)
+    var insertAtPage by mutableIntStateOf(0)
+    var replaceMainUri by mutableStateOf<Uri?>(null)
+    var replaceReplaceUri by mutableStateOf<Uri?>(null)
+    var replaceStartPage by mutableIntStateOf(0)
+
+    fun convertToPdfA(customFilename: String? = null) {
+        val inputUri = pdfAInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertToPdfA(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to PDF/A successfully!"; pdfAInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun editMetadata(customFilename: String? = null) {
+        val inputUri = metadataInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.editPdfMetadata(inputUri, metadataTitle, metadataAuthor, metadataSubject, metadataKeywords, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Metadata updated successfully!"; metadataInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun cropPdfMargins(customFilename: String? = null) {
+        val inputUri = cropInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.cropPdfMargins(inputUri, cropTop, cropBottom, cropLeft, cropRight, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Margins cropped successfully!"; cropInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun redactPdf(customFilename: String? = null) {
+        val inputUri = redactInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.redactPdf(inputUri, redactPage, redactX, redactY, redactWidth, redactHeight, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Content redacted successfully!"; redactInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun repairPdf(customFilename: String? = null) {
+        val inputUri = repairInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.repairPdf(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "PDF repaired successfully!"; repairInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun overlayPdf(customFilename: String? = null) {
+        val baseUri = overlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
+        val overlayUri = overlayOverlayUri ?: run { errorMessage = "Please select overlay PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.overlayPdf(baseUri, overlayUri, overlayPage, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Overlay applied successfully!"; overlayBaseUri = null; overlayOverlayUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun comparePdf() {
+        val uri1 = compareUri1 ?: run { errorMessage = "Please select first PDF."; return }
+        val uri2 = compareUri2 ?: run { errorMessage = "Please select second PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.comparePdfText(uri1, uri2)
+            result.onSuccess { diff -> compareResult = diff; successMessage = "Comparison complete!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun convertPdfToMarkdown(customFilename: String? = null) {
+        val inputUri = pdfToMarkdownInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertPdfToMarkdown(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to Markdown successfully!"; pdfToMarkdownInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun splitPdfBySize() {
+        val inputUri = splitBySizeInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val chunkSize = splitBySizeChunkSize.toLongOrNull()?.times(1024 * 1024) ?: run { errorMessage = "Invalid chunk size."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.splitPdfBySize(inputUri, chunkSize)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitBySizeInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun insertPages() {
+        val mainUri = insertMainUri ?: run { errorMessage = "Please select main PDF."; return }
+        val insertUri = insertInsertUri ?: run { errorMessage = "Please select PDF to insert."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.insertPages(mainUri, insertUri, insertAtPage)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Pages inserted successfully!"; insertMainUri = null; insertInsertUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun replacePages() {
+        val mainUri = replaceMainUri ?: run { errorMessage = "Please select main PDF."; return }
+        val replaceUri = replaceReplaceUri ?: run { errorMessage = "Please select replacement PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.replacePages(mainUri, replaceUri, replaceStartPage)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Pages replaced successfully!"; replaceMainUri = null; replaceReplaceUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
 }

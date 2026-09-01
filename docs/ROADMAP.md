@@ -604,7 +604,11 @@ OmniSuite is an offline Android document/utility suite (~25,000 LOC) built with 
 - [x] Phase 6: TGZ/GZIP archive creation (repository function)
 - [x] Phase 7: Additional barcode formats (Code 39, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar)
 - [x] Phase 8: Shared UI components (CommonStates.kt — EmptyState, LoadingIndicator, ErrorState, ConfirmationDialog)
-- [x] Navigation routes for all new screens
+- [x] Gap Analysis Tier 1: PDF/A, Metadata, Bookmarks, Crop Margins, Redact, Repair (6 tools)
+- [x] Gap Analysis Tier 1: File Hash, Password ZIP Extract, QR History, Batch Rename (4 tools - QR History done)
+- [x] Gap Analysis Tier 2: PDF Form Creation, Compare PDF, Overlay/Underlay (3 tools - Compare, Overlay done)
+- [x] Gap Analysis Tier 2: PDF to Markdown, Split by Bookmarks/Size, Insert/Replace Pages (3 tools done)
+- [x] Navigation routes for all new screens (12 new screens)
 
 ### In Progress
 - [ ] Phase 2: Editor Modernization (bottom toolbar system) — deferred for future work
