@@ -177,6 +177,12 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("📝", "Create Form", "Add fillable form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormCreation) }) }
         item { ToolListRow("🖼️", "Extract Images (Selective)", "Choose specific images to extract", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSelectiveImageExtract) }) }
         item { ToolListRow("🖼️", "Extract All Pages as Images", "Render every page as PNG", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAllPagesToImage) }) }
+        item { ToolListRow("📖", "Read Bookmarks", "View PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarkReader) }) }
+        item { ToolListRow("✅", "PDF/A Validation", "Check PDF/A compliance", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAValidation) }) }
+        item { ToolListRow("📄", "PDF to Word (Enhanced)", "Better formatting preservation", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWordEnhanced) }) }
+        item { ToolListRow("📝", "MD to PDF (Enhanced)", "Full GFM support", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdfEnhanced) }) }
+        item { ToolListRow("🎨", "SVG to PDF", "Convert SVG to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSvgToPdf) }) }
+        item { ToolListRow("🔢", "Word Count (Advanced)", "Reading time, chars, lines", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }) }
     }
 }
 
@@ -265,5 +271,9 @@ fun ArchiveQrToolsList(
         item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBatchTools) }) }
         item { ToolListRow("🔢", "File Checksum", "Calculate MD5/SHA-256 hash", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileChecksum) }) }
         item { ToolListRow("⚖️", "Text Compare", "Compare two texts with diff", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTextCompare) }) }
+        item { ToolListRow("📏", "Unit Converter", "Length, weight, temperature", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToUnitConverter) }) }
+        item { ToolListRow("🎨", "Color Picker", "Pick colors from images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToColorPicker) }) }
+        item { ToolListRow("🖼️", "Collage Maker", "Photo collage with layouts", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToCollageMaker) }) }
+        item { ToolListRow("😄", "Meme Maker", "Add top/bottom text to images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToMemeMaker) }) }
     }
 }

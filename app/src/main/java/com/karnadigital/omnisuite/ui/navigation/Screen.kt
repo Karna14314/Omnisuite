@@ -449,9 +449,59 @@ sealed class Screen(val route: String) {
     object FileChecksum : Screen("file_checksum")
 
     /**
-     * Text Compare Screen
+     * PDF Replace Pages Screen
      */
-    object TextCompare : Screen("text_compare")
+    object PdfReplacePages : Screen("pdf_replace_pages")
+
+    /**
+     * Unit Converter Screen
+     */
+    object UnitConverter : Screen("unit_converter")
+
+    /**
+     * Color Picker Screen
+     */
+    object ColorPicker : Screen("color_picker")
+
+    /**
+     * Collage Maker Screen
+     */
+    object CollageMaker : Screen("collage_maker")
+
+    /**
+     * Meme Maker Screen
+     */
+    object MemeMaker : Screen("meme_maker")
+
+    /**
+     * PDF Bookmark Reader Screen
+     */
+    object PdfBookmarkReader : Screen("pdf_bookmark_reader")
+
+    /**
+     * PDF/A Validation Screen
+     */
+    object PdfAValidation : Screen("pdf_a_validation")
+
+    /**
+     * Enhanced PDF to Word Screen
+     */
+    object PdfToWordEnhanced : Screen("pdf_to_word_enhanced")
+
+    /**
+     * Enhanced Markdown to PDF Screen
+     */
+    object MarkdownToPdfEnhanced : Screen("markdown_to_pdf_enhanced")
+
+    /**
+     * SVG to PDF Screen
+     */
+    object SvgToPdf : Screen("svg_to_pdf")
+
+    /**
+     * Advanced Word Count Screen
+     */
+    object AdvancedWordCount : Screen("advanced_word_count")
 }
 
 

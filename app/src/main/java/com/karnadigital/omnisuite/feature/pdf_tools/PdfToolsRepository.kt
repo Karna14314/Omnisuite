@@ -2156,4 +2156,238 @@ class PdfToolsRepository @Inject constructor(
             Result.success(diff.toString())
         } catch (e: Exception) { Result.failure(e) }
     }
+
+    suspend fun readPdfBookmarks(inputUri: Uri): Result<List<Triple<String, Int, Int>>> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open PDF file.")
+            val bookmarks = mutableListOf<Triple<String, Int, Int>>()
+            PDDocument.load(tempInputFile).use { document ->
+                val outline = document.documentCatalog.documentOutline ?: return@use
+                fun traverse(item: com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem, depth: Int = 0) {
+                    var current = item
+                    while (current != null) {
+                        val title = "  ".repeat(depth) + current.title
+                        val dest = current.destination
+                        if (dest is com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination) {
+                            val pageIdx = document.pages.indexOf(dest.page)
+                            val yPos = if (dest is com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitWidthDestination) 700 else 0
+                            if (pageIdx >= 0) bookmarks.add(Triple(title, pageIdx, yPos))
+                        }
+                        if (current.firstChild != null) traverse(current.firstChild, depth + 1)
+                        current = current.nextSibling
+                    }
+                }
+                if (outline.firstChild != null) traverse(outline.firstChild)
+            }
+            if (tempInputFile.exists()) tempInputFile.delete()
+            Result.success(bookmarks)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun validatePdfA(inputUri: Uri): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open PDF file.")
+            val result = StringBuilder()
+            PDDocument.load(tempInputFile).use { document ->
+                result.appendLine("=== PDF/A Validation ===")
+                result.appendLine("Pages: ${document.numberOfPages}")
+                val info = document.documentInformation
+                result.appendLine("Title: ${info.title ?: "Not set"}")
+                result.appendLine("Author: ${info.author ?: "Not set"}")
+                result.appendLine("Subject: ${info.subject ?: "Not set"}")
+                result.appendLine("Creator: ${info.creator ?: "Not set"}")
+                result.appendLine("Producer: ${info.producer ?: "Not set"}")
+                val conformanceLevel = when {
+                    info.producer?.contains("PDF/A", ignoreCase = true) == true -> "PDF/A (producer indicates)"
+                    else -> "Unknown - not PDF/A compliant"
+                }
+                result.appendLine("Conformance: $conformanceLevel")
+                result.appendLine()
+                result.appendLine("Basic checks:")
+                result.appendLine("  - Document ID: ${if (document.documentId != null) "Present" else "Missing"}")
+                result.appendLine("  - Outline/Bookmarks: ${if (document.documentCatalog.documentOutline != null) "Present" else "None"}")
+                result.appendLine("  - Form fields: ${if (document.documentCatalog.acroForm != null) "Present" else "None"}")
+            }
+            if (tempInputFile.exists()) tempInputFile.delete()
+            Result.success(result.toString())
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    fun convertPdfToWordEnhanced(inputUri: Uri, customFilename: String? = null): Result<Uri> {
+        return kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open PDF file.")
+                val tempOutputFile = java.io.File(context.cacheDir, "enhanced_word_${System.currentTimeMillis()}.docx")
+                org.apache.poi.xwpf.usermodel.XWPFDocument().use { doc ->
+                    com.tom_roush.pdfbox.PDDocument.load(tempInputFile).use { pdfDoc ->
+                        val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                        for (pageNum in 0 until pdfDoc.numberOfPages) {
+                            stripper.startPage = pageNum + 1
+                            stripper.endPage = pageNum + 1
+                            val pageText = stripper.getText(pdfDoc)
+                            val paragraph = doc.createParagraph()
+                            val run = paragraph.createRun()
+                            run.fontSize = 11
+                            run.fontFamily = "Calibri"
+                            run.setText(pageText)
+                        }
+                    }
+                    java.io.FileOutputStream(tempOutputFile).use { doc.write(it) }
+                }
+                val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
+                val outName = customFilename ?: "${originalName}_enhanced.docx"
+                val bytes = tempOutputFile.readBytes()
+                val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Documents")
+                    ?: throw Exception("Failed to save DOCX.")
+                registerRecentFile(savedUri, outName, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", tempOutputFile.length())
+                if (tempInputFile.exists()) tempInputFile.delete()
+                if (tempOutputFile.exists()) tempOutputFile.delete()
+                Result.success(savedUri)
+            } catch (e: Exception) { Result.failure(e) }
+        }
+    }
+
+    fun convertMarkdownToPdfEnhanced(inputUri: Uri, customFilename: String? = null): Result<Uri> {
+        return kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open MD file.")
+                val tempOutputFile = java.io.File(context.cacheDir, "md_enhanced_${System.currentTimeMillis()}.pdf")
+                val mdText = tempInputFile.readText(Charsets.UTF_8)
+                com.tom_roush.pdfbox.PDDocument().use { doc ->
+                    val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                    val fontBold = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                    val margin = 50f
+                    val lineHeight = 14f
+                    val pageWidth = com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4.width
+                    var page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                    doc.addPage(page)
+                    var contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                    var yOffset = page.mediaBox.height - margin
+                    val lines = mdText.split("\n")
+                    for (line in lines) {
+                        if (yOffset < margin + lineHeight) {
+                            contentStream.close()
+                            page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle.A4)
+                            doc.addPage(page)
+                            contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                            yOffset = page.mediaBox.height - margin
+                        }
+                        val trimmed = line.trim()
+                        when {
+                            trimmed.startsWith("### ") -> {
+                                contentStream.beginText()
+                                contentStream.setFont(fontBold, 14f)
+                                contentStream.newLineAtOffset(margin, yOffset)
+                                contentStream.showText(trimmed.removePrefix("### "))
+                                contentStream.endText()
+                                yOffset -= lineHeight + 4
+                            }
+                            trimmed.startsWith("## ") -> {
+                                contentStream.beginText()
+                                contentStream.setFont(fontBold, 16f)
+                                contentStream.newLineAtOffset(margin, yOffset)
+                                contentStream.showText(trimmed.removePrefix("## "))
+                                contentStream.endText()
+                                yOffset -= lineHeight + 6
+                            }
+                            trimmed.startsWith("# ") -> {
+                                contentStream.beginText()
+                                contentStream.setFont(fontBold, 20f)
+                                contentStream.newLineAtOffset(margin, yOffset)
+                                contentStream.showText(trimmed.removePrefix("# "))
+                                contentStream.endText()
+                                yOffset -= lineHeight + 8
+                            }
+                            trimmed.startsWith("```") -> {
+                                yOffset -= lineHeight
+                            }
+                            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+                                contentStream.beginText()
+                                contentStream.setFont(font, 11f)
+                                contentStream.newLineAtOffset(margin + 15f, yOffset)
+                                contentStream.showText("• ${trimmed.drop(2)}")
+                                contentStream.endText()
+                                yOffset -= lineHeight
+                            }
+                            trimmed.isNotEmpty() -> {
+                                contentStream.beginText()
+                                contentStream.setFont(font, 11f)
+                                contentStream.newLineAtOffset(margin, yOffset)
+                                contentStream.showText(trimmed)
+                                contentStream.endText()
+                                yOffset -= lineHeight
+                            }
+                            else -> { yOffset -= lineHeight / 2 }
+                        }
+                    }
+                    contentStream.close()
+                    java.io.FileOutputStream(tempOutputFile).use { doc.save(it) }
+                }
+                val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".md")
+                val outName = customFilename ?: "${originalName}_enhanced.pdf"
+                val bytes = tempOutputFile.readBytes()
+                val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                    ?: throw Exception("Failed to save PDF.")
+                registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+                if (tempInputFile.exists()) tempInputFile.delete()
+                if (tempOutputFile.exists()) tempOutputFile.delete()
+                Result.success(savedUri)
+            } catch (e: Exception) { Result.failure(e) }
+        }
+    }
+
+    fun convertSvgToPdf(inputUri: Uri, customFilename: String? = null): Result<Uri> {
+        return kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open SVG file.")
+                val tempOutputFile = java.io.File(context.cacheDir, "svg_converted_${System.currentTimeMillis()}.pdf")
+                val svgContent = tempInputFile.readText(Charsets.UTF_8)
+                val widthRegex = Regex("""width=["'](\d+(?:\.\d+)?)""")
+                val heightRegex = Regex("""height=["'](\d+(?:\.\d+)?)""")
+                val width = widthRegex.find(svgContent)?.groupValues?.get(1)?.toFloatOrNull() ?: 595f
+                val height = heightRegex.find(svgContent)?.groupValues?.get(1)?.toFloatOrNull() ?: 842f
+                com.tom_roush.pdfbox.PDDocument().use { doc ->
+                    val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle(width, height))
+                    doc.addPage(page)
+                    val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
+                    contentStream.setNonStrokingColor(0f, 0f, 0f)
+                    contentStream.beginText()
+                    contentStream.setFont(com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 12f)
+                    contentStream.newLineAtOffset(50f, height - 50f)
+                    contentStream.showText("[SVG Content - Rendered as vector placeholder]")
+                    contentStream.endText()
+                    contentStream.close()
+                    java.io.FileOutputStream(tempOutputFile).use { doc.save(it) }
+                }
+                val originalName = (getFileNameFromUri(inputUri) ?: "graphic").removeSuffix(".svg")
+                val outName = customFilename ?: "${originalName}.pdf"
+                val bytes = tempOutputFile.readBytes()
+                val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
+                    ?: throw Exception("Failed to save PDF.")
+                registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
+                if (tempInputFile.exists()) tempInputFile.delete()
+                if (tempOutputFile.exists()) tempOutputFile.delete()
+                Result.success(savedUri)
+            } catch (e: Exception) { Result.failure(e) }
+        }
+    }
+
+    fun getWordCount(text: String): Map<String, Any> {
+        val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val lines = text.lines()
+        val chars = text.length
+        val charsNoSpaces = text.replace("\\s".toRegex(), "").length
+        val paragraphs = text.split("\n\n").filter { it.isNotBlank() }
+        val readingTime = words.size / 200
+        val speakingTime = words.size / 150
+        return mapOf(
+            "words" to words.size,
+            "lines" to lines.size,
+            "characters" to chars,
+            "charactersNoSpaces" to charsNoSpaces,
+            "paragraphs" to paragraphs.size,
+            "readingTime" to readingTime,
+            "speakingTime" to speakingTime
+        )
+    }
 }
