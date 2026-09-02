@@ -751,7 +751,6 @@ class DocxViewerViewModel @Inject constructor(
      * Converts the current active Word document directly to PDF and writes it to a SAF URI.
      */
     fun exportToPdf(
-        context: Context,
         outputUri: Uri,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit

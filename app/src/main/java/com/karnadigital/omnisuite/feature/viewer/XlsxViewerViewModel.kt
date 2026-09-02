@@ -92,6 +92,7 @@ sealed class XlsxLoadState {
 
 @HiltViewModel
 class XlsxViewerViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val recentFileRepository: RecentFileRepository,
     private val officeConverter: OfficeConverter
 ) : ViewModel() {
@@ -1488,7 +1489,6 @@ class XlsxViewerViewModel @Inject constructor(
      * Converts the current active Excel workbook directly to PDF and writes it to a SAF URI.
      */
     fun exportToPdf(
-        context: Context,
         outputUri: Uri,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
