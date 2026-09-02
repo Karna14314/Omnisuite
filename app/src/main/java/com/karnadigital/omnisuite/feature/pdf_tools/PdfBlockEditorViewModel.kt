@@ -45,7 +45,7 @@ class PdfBlockEditorViewModel @Inject constructor(
     private var originalDocument: PDDocument? = null
     private var originalFile: File? = null
 
-    fun cacheUriToFile(context: Context, uri: Uri): File? {
+    suspend fun cacheUriToFile(context: Context, uri: Uri): File? {
         return uriCacheUtils.cacheUriToFile(uri)
     }
 
@@ -137,9 +137,10 @@ class PdfBlockEditorViewModel @Inject constructor(
     }
 
     private fun applyTextToPage(page: com.tom_roush.pdfbox.pdmodel.PDPage, block: PdfTextBlock) {
+        val doc = originalDocument ?: return
         try {
             val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
-                page.document(), page,
+                doc, page,
                 com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
                 true
             )

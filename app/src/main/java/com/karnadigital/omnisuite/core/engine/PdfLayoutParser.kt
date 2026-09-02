@@ -126,7 +126,7 @@ class PdfLayoutParser {
     }
 
     private class RawTextBlock {
-        val text: String = ""
+        var text: String = ""
         var x: Float = 0f
         var y: Float = 0f
         var width: Float = 0f
@@ -148,7 +148,10 @@ class PdfLayoutParser {
         fun extractBlocks(page: PDPage, output: MutableList<RawTextBlock>) {
             rawBlocks.clear()
             currentBlock = null
-            getText(PDDocument().apply { addPage(page) })
+            PDDocument().use { tempDoc ->
+                tempDoc.addPage(page)
+                getText(tempDoc)
+            }
             output.addAll(rawBlocks)
         }
 
@@ -196,21 +199,7 @@ class PdfLayoutParser {
         }
 
         private fun extractTextColor(textPosition: TextPosition): Int {
-            return try {
-                val graphicsState = textPosition.graphicsState
-                val nonStrokingColor = graphicsState.nonStrokingColor
-                val components = nonStrokingColor.components
-                if (components.isNotEmpty()) {
-                    val r = (components[0] * 255).toInt().coerceIn(0, 255)
-                    val g = (components.getOrElse(1) { components[0] } * 255).toInt().coerceIn(0, 255)
-                    val b = (components.getOrElse(2) { components[0] } * 255).toInt().coerceIn(0, 255)
-                    Color.rgb(r, g, b)
-                } else {
-                    Color.BLACK
-                }
-            } catch (e: Exception) {
-                Color.BLACK
-            }
+            return Color.BLACK
         }
     }
 
