@@ -93,6 +93,16 @@ class PdfToolsViewModel @Inject constructor(
     var tarInputUris by mutableStateOf<List<Uri>>(emptyList())
     var tarExtractUri by mutableStateOf<Uri?>(null)
 
+    var pageNumberInputUri by mutableStateOf<Uri?>(null)
+    var pageNumberStart by mutableStateOf("1")
+    var pageNumberPosition by mutableStateOf("bottom-center")
+    var pageNumberFontSize by mutableStateOf(12)
+
+    var reorderInputUri by mutableStateOf<Uri?>(null)
+    var reorderPageOrder by mutableStateOf<List<Int>>(emptyList())
+
+    var extractImagesInputUri by mutableStateOf<Uri?>(null)
+
     fun registerRecentFile(recent: RecentFile) {
         viewModelScope.launch(Dispatchers.IO) {
             recentFileRepository.insertRecentFile(recent)
@@ -712,6 +722,607 @@ class PdfToolsViewModel @Inject constructor(
                 errorMessage = "WebView print initialization error: ${e.localizedMessage}"
                 isProcessing = false
             }
+        }
+    }
+
+    fun addPageNumbers(customFilename: String? = null) {
+        val inputUri = pageNumberInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        val startNum = pageNumberStart.toIntOrNull() ?: 1
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addPageNumbers(inputUri, startNum, pageNumberPosition, pageNumberFontSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successName = customFilename ?: "numbered_${System.currentTimeMillis()}.pdf"
+                successMessage = "Page numbers added successfully!"
+                pageNumberInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to add page numbers: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun reorderPdfPages() {
+        val inputUri = reorderInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        if (reorderPageOrder.isEmpty()) {
+            errorMessage = "Please specify the new page order."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.reorderPdfPages(inputUri, reorderPageOrder)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Pages reordered successfully!"
+                reorderInputUri = null
+                reorderPageOrder = emptyList()
+            }.onFailure { e ->
+                errorMessage = "Failed to reorder pages: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun extractImagesFromPdf() {
+        val inputUri = extractImagesInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractImagesFromPdf(inputUri)
+            result.onSuccess { uris ->
+                successUris = uris
+                successUri = uris.firstOrNull()
+                successMessage = "Extracted ${uris.size} images from PDF!"
+                extractImagesInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to extract images: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var txtToPdfInputUri by mutableStateOf<Uri?>(null)
+    var csvToPdfInputUri by mutableStateOf<Uri?>(null)
+    var pdfToTxtInputUri by mutableStateOf<Uri?>(null)
+    var imagesToPdfInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var imagesToPdfLayout by mutableIntStateOf(1)
+
+    fun convertTxtToPdf(customFilename: String? = null) {
+        val inputUri = txtToPdfInputUri ?: run {
+            errorMessage = "Please select a text file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertTxtToPdf(inputUri, 12, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Text file converted to PDF successfully!"
+                txtToPdfInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertCsvToPdf(customFilename: String? = null) {
+        val inputUri = csvToPdfInputUri ?: run {
+            errorMessage = "Please select a CSV file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertCsvToPdf(inputUri, 10, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "CSV file converted to PDF successfully!"
+                csvToPdfInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertPdfToTxt(customFilename: String? = null) {
+        val inputUri = pdfToTxtInputUri ?: run {
+            errorMessage = "Please select a PDF file first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertPdfToTxt(inputUri, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "PDF converted to text successfully!"
+                pdfToTxtInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to convert: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun convertImagesToPdfWithLayout(customFilename: String? = null) {
+        if (imagesToPdfInputUris.isEmpty()) {
+            errorMessage = "Please select at least one image."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertImagesToPdfWithLayout(imagesToPdfInputUris, imagesToPdfLayout, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Images compiled to PDF successfully!"
+                imagesToPdfInputUris = emptyList()
+            }.onFailure { e ->
+                errorMessage = "Failed to compile images: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var headerFooterInputUri by mutableStateOf<Uri?>(null)
+    var headerFooterHeaderText by mutableStateOf("")
+    var headerFooterFooterText by mutableStateOf("")
+    var headerFooterFontSize by mutableIntStateOf(10)
+
+    var resizeInputUri by mutableStateOf<Uri?>(null)
+    var resizeTargetSize by mutableStateOf("A4")
+
+    fun addHeaderFooter(customFilename: String? = null) {
+        val inputUri = headerFooterInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addHeaderFooter(inputUri, headerFooterHeaderText, headerFooterFooterText, headerFooterFontSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Header/Footer added successfully!"
+                headerFooterInputUri = null
+                headerFooterHeaderText = ""
+                headerFooterFooterText = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to add header/footer: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun resizePdfPages(customFilename: String? = null) {
+        val inputUri = resizeInputUri ?: run {
+            errorMessage = "Please select a PDF document first."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.resizePdfPages(inputUri, resizeTargetSize, customFilename)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Pages resized to $resizeTargetSize successfully!"
+                resizeInputUri = null
+            }.onFailure { e ->
+                errorMessage = "Failed to resize pages: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var passwordZipInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var passwordZipOutputName by mutableStateOf("")
+    var passwordZipPassword by mutableStateOf("")
+
+    var passwordZipExtractUri by mutableStateOf<Uri?>(null)
+    var passwordZipExtractPassword by mutableStateOf("")
+
+    var tgzInputUris by mutableStateOf<List<Uri>>(emptyList())
+    var tgzOutputName by mutableStateOf("")
+
+    fun createPasswordZip() {
+        if (passwordZipInputUris.isEmpty()) {
+            errorMessage = "Please select files to compress."
+            return
+        }
+        if (passwordZipPassword.isBlank()) {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createPasswordZip(passwordZipInputUris, passwordZipOutputName, passwordZipPassword)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "Password-protected ZIP created successfully!"
+                passwordZipInputUris = emptyList()
+                passwordZipOutputName = ""
+                passwordZipPassword = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to create ZIP: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun extractPasswordZip() {
+        val inputUri = passwordZipExtractUri ?: run {
+            errorMessage = "Please select a ZIP file."
+            return
+        }
+        if (passwordZipExtractPassword.isBlank()) {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "ZIP extracted successfully!"
+                passwordZipExtractUri = null
+                passwordZipExtractPassword = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to extract ZIP: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    fun createTgzArchive() {
+        if (tgzInputUris.isEmpty()) {
+            errorMessage = "Please select a file to compress."
+            return
+        }
+        isProcessing = true
+        resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createGzipArchive(tgzInputUris, tgzOutputName)
+            result.onSuccess { uri ->
+                successUri = uri
+                successMessage = "TGZ archive created successfully!"
+                tgzInputUris = emptyList()
+                tgzOutputName = ""
+            }.onFailure { e ->
+                errorMessage = "Failed to create TGZ: ${e.localizedMessage}"
+            }
+            isProcessing = false
+        }
+    }
+
+    var pdfAInputUri by mutableStateOf<Uri?>(null)
+    var metadataInputUri by mutableStateOf<Uri?>(null)
+    var metadataTitle by mutableStateOf("")
+    var metadataAuthor by mutableStateOf("")
+    var metadataSubject by mutableStateOf("")
+    var metadataKeywords by mutableStateOf("")
+    var cropInputUri by mutableStateOf<Uri?>(null)
+    var cropTop by mutableFloatStateOf(20f)
+    var cropBottom by mutableFloatStateOf(20f)
+    var cropLeft by mutableFloatStateOf(20f)
+    var cropRight by mutableFloatStateOf(20f)
+    var redactInputUri by mutableStateOf<Uri?>(null)
+    var redactPage by mutableIntStateOf(0)
+    var redactX by mutableFloatStateOf(50f)
+    var redactY by mutableFloatStateOf(50f)
+    var redactWidth by mutableFloatStateOf(100f)
+    var redactHeight by mutableFloatStateOf(20f)
+    var repairInputUri by mutableStateOf<Uri?>(null)
+    var overlayBaseUri by mutableStateOf<Uri?>(null)
+    var overlayOverlayUri by mutableStateOf<Uri?>(null)
+    var overlayPage by mutableIntStateOf(0)
+    var compareUri1 by mutableStateOf<Uri?>(null)
+    var compareUri2 by mutableStateOf<Uri?>(null)
+    var compareResult by mutableStateOf<String?>(null)
+    var pdfToMarkdownInputUri by mutableStateOf<Uri?>(null)
+    var splitBySizeInputUri by mutableStateOf<Uri?>(null)
+    var splitBySizeChunkSize by mutableStateOf("10")
+    var insertMainUri by mutableStateOf<Uri?>(null)
+    var insertInsertUri by mutableStateOf<Uri?>(null)
+    var insertAtPage by mutableIntStateOf(0)
+    var replaceMainUri by mutableStateOf<Uri?>(null)
+    var replaceReplaceUri by mutableStateOf<Uri?>(null)
+    var replaceStartPage by mutableIntStateOf(0)
+
+    fun convertToPdfA(customFilename: String? = null) {
+        val inputUri = pdfAInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertToPdfA(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to PDF/A successfully!"; pdfAInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun editMetadata(customFilename: String? = null) {
+        val inputUri = metadataInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.editPdfMetadata(inputUri, metadataTitle, metadataAuthor, metadataSubject, metadataKeywords, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Metadata updated successfully!"; metadataInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun cropPdfMargins(customFilename: String? = null) {
+        val inputUri = cropInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.cropPdfMargins(inputUri, cropTop, cropBottom, cropLeft, cropRight, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Margins cropped successfully!"; cropInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun redactPdf(customFilename: String? = null) {
+        val inputUri = redactInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.redactPdf(inputUri, redactPage, redactX, redactY, redactWidth, redactHeight, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Content redacted successfully!"; redactInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun repairPdf(customFilename: String? = null) {
+        val inputUri = repairInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.repairPdf(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "PDF repaired successfully!"; repairInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun overlayPdf(customFilename: String? = null) {
+        val baseUri = overlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
+        val overlayUri = overlayOverlayUri ?: run { errorMessage = "Please select overlay PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.overlayPdf(baseUri, overlayUri, overlayPage, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Overlay applied successfully!"; overlayBaseUri = null; overlayOverlayUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun comparePdf() {
+        val uri1 = compareUri1 ?: run { errorMessage = "Please select first PDF."; return }
+        val uri2 = compareUri2 ?: run { errorMessage = "Please select second PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.comparePdfText(uri1, uri2)
+            result.onSuccess { diff -> compareResult = diff; successMessage = "Comparison complete!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun convertPdfToMarkdown(customFilename: String? = null) {
+        val inputUri = pdfToMarkdownInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.convertPdfToMarkdown(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to Markdown successfully!"; pdfToMarkdownInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun splitPdfBySize() {
+        val inputUri = splitBySizeInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val chunkSize = splitBySizeChunkSize.toLongOrNull()?.times(1024 * 1024) ?: run { errorMessage = "Invalid chunk size."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.splitPdfBySize(inputUri, chunkSize)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitBySizeInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun insertPages() {
+        val mainUri = insertMainUri ?: run { errorMessage = "Please select main PDF."; return }
+        val insertUri = insertInsertUri ?: run { errorMessage = "Please select PDF to insert."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.insertPages(mainUri, insertUri, insertAtPage)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Pages inserted successfully!"; insertMainUri = null; insertInsertUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun replacePages() {
+        val mainUri = replaceMainUri ?: run { errorMessage = "Please select main PDF."; return }
+        val replaceUri = replaceReplaceUri ?: run { errorMessage = "Please select replacement PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.replacePages(mainUri, replaceUri, replaceStartPage)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Pages replaced successfully!"; replaceMainUri = null; replaceReplaceUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    var bookmarkInputUri by mutableStateOf<Uri?>(null)
+    var bookmarkTitles by mutableStateOf("")
+    var bookmarkPages by mutableStateOf("")
+    var passwordZipExtractUri by mutableStateOf<Uri?>(null)
+    var passwordZipExtractPassword by mutableStateOf("")
+    var splitByBookmarksInputUri by mutableStateOf<Uri?>(null)
+    var underlayBaseUri by mutableStateOf<Uri?>(null)
+    var underlayUnderlayUri by mutableStateOf<Uri?>(null)
+    var underlayPage by mutableIntStateOf(0)
+    var formCreationInputUri by mutableStateOf<Uri?>(null)
+    var fileEncryptInputUri by mutableStateOf<Uri?>(null)
+    var fileEncryptPassword by mutableStateOf("")
+    var fileDecryptInputUri by mutableStateOf<Uri?>(null)
+    var fileDecryptPassword by mutableStateOf("")
+    var selectiveImageInputUri by mutableStateOf<Uri?>(null)
+    var selectiveImageIndices by mutableStateOf("")
+    var allPagesImageInputUri by mutableStateOf<Uri?>(null)
+    var checksumInputUri by mutableStateOf<Uri?>(null)
+    var checksumAlgorithm by mutableStateOf("SHA-256")
+    var checksumResult by mutableStateOf<String?>(null)
+    var textCompare1 by mutableStateOf("")
+    var textCompare2 by mutableStateOf("")
+    var textCompareResult by mutableStateOf<String?>(null)
+
+    fun editBookmarks(customFilename: String? = null) {
+        val inputUri = bookmarkInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val titles = bookmarkTitles.lines().filter { it.isNotBlank() }
+        val pages = bookmarkPages.lines().filter { it.isNotBlank() }.mapNotNull { it.trim().toIntOrNull()?.minus(1) }
+        if (titles.isEmpty() || pages.isEmpty() || titles.size != pages.size) { errorMessage = "Titles and pages must match."; return }
+        val bookmarks = titles.mapIndexed { i, title -> Triple(title.trim(), pages.getOrElse(i) { 0 }, 700f) }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.editBookmarks(inputUri, bookmarks, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Bookmarks added!"; bookmarkInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractPasswordZip() {
+        val inputUri = passwordZipExtractUri ?: run { errorMessage = "Please select a ZIP file."; return }
+        if (passwordZipExtractPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Extracted ${uris.size} files!"; passwordZipExtractUri = null; passwordZipExtractPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun splitPdfByBookmarks() {
+        val inputUri = splitByBookmarksInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.splitPdfByBookmarks(inputUri)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitByBookmarksInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun addPdfUnderlay(customFilename: String? = null) {
+        val baseUri = underlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
+        val underlayUri = underlayUnderlayUri ?: run { errorMessage = "Please select underlay PDF."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.addPdfUnderlay(baseUri, underlayUri, underlayPage, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Underlay applied!"; underlayBaseUri = null; underlayUnderlayUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun createPdfForm(customFilename: String? = null) {
+        val inputUri = formCreationInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.createPdfForm(inputUri, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Form fields added!"; formCreationInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun encryptFile(customFilename: String? = null) {
+        val inputUri = fileEncryptInputUri ?: run { errorMessage = "Please select a file."; return }
+        if (fileEncryptPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.encryptFile(inputUri, fileEncryptPassword, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "File encrypted!"; fileEncryptInputUri = null; fileEncryptPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun decryptFile(customFilename: String? = null) {
+        val inputUri = fileDecryptInputUri ?: run { errorMessage = "Please select an encrypted file."; return }
+        if (fileDecryptPassword.isBlank()) { errorMessage = "Password required."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.decryptFile(inputUri, fileDecryptPassword, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "File decrypted!"; fileDecryptInputUri = null; fileDecryptPassword = "" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractSelectiveImages() {
+        val inputUri = selectiveImageInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        val indices = selectiveImageIndices.lines().filter { it.isNotBlank() }.mapNotNull { it.trim().toIntOrNull()?.minus(1) }
+        if (indices.isEmpty()) { errorMessage = "Enter image numbers (1-indexed)."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPdfImagesSelective(inputUri, indices)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Extracted ${uris.size} images!"; selectiveImageInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun extractAllPagesAsImages() {
+        val inputUri = allPagesImageInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.extractPdfImagesAllPages(inputUri)
+            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Rendered ${uris.size} pages!"; allPagesImageInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun getFileChecksum() {
+        val inputUri = checksumInputUri ?: run { errorMessage = "Please select a file."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.getFileChecksum(inputUri, checksumAlgorithm)
+            result.onSuccess { hash -> checksumResult = "$checksumAlgorithm: $hash"; successMessage = "Checksum calculated!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
+    fun compareText() {
+        if (textCompare1.isBlank() && textCompare2.isBlank()) { errorMessage = "Enter text to compare."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.compareText(textCompare1, textCompare2)
+            result.onSuccess { diff -> textCompareResult = diff; successMessage = "Comparison complete!" }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
         }
     }
 }

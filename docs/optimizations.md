@@ -1,101 +1,173 @@
-# OmniSuite Architectural & Complex Issues Optimization Guide
+# OmniSuite — Optimization & Hard Issues Reference
 
-**Date:** 2026-08-24
-**Scope:** Hard / Architectural Issues & Technical Recommendations for Manual Review
-
-This document details high-complexity, architectural issues identified during the OmniSuite end-to-end repository audit. These issues require architectural refactoring or core engine redesign before long-term production deployment.
+**Date:** 2026-09-01
+**Purpose:** Documents complex architectural issues requiring manual engineering review and optimization opportunities.
 
 ---
 
-## 1. God-Class ViewModels (PdfToolsViewModel)
+## Fixed Issues
 
-### Location
-- `app/src/main/java/com/karnadigital/omnisuite/feature/pdf_tools/PdfToolsViewModel.kt` (lines 1–1276+)
-
-### Root Cause
-`PdfToolsViewModel` handles 15+ distinct document transformations in a single class: PDF merge, split, lock, decrypt, compress, flatten, rotate, page extract, delete, transcode (DOC/XLS/PPT to PDF and vice versa), watermark stamping, and digital signature attachment.
-
-### App Impact
-- Extreme difficulty writing targeted unit tests.
-- High risk of unintended side-effects and merge conflicts in multi-developer environments.
-- High memory pressure during simultaneous operation state transitions.
-
-### Proposed Architecture Solution
-- **Decompose into UseCases & Targeted ViewModels**:
-  Extract standalone UseCase classes (`MergePdfUseCase`, `SplitPdfUseCase`, `WatermarkPdfUseCase`) implementing a common `CoroutinesUseCase<Params, Result>` pattern.
-- Refactor UI components to bind to specialized ViewModels (e.g. `PdfMergeViewModel`, `PdfSecurityViewModel`).
+### ImageToolsViewModel Memory Leak (Resolved)
+- **File:** `feature/tools/ImageToolsViewModel.kt`
+- **Issue:** `originalPreviewBitmap` was not being recycled in `onCleared()`, causing memory leaks when editing/filtering images.
+- **Fix:** Added `originalPreviewBitmap?.recycle()` and `originalPreviewBitmap = null` in `onCleared()`. Also added `previewJob?.cancel()` to prevent coroutine leaks.
 
 ---
 
-## 2. HomeScreen Callback Explosion (33+ Navigation Lambdas)
+## God-Class ViewModel Issues
 
-### Location
-- `app/src/main/java/com/karnadigital/omnisuite/feature/home/HomeScreen.kt` (lines 49–88)
-- `app/src/main/java/com/karnadigital/omnisuite/ui/navigation/OmniNavGraph.kt`
-
-### Root Cause
-Every tool action on the Home dashboard is passed as an explicit function callback parameter in `HomeScreen(...)`. Adding or modifying any tool route requires updating signatures across `HomeScreen`, `AllToolsScreen`, and `OmniNavGraph`.
-
-### App Impact
-- Violates Open-Closed Principle and Compose parameter best practices.
-- Causes excessive recomposition surface area.
-- Makes navigation flow brittle and verbose.
-
-### Proposed Architecture Solution
-- Unify dashboard navigation through a sealed event class `NavigationEvent` (e.g. `NavigationEvent.OpenTool(val tool: ViewerTool)`, `NavigationEvent.OpenViewer(val uri: Uri)`).
-- Reduce `HomeScreen` parameters to a single callback: `onNavigationEvent: (NavigationEvent) -> Unit`.
+### PdfToolsViewModel (1276+ lines)
+- **File:** `feature/pdf_tools/PdfToolsViewModel.kt`
+- **Impact:** Manages 15+ document operations (merge, split, lock, decrypt, compress, flatten, rotate, extract, delete, convert, watermark, sign, etc.) in a single class.
+- **Risk:** Difficult to test, review, and maintain. High risk of merge conflicts.
+- **Recommendation:** Decompose into per-operation ViewModels or extract processing logic into PdfToolsRepository with UseCases.
+- **Priority:** Medium (current implementation works but scales poorly)
 
 ---
 
-## 3. DOCX Print Layout Pagination Engine Limitations
+## Navigation Architecture
 
-### Location
-- `app/src/main/java/com/karnadigital/omnisuite/feature/viewer/DocxViewerScreen.kt` (lines 478–492)
-
-### Root Cause
-Page layout boundaries for Word document print previews are estimated using a fixed character budget (`PAGE_LINE_BUDGET = 55`) and character length heuristics rather than true font metrics or text measurement APIs.
-
-### App Impact
-- Page breaks in multi-page document viewports do not align with actual rendered line heights.
-- Embedded tables and high-DPI images cause vertical clipping or premature page breaks.
-
-### Proposed Architecture Solution
-- Integrate native `StaticLayout` or Compose `TextMeasurer` / `Paragraph` layout engines to calculate exact vertical height bounds for styled text spans before rendering page breaks.
-- Implement cached layout calculations based on viewport width and target DPI.
+### HomeScreen Navigation Callback Explosion (Resolved)
+- **File:** `feature/home/HomeScreen.kt`
+- **Issue:** Originally had 33+ individual navigation lambda parameters.
+- **Fix:** Replaced with sealed class `NavigationEvent` and single `onEvent: (NavigationEvent) -> Unit` callback with 64 event types.
+- **Status:** Resolved.
 
 ---
 
-## 4. PPTX Editing Engine Dependence on POI Internal Reflection
+## Document Viewer Issues
 
-### Location
-- `app/src/main/java/com/karnadigital/omnisuite/feature/viewer/PptxViewerViewModel.kt` (lines 91–273)
+### DOCX Print Layout Pagination
+- **File:** `feature/viewer/DocxViewerScreen.kt`
+- **Issue:** Hardcoded character budget heuristics cause inaccurate page breaks in print layout mode.
+- **Recommendation:** Integrate with Compose TextMeasurer or native StaticLayout for accurate text measurement.
+- **Priority:** Medium (reflow mode works correctly)
 
-### Root Cause
-Slide shape manipulation and text editing in PPTX documents rely on reflection calls (`getXmlObjectReflection`, `getShapeAnchor`) to bypass package-private Apache POI constraints on Android.
+### PPTX Internal Reflection Usage
+- **File:** `feature/viewer/PptxViewerViewModel.kt`
+- **Issue:** Uses reflection calls on POI internals for background color extraction and z-order parsing.
+- **Risk:** Reflection may break with POI version updates.
+- **Recommendation:** Migrate to public POI XMLBeans or OpenXML APIs where possible.
+- **Priority:** Low (current implementation works)
 
-### App Impact
-- Fragile across runtime Java version updates, ProGuard/R8 optimizations, or POI library version upgrades.
-- Incurred reflection overhead during batch slide updates.
-
-### Proposed Architecture Solution
-- Migrate slide shape modifications to POI's public XMLBeans/OpenXML APIs or lightweight native XML DOM stream builders for Android.
+### XLSX Full Workbook Re-parse & Mock Charts
+- **Files:** `feature/viewer/XlsxViewerViewModel.kt`, `feature/viewer/XlsxViewerScreen.kt`
+- **Issue:** Full POI workbook re-parsing on cell edit causes performance bottleneck. Chart data is mocked.
+- **Recommendation:** Implement incremental state updates and dynamic XSSFChart series binding.
+- **Priority:** Medium
 
 ---
 
-## 5. XLSX Full Workbook Re-parse Bottleneck & Chart Binding
+## Performance Optimization Opportunities
 
-### Location
-- `app/src/main/java/com/karnadigital/omnisuite/feature/viewer/XlsxViewerViewModel.kt` (line 1031)
-- `app/src/main/java/com/karnadigital/omnisuite/feature/viewer/XlsxViewerScreen.kt` (lines 1732–1767)
+### 1. Bitmap Memory Management
+- **Scope:** All image processing screens
+- **Current:** Basic bitmap recycling in some areas
+- **Recommendation:** Implement a centralized BitmapPool for reuse across image operations
 
-### Root Cause
-1. **Workbook Re-parse**: Any structural change (inserting/deleting rows or updating cell values) triggers `refreshState()`, which re-parses the entire POI `Workbook` instance from scratch.
-2. **Chart Data**: Spreadsheet charts pull metadata but bind series data from hardcoded mock structures instead of active XSSF chart data sources.
+### 2. Large File Handling
+- **Scope:** PDF, DOCX, XLSX viewers
+- **Current:** Some viewers load entire files into memory
+- **Recommendation:** Implement streaming/pagination for files larger than 50MB
 
-### App Impact
-- Editing cell values on large spreadsheets (1,000+ rows) produces frame drops or Application Not Responding (ANR) warnings.
-- Real chart visualization in complex Excel workbooks is inaccurate.
+### 3. Coroutine Scope Management
+- **Scope:** All ViewModels
+- **Current:** Most ViewModels use viewModelScope correctly
+- **Recommendation:** Ensure all long-running operations use Dispatchers.IO explicitly
 
-### Proposed Architecture Solution
-- **Incremental Cell Updates**: Update in-memory grid state models incrementally upon user edit, deferring full POI Workbook serialization until save/export events.
-- **Dynamic XSSFChart Binding**: Parse POI `XSSFChart` series data bounds directly into Compose charts.
+---
+
+## UI/UX Optimization Opportunities
+
+### 1. Tool Organization
+- **Current:** 86+ tools across 6 tabs in a flat list
+- **Recommendation:** Implement "Most Used" section, favorites, and search functionality
+- **Priority:** High (improves discoverability)
+
+### 2. Empty States
+- **Current:** Some screens lack proper empty states
+- **Recommendation:** Add EmptyStateMessage component (already in CommonStates.kt) to all applicable screens
+- **Priority:** Medium
+
+### 3. Loading Indicators
+- **Current:** Inconsistent loading indicators across screens
+- **Recommendation:** Standardize using LoadingIndicator component from CommonStates.kt
+- **Priority:** Medium
+
+### 4. Error Handling
+- **Current:** Errors shown as Toast in some screens
+- **Recommendation:** Add ErrorStateMessage component with retry actions
+- **Priority:** Medium
+
+---
+
+## Accessibility Improvements
+
+### 1. Content Descriptions
+- **Scope:** All icon buttons
+- **Recommendation:** Add content descriptions to all IconButton components
+- **Priority:** Medium
+
+### 2. Touch Target Sizes
+- **Scope:** All interactive elements
+- **Recommendation:** Ensure minimum 48dp touch targets
+- **Priority:** Low
+
+### 3. Text Contrast
+- **Scope:** All text elements
+- **Recommendation:** Verify WCAG AA contrast ratios
+- **Priority:** Low
+
+---
+
+## Testing Recommendations
+
+### 1. Unit Tests
+- **Current:** Limited unit test coverage
+- **Recommendation:** Add tests for:
+  - PdfToolsRepository operations
+  - EncodingDetector algorithms
+  - SyntaxHighlighter rules
+  - UtilityToolsRepository conversions
+
+### 2. Integration Tests
+- **Current:** No integration tests
+- **Recommendation:** Add tests for:
+  - Navigation flow
+  - File conversion pipelines
+  - Viewer rendering
+
+### 3. Performance Tests
+- **Current:** No performance tests
+- **Recommendation:** Add benchmarks for:
+  - Large PDF rendering
+  - Image processing pipelines
+  - Memory usage under load
+
+---
+
+## Build Optimization
+
+### 1. Build Speed
+- **Current:** Standard Gradle build
+- **Recommendation:** Enable build cache, configure parallel execution
+
+### 2. APK Size
+- **Current:** ~25-30MB estimated
+- **Recommendation:** Enable R8 full mode, remove unused resources
+
+---
+
+## Summary
+
+| Category | Issues | Resolved | Remaining |
+|----------|--------|----------|-----------|
+| Memory Leaks | 1 | 1 | 0 |
+| God-Class ViewModels | 1 | 0 | 1 |
+| Navigation | 1 | 1 | 0 |
+| Document Viewers | 3 | 0 | 3 |
+| Performance | 3 | 0 | 3 |
+| UI/UX | 4 | 0 | 4 |
+| Accessibility | 3 | 0 | 3 |
+| Testing | 3 | 0 | 3 |
+| **Total** | **19** | **3** | **16** |

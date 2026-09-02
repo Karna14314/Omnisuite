@@ -57,17 +57,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
@@ -126,6 +116,20 @@ fun DocxViewerScreen(
 
     var activeIndexToEdit by remember { mutableStateOf(-1) }
     var paragraphToEdit by remember { mutableStateOf<DocxParagraph?>(null) }
+
+    // Edit menu state
+    var showEditMenu by remember { mutableStateOf(false) }
+    var showFormatMenu by remember { mutableStateOf(false) }
+    var showLinkDialog by remember { mutableStateOf(false) }
+    var pendingFormatBold by remember { mutableStateOf(false) }
+    var pendingFormatItalic by remember { mutableStateOf(false) }
+    var pendingFormatUnderline by remember { mutableStateOf(false) }
+    var pendingFormatStrike by remember { mutableStateOf(false) }
+    var pendingAlignment by remember { mutableStateOf<String?>(null) }
+    var pendingListType by remember { mutableStateOf<String?>(null) }
+    var pendingFontSize by remember { mutableStateOf(12f) }
+    var pendingTextColor by remember { mutableStateOf<String?>(null) }
+    var pendingHighlightColor by remember { mutableStateOf<String?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -280,19 +284,40 @@ fun DocxViewerScreen(
                             var showMenu by remember { mutableStateOf(false) }
 
                             IconButton(onClick = { searchExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search text"
+                                Icon(Icons.Default.Search, contentDescription = "Search text")
+                            }
+
+                            // Edit Menu Button
+                            Box {
+                                EditMenuButton(onClick = {
+                                    isEditMode = true
+                                    showEditMenu = true
+                                })
+                                EditMenuPopup(
+                                    expanded = showEditMenu,
+                                    onDismiss = { showEditMenu = false },
+                                    items = listOf(
+                                        EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { pendingFormatBold = !pendingFormatBold }),
+                                        EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { pendingFormatItalic = !pendingFormatItalic }),
+                                        EditMenuItem(Icons.Default.FormatUnderlined, "Underline", onClick = { pendingFormatUnderline = !pendingFormatUnderline }),
+                                        EditMenuItem(Icons.Default.FormatStrikethrough, "Strikethrough", onClick = { pendingFormatStrike = !pendingFormatStrike }),
+                                        EditMenuItem(Icons.Default.FormatSize, "Font Size", onClick = { showFormatMenu = true }),
+                                        EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { showFormatMenu = true }),
+                                        EditMenuItem(Icons.Default.FormatColorFill, "Highlight", onClick = { showFormatMenu = true }),
+                                        EditMenuItem(Icons.Default.FormatAlignLeft, "Align Left", onClick = { pendingAlignment = "LEFT" }),
+                                        EditMenuItem(Icons.Default.FormatAlignCenter, "Align Center", onClick = { pendingAlignment = "CENTER" }),
+                                        EditMenuItem(Icons.Default.FormatAlignRight, "Align Right", onClick = { pendingAlignment = "RIGHT" }),
+                                        EditMenuItem(Icons.Default.FormatListBulleted, "Bullet List", onClick = { pendingListType = "BULLET" }),
+                                        EditMenuItem(Icons.Default.FormatListNumbered, "Numbered List", onClick = { pendingListType = "NUMBER" }),
+                                        EditMenuItem(Icons.Default.Add, "Insert Image", onClick = { imagePickerLauncher.launch("image/*") }),
+                                        EditMenuItem(Icons.Default.Link, "Insert Link", onClick = { showLinkDialog = true })
+                                    )
                                 )
                             }
 
                             if (isEditMode) {
                                 IconButton(onClick = { viewModel.commitChanges() }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Commit changes",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
+                                    Icon(Icons.Default.Check, contentDescription = "Commit changes", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                             IconButton(onClick = { isEditMode = !isEditMode }) {
@@ -303,10 +328,7 @@ fun DocxViewerScreen(
                             }
                             
                             IconButton(onClick = { showMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More Options"
-                                )
+                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                             }
 
                             DropdownMenu(
@@ -769,6 +791,45 @@ fun DocxViewerScreen(
                 ) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // Format Menu Popup
+    FormatMenuPopup(
+        expanded = showFormatMenu,
+        onDismiss = { showFormatMenu = false },
+        isBold = pendingFormatBold,
+        isItalic = pendingFormatItalic,
+        isUnderline = pendingFormatUnderline,
+        onBoldToggle = { pendingFormatBold = !pendingFormatBold },
+        onItalicToggle = { pendingFormatItalic = !pendingFormatItalic },
+        onUnderlineToggle = { pendingFormatUnderline = !pendingFormatUnderline },
+        onColorChange = { pendingTextColor = it },
+        onBgColorChange = { pendingHighlightColor = it },
+        onFontSizeChange = { pendingFontSize = it },
+        onAlignChange = { pendingAlignment = it }
+    )
+
+    // Link Dialog
+    if (showLinkDialog) {
+        var linkText by remember { mutableStateOf("") }
+        var linkUrl by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showLinkDialog = false },
+            title = { Text("Insert Link") },
+            text = {
+                Column {
+                    OutlinedTextField(value = linkText, onValueChange = { linkText = it }, label = { Text("Link Text") }, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = linkUrl, onValueChange = { linkUrl = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showLinkDialog = false }) { Text("Insert") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLinkDialog = false }) { Text("Cancel") }
             }
         )
     }

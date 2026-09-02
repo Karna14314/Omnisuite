@@ -292,6 +292,241 @@ sealed class Screen(val route: String) {
             return "sequential_image_viewer?uris=$encodedUris&title=$encodedTitle"
         }
     }
+
+    /**
+     * PDF Page Numbering Screen
+     */
+    object PdfPageNumber : Screen("pdf_page_number")
+
+    /**
+     * PDF Page Reorder Screen
+     */
+    object PdfReorder : Screen("pdf_reorder")
+
+    /**
+     * PDF Extract Images Screen
+     */
+    object PdfExtractImages : Screen("pdf_extract_images")
+
+    /**
+     * TXT to PDF Converter Screen
+     */
+    object TxtToPdf : Screen("txt_to_pdf")
+
+    /**
+     * CSV to PDF Converter Screen
+     */
+    object CsvToPdf : Screen("csv_to_pdf")
+
+    /**
+     * PDF to TXT Converter Screen
+     */
+    object PdfToTxt : Screen("pdf_to_txt")
+
+    /**
+     * Images to PDF with Layout Options Screen
+     */
+    object ImagesToPdfLayout : Screen("images_to_pdf_layout")
+
+    /**
+     * PDF Header & Footer Screen
+     */
+    object PdfHeaderFooter : Screen("pdf_header_footer")
+
+    /**
+     * PDF Resize Pages Screen
+     */
+    object PdfResize : Screen("pdf_resize")
+
+    /**
+     * Password-Protected ZIP Screen
+     */
+    object PasswordZip : Screen("password_zip")
+
+    /**
+     * PDF to PDF/A Screen
+     */
+    object PdfToPdfA : Screen("pdf_to_pdfa")
+
+    /**
+     * PDF Metadata Editor Screen
+     */
+    object PdfMetadata : Screen("pdf_metadata")
+
+    /**
+     * PDF Crop Margins Screen
+     */
+    object PdfCropMargins : Screen("pdf_crop_margins")
+
+    /**
+     * PDF Redact Screen
+     */
+    object PdfRedact : Screen("pdf_redact")
+
+    /**
+     * PDF Repair Screen
+     */
+    object PdfRepair : Screen("pdf_repair")
+
+    /**
+     * PDF Overlay Screen
+     */
+    object PdfOverlay : Screen("pdf_overlay")
+
+    /**
+     * PDF Compare Screen
+     */
+    object PdfCompare : Screen("pdf_compare")
+
+    /**
+     * PDF to Markdown Screen
+     */
+    object PdfToMarkdown : Screen("pdf_to_markdown")
+
+    /**
+     * PDF Split by Size Screen
+     */
+    object PdfSplitBySize : Screen("pdf_split_by_size")
+
+    /**
+     * PDF Insert Pages Screen
+     */
+    object PdfInsertPages : Screen("pdf_insert_pages")
+
+    /**
+     * PDF Replace Pages Screen
+     */
+    object PdfReplacePages : Screen("pdf_replace_pages")
+
+    /**
+     * PDF Bookmark Editor Screen
+     */
+    object PdfBookmarks : Screen("pdf_bookmarks")
+
+    /**
+     * Password ZIP Extract Screen
+     */
+    object PasswordZipExtract : Screen("password_zip_extract")
+
+    /**
+     * PDF Split by Bookmarks Screen
+     */
+    object PdfSplitByBookmarks : Screen("pdf_split_by_bookmarks")
+
+    /**
+     * PDF Underlay Screen
+     */
+    object PdfUnderlay : Screen("pdf_underlay")
+
+    /**
+     * PDF Form Creation Screen
+     */
+    object PdfFormCreation : Screen("pdf_form_creation")
+
+    /**
+     * File Encrypt Screen
+     */
+    object FileEncrypt : Screen("file_encrypt")
+
+    /**
+     * File Decrypt Screen
+     */
+    object FileDecrypt : Screen("file_decrypt")
+
+    /**
+     * PDF Selective Image Extract Screen
+     */
+    object PdfSelectiveImageExtract : Screen("pdf_selective_image_extract")
+
+    /**
+     * PDF All Pages to Image Screen
+     */
+    object PdfAllPagesToImage : Screen("pdf_all_pages_to_image")
+
+    /**
+     * File Checksum Screen
+     */
+    object FileChecksum : Screen("file_checksum")
+
+    /**
+     * PDF Replace Pages Screen
+     */
+    object PdfReplacePages : Screen("pdf_replace_pages")
+
+    /**
+     * Unit Converter Screen
+     */
+    object UnitConverter : Screen("unit_converter")
+
+    /**
+     * Color Picker Screen
+     */
+    object ColorPicker : Screen("color_picker")
+
+    /**
+     * Collage Maker Screen
+     */
+    object CollageMaker : Screen("collage_maker")
+
+    /**
+     * Meme Maker Screen
+     */
+    object MemeMaker : Screen("meme_maker")
+
+    /**
+     * PDF Bookmark Reader Screen
+     */
+    object PdfBookmarkReader : Screen("pdf_bookmark_reader")
+
+    /**
+     * PDF/A Validation Screen
+     */
+    object PdfAValidation : Screen("pdf_a_validation")
+
+    /**
+     * Enhanced PDF to Word Screen
+     */
+    object PdfToWordEnhanced : Screen("pdf_to_word_enhanced")
+
+    /**
+     * Enhanced Markdown to PDF Screen
+     */
+    object MarkdownToPdfEnhanced : Screen("markdown_to_pdf_enhanced")
+
+    /**
+     * SVG to PDF Screen
+     */
+    object SvgToPdf : Screen("svg_to_pdf")
+
+    /**
+     * Advanced Word Count Screen
+     */
+    object AdvancedWordCount : Screen("advanced_word_count")
+
+    /**
+     * Sticker Maker Screen
+     */
+    object StickerMaker : Screen("sticker_maker")
+
+    /**
+     * Sticker Import Screen
+     */
+    object StickerImport : Screen("sticker_import")
+
+    /**
+     * Exact Resize Screen
+     */
+    object ExactResize : Screen("exact_resize")
+
+    /**
+     * Read Aloud Screen
+     */
+    object ReadAloud : Screen("read_aloud")
+
+    /**
+     * PDF Block Editor Screen (Experimental)
+     */
+    object PdfBlockEditor : Screen("pdf_block_editor")
 }
 
 

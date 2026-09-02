@@ -129,6 +129,11 @@ fun XlsxViewerScreen(
     var scale by remember { mutableStateOf(1f) }
     var selectedColForSort by remember { mutableStateOf<Int?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    // Save WebView scroll position to restore after navigation
+    var webViewScrollX by remember { mutableIntStateOf(0) }
+    var webViewScrollY by remember { mutableIntStateOf(0) }
+    var showEditMenu by remember { mutableStateOf(false) }
+    var showFormatMenu by remember { mutableStateOf(false) }
     // Tracks which row number is selected (header tap) — used to highlight the full row
     var selectedRow by remember { mutableStateOf<Int?>(null) }
     var formulaBarValue by remember(selectedCell, state, activeSheetIndex) {
@@ -312,25 +317,32 @@ fun XlsxViewerScreen(
                             var showMenu by remember { mutableStateOf(false) }
 
                             IconButton(onClick = { searchExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search"
+                                Icon(Icons.Default.Search, contentDescription = "Search")
+                            }
+
+                            // Edit Menu Button
+                            Box {
+                                EditMenuButton(onClick = { showEditMenu = true })
+                                EditMenuPopup(
+                                    expanded = showEditMenu,
+                                    onDismiss = { showEditMenu = false },
+                                    items = listOf(
+                                        EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }),
+                                        EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }),
+                                        EditMenuItem(Icons.Default.FormatUnderlined, "Underline", onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }),
+                                        EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { showFormatMenu = true }),
+                                        EditMenuItem(Icons.Default.FormatColorFill, "Cell Color", onClick = { }),
+                                        EditMenuItem(Icons.Default.FormatClear, "Clear Format", onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) })
+                                    )
                                 )
                             }
 
                             IconButton(onClick = { viewModel.commitChanges() }) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Commit changes to disk",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                Icon(Icons.Default.Check, contentDescription = "Commit changes to disk", tint = MaterialTheme.colorScheme.primary)
                             }
 
                             IconButton(onClick = { showMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More Options"
-                                )
+                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                             }
 
                             DropdownMenu(
@@ -549,6 +561,11 @@ fun XlsxViewerScreen(
 
                             // High-performance SheetJS + x-spreadsheet view with full font styling
                             if (currentState.xlsxBase64 != null) {
+                                // Save scroll position before recomposition
+                                webViewRef?.let { wv ->
+                                    webViewScrollX = wv.scrollX
+                                    webViewScrollY = wv.scrollY
+                                }
                                 SpreadsheetWebView(
                                     xlsxBase64 = currentState.xlsxBase64,
                                     workbook = currentState.workbook,
@@ -574,6 +591,8 @@ fun XlsxViewerScreen(
                                     },
                                     onWebViewReady = { wv ->
                                         webViewRef = wv
+                                        // Restore scroll position after WebView is ready
+                                        wv.post { wv.scrollTo(webViewScrollX, webViewScrollY) }
                                     },
                                     modifier = Modifier
                                         .weight(1f)

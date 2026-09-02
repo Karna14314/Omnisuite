@@ -820,9 +820,46 @@ class PptxViewerViewModel @Inject constructor(
             val ctSlide = getXmlObjectReflection(slide) ?: return null
             val cSld = try { ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide) } catch (t: Throwable) { null } ?: return null
             val bg = try { cSld.javaClass.getMethod("getBg").invoke(cSld) } catch (t: Throwable) { null } ?: return null
-            val bgPr = try { bg.javaClass.getMethod("getBgPr").invoke(bg) } catch (t: Throwable) { null } ?: return null
-            val solidFill = try { bgPr.javaClass.getMethod("getSolidFill").invoke(bgPr) } catch (t: Throwable) { null } ?: return null
-            return extractColorFromSolidFill(solidFill)
+
+            // Try bgPr (background properties) first
+            val bgPr = try { bg.javaClass.getMethod("getBgPr").invoke(bg) } catch (t: Throwable) { null }
+            if (bgPr != null) {
+                val solidFill = try { bgPr.javaClass.getMethod("getSolidFill").invoke(bgPr) } catch (t: Throwable) { null }
+                if (solidFill != null) {
+                    val color = extractColorFromSolidFill(solidFill)
+                    if (color != null) return color
+                }
+                // Try bgGradFill (gradient fill)
+                val gradFill = try { bgPr.javaClass.getMethod("getGradFill").invoke(bgPr) } catch (t: Throwable) { null }
+                if (gradFill != null) {
+                    val gsLst = try { gradFill.javaClass.getMethod("getGsLst").invoke(gradFill) } catch (t: Throwable) { null }
+                    if (gsLst != null && gsLst is org.apache.xmlbeans.XmlObject) {
+                        val gsArray = try { gsLst.selectChildren(javax.xml.namespace.QName("http://schemas.openxmlformats.org/drawingml/2006/main", "gs")) } catch (t: Throwable) { null }
+                        if (gsArray != null && gsArray.isNotEmpty()) {
+                            val firstGs = gsArray[0]
+                            val solidFill2 = try { firstGs.javaClass.getMethod("getSolidFill").invoke(firstGs) } catch (t: Throwable) { null }
+                            if (solidFill2 != null) {
+                                val color = extractColorFromSolidFill(solidFill2)
+                                if (color != null) return color
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try bgRef (background reference - theme-based)
+            val bgRef = try { bg.javaClass.getMethod("getBgRef").invoke(bg) } catch (t: Throwable) { null }
+            if (bgRef != null) {
+                val idx = try { bgRef.javaClass.getMethod("getVal").invoke(bgRef) } catch (t: Throwable) { null }
+                if (idx is Int && idx > 0) {
+                    val themeColors = getThemeColors()
+                    val themeColorKeys = listOf("lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink")
+                    val keyIndex = idx / 100 - 1
+                    if (keyIndex >= 0 && keyIndex < themeColorKeys.size) {
+                        return themeColors[themeColorKeys[keyIndex]]
+                    }
+                }
+            }
         } catch (t: Throwable) {
             // Safe fallback
         }
@@ -1237,9 +1274,9 @@ class PptxViewerViewModel @Inject constructor(
             collectShapes(rootShapes)
 
             // Z-order counter: shapes are processed in document order, which matches z-order
-            var zOrderCounter = 0
-
-            for (shape in allShapes) {
+            // Use the index in allShapes as the z-order to ensure correct layering
+            for ((shapeIndex, shape) in allShapes.withIndex()) {
+                val shapeZOrder = shapeIndex
                 try {
                     // 1. Check if shape has picture data (PictureShape, blipFill on AutoShape/SimpleShape, etc.)
                     val picTriple = extractPictureDataFromShape(shape, slide)
@@ -1254,7 +1291,7 @@ class PptxViewerViewModel @Inject constructor(
                         val imageArea = width * height
                         val isBackground = imageArea >= 0.85f && left <= 0.05f && top <= 0.05f
 
-                        val imgZOrder = zOrderCounter++
+                        val imgZOrder = shapeZOrder
                         if (isBackground && backgroundImage == null) {
                             backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder)
                         } else {
@@ -1383,7 +1420,7 @@ class PptxViewerViewModel @Inject constructor(
 
                             if (shapeParagraphs.isNotEmpty()) {
                                 val isDistinctTitle = isTitle && titleShape == null
-                                val textZOrder = zOrderCounter++
+                                val textZOrder = shapeZOrder
                                 val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
                                 val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
                                 val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
@@ -1530,7 +1567,7 @@ class PptxViewerViewModel @Inject constructor(
                                             shapeTop = cellTop,
                                             shapeWidth = cellW,
                                             shapeHeight = cellH,
-                                            zOrder = zOrderCounter++,
+                                            zOrder = shapeZOrder,
                                             insets = Insets(
                                                 left = cellMargins.left,
                                                 top = cellMargins.top,
