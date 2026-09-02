@@ -366,27 +366,27 @@ class UtilityToolsRepository @Inject constructor(
                     val x = padding + col * (cellW + padding).toFloat()
                     val y = padding + row * (cellH + padding).toFloat()
                     val scaled = Bitmap.createScaledBitmap(bitmaps[i], cellW, cellH, true)
-                    canvas.drawBitmap(scaled, x, y, paint)
+                    canvas.drawBitmap(scaled, x, y, paint as android.graphics.Paint?)
                 }
             }
             1 -> {
                 val cellSize = (size - padding * 3) / 2
-                for (i in minOf(count, 4)) {
+                for (i in 0 until minOf(count, 4)) {
                     val col = i % 2; val row = i / 2
                     val x = padding + col * (cellSize + padding).toFloat()
                     val y = padding + row * (cellSize + padding).toFloat()
                     val scaled = Bitmap.createScaledBitmap(bitmaps[i], cellSize, cellSize, true)
-                    canvas.drawBitmap(scaled, x, y, paint)
+                    canvas.drawBitmap(scaled, x, y, paint as android.graphics.Paint?)
                 }
             }
             2 -> {
                 val cellSize = (size - padding * 3) / 3
-                for (i in minOf(count, 9)) {
+                for (i in 0 until minOf(count, 9)) {
                     val col = i % 3; val row = i / 3
                     val x = padding + col * (cellSize + padding).toFloat()
                     val y = padding + row * (cellSize + padding).toFloat()
                     val scaled = Bitmap.createScaledBitmap(bitmaps[i], cellSize, cellSize, true)
-                    canvas.drawBitmap(scaled, x, y, paint)
+                    canvas.drawBitmap(scaled, x, y, paint as android.graphics.Paint?)
                 }
             }
         }

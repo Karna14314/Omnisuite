@@ -6,45 +6,14 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.karnadigital.omnisuite.feature.home.HomeScreen
-import com.karnadigital.omnisuite.feature.home.NavigationEvent
-import com.karnadigital.omnisuite.feature.utility.QrGeneratorScreen
-import com.karnadigital.omnisuite.feature.utility.BarcodeScannerScreen
-import com.karnadigital.omnisuite.feature.settings.SettingsScreen
-import com.karnadigital.omnisuite.feature.viewer.ViewerDispatcherScreen
-import com.karnadigital.omnisuite.feature.tools.ImageToolsScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfMergeScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfSplitScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfLockScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.DocToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PptToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.ScanToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToImagesScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToWordScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToPptScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToExcelScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfFormFillerScreen
-import com.karnadigital.omnisuite.feature.utility.OcrScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.SignaturePadScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.WatermarkScreen
-import com.karnadigital.omnisuite.feature.tools.BatchToolsScreen
-import com.karnadigital.omnisuite.feature.tools.ZipMakerScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfCompressScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfFlattenScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.XlsToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfDecryptScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfRotateScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfExtractScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfDeleteScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.WebToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.HtmlToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.MarkdownToPdfScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.DocxToTxtScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.CsvToXlsxScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.XlsxToCsvScreen
-import com.karnadigital.omnisuite.feature.pdf_tools.PptxToTxtScreen
-import com.karnadigital.omnisuite.feature.tools.TarToolsScreen
+import com.karnadigital.omnisuite.feature.archive.*
+import com.karnadigital.omnisuite.feature.history.*
+import com.karnadigital.omnisuite.feature.home.*
+import com.karnadigital.omnisuite.feature.pdf_tools.*
+import com.karnadigital.omnisuite.feature.settings.*
+import com.karnadigital.omnisuite.feature.tools.*
+import com.karnadigital.omnisuite.feature.utility.*
+import com.karnadigital.omnisuite.feature.viewer.*
 
 
 /**
@@ -290,12 +259,9 @@ fun OmniNavGraph(
         ) { backStackEntry ->
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfLockScreen(
-                initialPdfUri = fileUri,
-                onNavigateBack = {
+                fileUri = fileUri,
+                onBack = {
                     navController.popBackStack()
-                },
-                onOpenFile = { targetUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
                 }
             )
         }
@@ -469,8 +435,9 @@ fun OmniNavGraph(
                 onBack = {
                     navController.popBackStack()
                 },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                onOpenFile = { uri, name ->
+                    val encodedUri = android.net.Uri.encode(uri.toString())
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(encodedUri))
                 }
             )
         }
@@ -500,10 +467,7 @@ fun OmniNavGraph(
         // 15. Standalone PDF Flatten
         composable(route = Screen.PdfFlatten.route) {
             PdfFlattenScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
-                }
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -530,11 +494,8 @@ fun OmniNavGraph(
         ) { backStackEntry ->
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfDecryptScreen(
-                initialPdfUri = fileUri,
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { targetUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
-                }
+                fileUri = fileUri,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -551,11 +512,8 @@ fun OmniNavGraph(
         ) { backStackEntry ->
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfRotateScreen(
-                initialPdfUri = fileUri,
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { targetUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
-                }
+                fileUri = fileUri,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -572,11 +530,8 @@ fun OmniNavGraph(
         ) { backStackEntry ->
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfExtractScreen(
-                initialPdfUri = fileUri,
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { targetUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
-                }
+                fileUri = fileUri,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -593,11 +548,8 @@ fun OmniNavGraph(
         ) { backStackEntry ->
             val fileUri = backStackEntry.arguments?.getString("fileUri")
             PdfDeleteScreen(
-                initialPdfUri = fileUri,
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { targetUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(targetUri))
-                }
+                fileUri = fileUri,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -718,10 +670,7 @@ fun OmniNavGraph(
         // 28. Standalone TAR Archive creation/extraction Screen
         composable(route = Screen.TarTools.route) {
             TarToolsScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
-                }
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -765,329 +714,294 @@ fun OmniNavGraph(
 
         // 30. PDF Page Numbering Screen
         composable(route = Screen.PdfPageNumber.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfPageNumberScreen(
+            PdfPageNumberScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 31. PDF Reorder Pages Screen
         composable(route = Screen.PdfReorder.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfReorderScreen(
+            PdfReorderScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 32. PDF Extract Images Screen
         composable(route = Screen.PdfExtractImages.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfExtractImagesScreen(
+            PdfExtractImagesScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 33. TXT to PDF Screen
         composable(route = Screen.TxtToPdf.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.TxtToPdfScreen(
+            TxtToPdfScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 34. CSV to PDF Screen
         composable(route = Screen.CsvToPdf.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.CsvToPdfScreen(
+            CsvToPdfScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 35. PDF to TXT Screen
         composable(route = Screen.PdfToTxt.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfToTxtScreen(
+            PdfToTxtScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 36. Images to PDF with Layout Screen
         composable(route = Screen.ImagesToPdfLayout.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.ImagesToPdfLayoutScreen(
+            ImagesToPdfLayoutScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 37. PDF Header & Footer Screen
         composable(route = Screen.PdfHeaderFooter.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfHeaderFooterScreen(
+            PdfHeaderFooterScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 38. PDF Resize Pages Screen
         composable(route = Screen.PdfResize.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfResizeScreen(
+            PdfResizeScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 39. Password-Protected ZIP Screen
         composable(route = Screen.PasswordZip.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PasswordZipScreen(
+            PasswordZipScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 40. PDF to PDF/A Screen
         composable(route = Screen.PdfToPdfA.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfToPdfAScreen(
+            PdfToPdfAScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 41. PDF Metadata Editor Screen
         composable(route = Screen.PdfMetadata.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfMetadataScreen(
+            PdfMetadataScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 42. PDF Crop Margins Screen
         composable(route = Screen.PdfCropMargins.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfCropMarginsScreen(
+            PdfCropMarginsScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 43. PDF Redact Screen
         composable(route = Screen.PdfRedact.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfRedactScreen(
+            PdfRedactScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 44. PDF Repair Screen
         composable(route = Screen.PdfRepair.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfRepairScreen(
+            PdfRepairScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 45. PDF Overlay Screen
         composable(route = Screen.PdfOverlay.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfOverlayScreen(
+            PdfOverlayScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 46. PDF Compare Screen
         composable(route = Screen.PdfCompare.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfCompareScreen(
+            PdfCompareScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 47. PDF to Markdown Screen
         composable(route = Screen.PdfToMarkdown.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfToMarkdownScreen(
+            PdfToMarkdownScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 48. PDF Split by Size Screen
         composable(route = Screen.PdfSplitBySize.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfSplitBySizeScreen(
+            PdfSplitBySizeScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 49. PDF Insert Pages Screen
         composable(route = Screen.PdfInsertPages.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfInsertPagesScreen(
+            PdfInsertPagesScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 50. PDF Replace Pages Screen
         composable(route = Screen.PdfReplacePages.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfReplacePagesScreen(
+            PdfReplacePagesScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 51. PDF Bookmark Editor Screen
         composable(route = Screen.PdfBookmarks.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfBookmarkScreen(
+            PdfBookmarkScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 52. Password ZIP Extract Screen
         composable(route = Screen.PasswordZipExtract.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PasswordZipExtractScreen(
+            PasswordZipExtractScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 53. PDF Split by Bookmarks Screen
         composable(route = Screen.PdfSplitByBookmarks.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfSplitByBookmarksScreen(
+            PdfSplitByBookmarksScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 54. PDF Underlay Screen
         composable(route = Screen.PdfUnderlay.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfUnderlayScreen(
+            PdfUnderlayScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 55. PDF Form Creation Screen
         composable(route = Screen.PdfFormCreation.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfFormCreationScreen(
+            PdfFormCreationScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 56. File Encrypt Screen
         composable(route = Screen.FileEncrypt.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.FileEncryptScreen(
+            FileEncryptScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 57. File Decrypt Screen
         composable(route = Screen.FileDecrypt.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.FileDecryptScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // 58. PDF Selective Image Extract Screen
-        composable(route = Screen.PdfSelectiveImageExtract.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfSelectiveImageExtractScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // 59. PDF All Pages to Image Screen
-        composable(route = Screen.PdfAllPagesToImage.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfAllPagesToImageScreen(
+            FileDecryptScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 60. File Checksum Screen
         composable(route = Screen.FileChecksum.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.FileChecksumScreen(
+            FileChecksumScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 61. Text Compare Screen
         composable(route = Screen.TextCompare.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.TextCompareScreen(
+            TextCompareScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 62. Unit Converter Screen
         composable(route = Screen.UnitConverter.route) {
-            com.karnadigital.omnisuite.feature.utility.UnitConverterScreen(
+            UnitConverterScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 63. Color Picker Screen
         composable(route = Screen.ColorPicker.route) {
-            com.karnadigital.omnisuite.feature.utility.ColorPickerScreen(
+            ColorPickerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 64. Collage Maker Screen
         composable(route = Screen.CollageMaker.route) {
-            com.karnadigital.omnisuite.feature.utility.CollageMakerScreen(
+            CollageMakerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 65. Meme Maker Screen
         composable(route = Screen.MemeMaker.route) {
-            com.karnadigital.omnisuite.feature.utility.MemeMakerScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // 66. PDF Bookmark Reader Screen
-        composable(route = Screen.PdfBookmarkReader.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfBookmarkReaderScreen(
+            MemeMakerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 67. PDF/A Validation Screen
         composable(route = Screen.PdfAValidation.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfAValidationScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // 68. Enhanced PDF to Word Screen
-        composable(route = Screen.PdfToWordEnhanced.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfToWordEnhancedScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // 69. Enhanced Markdown to PDF Screen
-        composable(route = Screen.MarkdownToPdfEnhanced.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.MarkdownToPdfEnhancedScreen(
+            PdfAValidationScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 70. SVG to PDF Screen
         composable(route = Screen.SvgToPdf.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.SvgToPdfScreen(
+            SvgToPdfScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 71. Advanced Word Count Screen
         composable(route = Screen.AdvancedWordCount.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.AdvancedWordCountScreen(
+            AdvancedWordCountScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 72. Sticker Maker Screen
         composable(route = Screen.StickerMaker.route) {
-            com.karnadigital.omnisuite.feature.utility.StickerMakerScreen(
+            StickerMakerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 73. Sticker Import Screen
         composable(route = Screen.StickerImport.route) {
-            com.karnadigital.omnisuite.feature.utility.StickerImportScreen(
+            StickerImportScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 74. Exact Resize Screen
         composable(route = Screen.ExactResize.route) {
-            com.karnadigital.omnisuite.feature.utility.ExactResizeScreen(
+            ExactResizeScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 75. Read Aloud Screen
         composable(route = Screen.ReadAloud.route) {
-            com.karnadigital.omnisuite.feature.utility.ReadAloudScreen(
+            ReadAloudScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
         // 76. PDF Block Editor Screen (Experimental)
         composable(route = Screen.PdfBlockEditor.route) {
-            com.karnadigital.omnisuite.feature.pdf_tools.PdfBlockEditorScreen(
+            PdfBlockEditorScreen(
                 onBack = { navController.popBackStack() }
             )
         }

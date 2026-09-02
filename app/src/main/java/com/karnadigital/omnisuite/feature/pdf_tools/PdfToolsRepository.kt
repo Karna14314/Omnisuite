@@ -24,6 +24,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -119,11 +120,11 @@ class PdfToolsRepository @Inject constructor(
         return result
     }
 
-    suspend fun saveBytesAndRegister(bytes: ByteArray, fileName: String, mimeType: String, subfolder: String): Uri {
+    suspend fun saveBytesAndRegister(bytes: ByteArray, fileName: String, mimeType: String, subfolder: String): Uri = withContext(Dispatchers.IO) {
         val savedUri = fileOutputManager.saveToDefault(bytes, fileName, mimeType, subfolder)
             ?: throw Exception("Failed to save file.")
         registerRecentFile(savedUri, fileName, mimeType, bytes.size.toLong())
-        return savedUri
+        savedUri
     }
 
     private suspend fun registerRecentFile(savedUri: Uri, fileName: String, mimeType: String, fileSize: Long) {
@@ -1395,9 +1396,7 @@ class PdfToolsRepository @Inject constructor(
                 System.arraycopy(checksumOctal.toByteArray(), 0, header, 148, checksumOctal.toByteArray().size)
                 fos.write(header)
                 cachedFile.inputStream().use { fis ->
-                    val buf = ByteArray(1024)
-                    var read: Int
-                    while (fis.read(buf).also { read = it } != -1) fos.write(buf, 0, read)
+                    fis.copyTo(fos)
                 }
                 val remainder = (size % 512).toInt()
                 if (remainder > 0) fos.write(ByteArray(512 - remainder))
@@ -1406,9 +1405,7 @@ class PdfToolsRepository @Inject constructor(
             val gzOutputFile = File(context.cacheDir, "archive_${System.currentTimeMillis()}.tgz")
             FileInputStream(tempOutputFile).use { fis ->
                 java.util.zip.GZIPOutputStream(FileOutputStream(gzOutputFile)).use { gzos ->
-                    val buf = ByteArray(1024)
-                    var read: Int
-                    while (fis.read(buf).also { read = it } != -1) gzos.write(buf, 0, read)
+                    fis.copyTo(gzos)
                 }
             }
             val outName = if (outputName.endsWith(".tgz", ignoreCase = true) || outputName.endsWith(".tar.gz", ignoreCase = true)) outputName else "$outputName.tgz"
@@ -1550,7 +1547,7 @@ class PdfToolsRepository @Inject constructor(
                         val xObjectNames = page.resources.xObjectNames
                         if (xObjectNames != null) {
                             for (name in xObjectNames) {
-                                try { page.resources.isImageXObject(name) } catch (e: Exception) { page.resources.put(name, null) }
+                                try { page.resources.isImageXObject(name) } catch (e: Exception) { /* skip */ }
                             }
                         }
                     }
@@ -1737,16 +1734,22 @@ class PdfToolsRepository @Inject constructor(
             val tempInsertFile = uriCacheUtils.cacheUriToFile(insertUri)
                 ?: throw Exception("Could not open insert PDF file.")
             val tempOutputFile = File(context.cacheDir, "inserted_${System.currentTimeMillis()}.pdf")
-            PDDocument.load(tempInputFile).use { mainDoc ->
-                val pagesToInsert = PDDocument.load(tempInsertFile).use { insertDoc ->
+            PDDocument.load(tempInputFile as File).use { mainDoc ->
+                val pagesToInsert = PDDocument.load(tempInsertFile as File).use { insertDoc ->
                     (0 until insertDoc.numberOfPages).map { insertDoc.getPage(it) }
                 }
                 val insertIndex = insertAtPage.coerceIn(0, mainDoc.numberOfPages)
                 for ((offset, page) in pagesToInsert.withIndex()) {
                     mainDoc.importPage(page)
                     val importedPage = mainDoc.getPage(mainDoc.numberOfPages - 1)
-                    mainDoc.pages.remove(mainDoc.numberOfPages - 1)
-                    mainDoc.pages.add(insertIndex + offset, importedPage)
+                    mainDoc.removePage(mainDoc.numberOfPages - 1)
+                    val targetIndex = insertIndex + offset
+                    if (targetIndex >= mainDoc.numberOfPages) {
+                        mainDoc.addPage(importedPage)
+                    } else {
+                        val targetPage = mainDoc.getPage(targetIndex)
+                        mainDoc.pages.insertBefore(importedPage, targetPage)
+                    }
                 }
                 FileOutputStream(tempOutputFile).use { mainDoc.save(it) }
             }
@@ -1769,22 +1772,23 @@ class PdfToolsRepository @Inject constructor(
         try {
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
                 ?: throw Exception("Could not open source PDF file.")
-            val tempReplaceFile = uriCacheUriToFile(replaceUri)
+            val tempReplaceFile = uriCacheUtils.cacheUriToFile(replaceUri)
                 ?: throw Exception("Could not open replacement PDF file.")
             val tempOutputFile = File(context.cacheDir, "replaced_${System.currentTimeMillis()}.pdf")
-            PDDocument.load(tempInputFile).use { mainDoc ->
-                val replacePages = PDDocument.load(tempReplaceFile).use { replaceDoc ->
+            PDDocument.load(tempInputFile as File).use { mainDoc ->
+                val replacePagesList = PDDocument.load(tempReplaceFile as File).use { replaceDoc ->
                     (0 until replaceDoc.numberOfPages).map { replaceDoc.getPage(it) }
                 }
                 val validStart = startPage.coerceIn(0, mainDoc.numberOfPages - 1)
-                for (i in replacePages.indices) {
+                for (i in replacePagesList.indices) {
                     val targetIdx = validStart + i
                     if (targetIdx < mainDoc.numberOfPages) {
-                        mainDoc.pages.remove(targetIdx)
-                        mainDoc.importPage(replacePages[i])
+                        val targetPage = mainDoc.getPage(targetIdx)
+                        mainDoc.importPage(replacePagesList[i])
                         val imported = mainDoc.getPage(mainDoc.numberOfPages - 1)
-                        mainDoc.pages.remove(mainDoc.numberOfPages - 1)
-                        mainDoc.pages.add(targetIdx, imported)
+                        mainDoc.removePage(mainDoc.numberOfPages - 1)
+                        mainDoc.pages.insertBefore(imported, targetPage)
+                        mainDoc.removePage(targetPage)
                     }
                 }
                 FileOutputStream(tempOutputFile).use { mainDoc.save(it) }
@@ -1804,22 +1808,22 @@ class PdfToolsRepository @Inject constructor(
         }
     }
 
-    private fun cacheUriToFile(uri: Uri): File? = uriCacheUtils.cacheUriToFile(uri)
+    private suspend fun cacheUriToFile(uri: Uri): File? = uriCacheUtils.cacheUriToFile(uri)
 
     suspend fun editBookmarks(inputUri: Uri, bookmarks: List<Triple<String, Int, Int>>, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open source PDF file.")
             val tempOutputFile = File(context.cacheDir, "bookmarks_${System.currentTimeMillis()}.pdf")
-            PDDocument.load(tempInputFile).use { document ->
+            PDDocument.load(tempInputFile as File).use { document ->
                 val outline = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline()
                 for ((title, pageIdx, yPos) in bookmarks) {
-                    if (pageIdx >= 0 && pageIdx < document.numberOfPages) {
-                        val bookmark = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDPageFitWidthDestination()
+                    if (pageIdx in 0 until document.numberOfPages) {
+                        val bookmark = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitWidthDestination()
                         bookmark.page = document.getPage(pageIdx)
+                        bookmark.top = yPos
                         val outlineItem = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem()
                         outlineItem.title = title
                         outlineItem.destination = bookmark
-                        outlineItem.destination.position = com.tom_roush.pdfbox.pdmodel.common.PDRectangle(0f, yPos, 0f, 0f)
                         outline.addLast(outlineItem)
                     }
                 }
@@ -1842,7 +1846,7 @@ class PdfToolsRepository @Inject constructor(
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open ZIP file.")
             val savedUris = mutableListOf<Uri>()
             val zipFile = net.lingala.zip4j.ZipFile(tempInputFile)
-            zipFile.password = password.toCharArray()
+            zipFile.setPassword(password.toCharArray())
             val fileHeaders = zipFile.fileHeaders
             for (header in fileHeaders) {
                 if (!header.isDirectory) {
@@ -2191,7 +2195,7 @@ class PdfToolsRepository @Inject constructor(
                 val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open PDF file.")
                 val tempOutputFile = java.io.File(context.cacheDir, "enhanced_word_${System.currentTimeMillis()}.docx")
                 org.apache.poi.xwpf.usermodel.XWPFDocument().use { doc ->
-                    com.tom_roush.pdfbox.PDDocument.load(tempInputFile).use { pdfDoc ->
+                    PDDocument.load(tempInputFile as File).use { pdfDoc ->
                         val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
                         for (pageNum in 0 until pdfDoc.numberOfPages) {
                             stripper.startPage = pageNum + 1
@@ -2225,7 +2229,7 @@ class PdfToolsRepository @Inject constructor(
                 val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open MD file.")
                 val tempOutputFile = java.io.File(context.cacheDir, "md_enhanced_${System.currentTimeMillis()}.pdf")
                 val mdText = tempInputFile.readText(Charsets.UTF_8)
-                com.tom_roush.pdfbox.PDDocument().use { doc ->
+                PDDocument().use { doc ->
                     val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
                     val fontBold = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
                     val margin = 50f
@@ -2318,7 +2322,7 @@ class PdfToolsRepository @Inject constructor(
                 val heightRegex = Regex("""height=["'](\d+(?:\.\d+)?)""")
                 val width = widthRegex.find(svgContent)?.groupValues?.get(1)?.toFloatOrNull() ?: 595f
                 val height = heightRegex.find(svgContent)?.groupValues?.get(1)?.toFloatOrNull() ?: 842f
-                com.tom_roush.pdfbox.PDDocument().use { doc ->
+                PDDocument().use { doc ->
                     val page = com.tom_roush.pdfbox.pdmodel.PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle(width, height))
                     doc.addPage(page)
                     val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page)
