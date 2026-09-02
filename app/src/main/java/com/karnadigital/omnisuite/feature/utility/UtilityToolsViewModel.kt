@@ -15,7 +15,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class UtilityToolsViewModel @Inject constructor(
-    private val utilityToolsRepository: UtilityToolsRepository
+    val utilityToolsRepository: UtilityToolsRepository
 ) : ViewModel() {
 
     private val _unitResult = MutableStateFlow("")

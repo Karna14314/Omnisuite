@@ -231,7 +231,7 @@ private fun getAllTools(
 
         // Word Tools
         ToolItem("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
-        ToolItem("📄", "Text Editor", "Read and edit local TXT files", OmniColors.TextMuted, { onSelectFileForType("text") }, "Word"),
+        ToolItem("📄", "Text Editor", "Read and edit local TXT files", Color(0xFF6B7280), { onSelectFileForType("text") }, "Word"),
         ToolItem("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
 
         // Excel Tools

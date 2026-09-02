@@ -82,7 +82,7 @@ fun UnitConverterScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = h
                 }
             }
             Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Text(text = "$inputValue $fromUnit = $unitResult $toUnit", modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier2 = Modifier.fillMaxWidth())
+                Text(text = "$inputValue $fromUnit = $unitResult $toUnit", modifier = Modifier.fillMaxWidth().padding(24.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
         }
     }
@@ -108,8 +108,8 @@ fun ColorPickerScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hil
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(modifier = Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(8.dp)).background(Color(color)))
                         Text("HEX: #${Integer.toHexString(color).uppercase().padStart(8, '0')}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("RGB: ${Color.red(color)}, ${Color.green(color)}, ${Color.blue(color)}", style = MaterialTheme.typography.bodyMedium)
-                        Text("ARGB: ${Color.alpha(color)}, ${Color.red(color)}, ${Color.green(color)}, ${Color.blue(color)}", style = MaterialTheme.typography.bodySmall)
+                        Text("RGB: ${android.graphics.Color.red(color)}, ${android.graphics.Color.green(color)}, ${android.graphics.Color.blue(color)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("ARGB: ${android.graphics.Color.alpha(color)}, ${android.graphics.Color.red(color)}, ${android.graphics.Color.green(color)}, ${android.graphics.Color.blue(color)}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             } else {

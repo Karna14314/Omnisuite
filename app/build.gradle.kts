@@ -17,8 +17,8 @@ android {
         minSdk = 30
         targetSdk = 36
 
-        val appVersionCode = project.findProperty("APP_VERSION_CODE")?.toString()?.toIntOrNull() ?: 2
-        val appVersionName = project.findProperty("APP_VERSION_NAME")?.toString() ?: "1.0.1"
+        val appVersionCode = project.findProperty("APP_VERSION_CODE")?.toString()?.toIntOrNull() ?: 3
+        val appVersionName = project.findProperty("APP_VERSION_NAME")?.toString() ?: "1.0.2"
 
         versionCode = appVersionCode
         versionName = appVersionName

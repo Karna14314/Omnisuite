@@ -6,6 +6,8 @@ import android.os.ParcelFileDescriptor
 import android.print.PrintAttributes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -978,9 +980,10 @@ class PdfToolsViewModel @Inject constructor(
         resetStatus()
         viewModelScope.launch {
             val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
-            result.onSuccess { uri ->
-                successUri = uri
-                successMessage = "ZIP extracted successfully!"
+            result.onSuccess { uris ->
+                successUris = uris
+                successUri = uris.firstOrNull()
+                successMessage = "Extracted ${uris.size} files successfully!"
                 passwordZipExtractUri = null
                 passwordZipExtractPassword = ""
             }.onFailure { e ->
@@ -1174,8 +1177,6 @@ class PdfToolsViewModel @Inject constructor(
     var bookmarkInputUri by mutableStateOf<Uri?>(null)
     var bookmarkTitles by mutableStateOf("")
     var bookmarkPages by mutableStateOf("")
-    var passwordZipExtractUri by mutableStateOf<Uri?>(null)
-    var passwordZipExtractPassword by mutableStateOf("")
     var splitByBookmarksInputUri by mutableStateOf<Uri?>(null)
     var underlayBaseUri by mutableStateOf<Uri?>(null)
     var underlayUnderlayUri by mutableStateOf<Uri?>(null)
@@ -1200,7 +1201,7 @@ class PdfToolsViewModel @Inject constructor(
         val titles = bookmarkTitles.lines().filter { it.isNotBlank() }
         val pages = bookmarkPages.lines().filter { it.isNotBlank() }.mapNotNull { it.trim().toIntOrNull()?.minus(1) }
         if (titles.isEmpty() || pages.isEmpty() || titles.size != pages.size) { errorMessage = "Titles and pages must match."; return }
-        val bookmarks = titles.mapIndexed { i, title -> Triple(title.trim(), pages.getOrElse(i) { 0 }, 700f) }
+        val bookmarks = titles.mapIndexed { i, title -> Triple(title.trim(), pages.getOrElse(i) { 0 }, 700) }
         isProcessing = true; resetStatus()
         viewModelScope.launch {
             val result = pdfToolsRepository.editBookmarks(inputUri, bookmarks, customFilename)
@@ -1210,17 +1211,6 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    fun extractPasswordZip() {
-        val inputUri = passwordZipExtractUri ?: run { errorMessage = "Please select a ZIP file."; return }
-        if (passwordZipExtractPassword.isBlank()) { errorMessage = "Password required."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.extractPasswordZip(inputUri, passwordZipExtractPassword)
-            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Extracted ${uris.size} files!"; passwordZipExtractUri = null; passwordZipExtractPassword = "" }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
 
     fun splitPdfByBookmarks() {
         val inputUri = splitByBookmarksInputUri ?: run { errorMessage = "Please select a PDF file."; return }

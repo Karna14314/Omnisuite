@@ -404,12 +404,14 @@ fun PdfViewerScreen(
                                 }
 
                                 // Read Aloud button (lightweight TTS)
-                                val extractedText = remember(state, currentPageIndex) {
+                                var pageExtractedText by remember { mutableStateOf("") }
+                                LaunchedEffect(currentPageIndex, state) {
                                     if (state is PdfLoadState.Success) {
-                                        (state as PdfLoadState.Success).extractedTextPerPage.getOrElse(currentPageIndex) { "" }
-                                    } else ""
+                                        val textData = viewModel.getPageText(currentPageIndex)
+                                        pageExtractedText = textData?.text ?: ""
+                                    }
                                 }
-                                ReadAloudButton(text = extractedText)
+                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = pageExtractedText)
 
                                 // More options menu
                                 var showMoreMenu by remember { mutableStateOf(false) }

@@ -449,9 +449,9 @@ sealed class Screen(val route: String) {
     object FileChecksum : Screen("file_checksum")
 
     /**
-     * PDF Replace Pages Screen
+     * Text Compare Screen
      */
-    object PdfReplacePages : Screen("pdf_replace_pages")
+    object TextCompare : Screen("text_compare")
 
     /**
      * Unit Converter Screen

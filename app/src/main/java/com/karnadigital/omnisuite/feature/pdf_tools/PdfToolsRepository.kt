@@ -1368,34 +1368,6 @@ class PdfToolsRepository @Inject constructor(
         }
     }
 
-    suspend fun extractPasswordZip(inputUri: Uri, password: String): Result<Uri> = withContext(Dispatchers.IO) {
-        try {
-            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
-                ?: throw Exception("Could not open ZIP file.")
-            val extractedFiles = mutableListOf<File>()
-            val zipFile = net.lingala.zip4j.ZipFile(tempInputFile)
-            zipFile.password = password.toCharArray()
-            val fileHeaders = zipFile.fileHeaders
-            for (header in fileHeaders) {
-                if (!header.isDirectory) {
-                    val outFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_${header.fileName}")
-                    zipFile.extractFile(header, context.cacheDir.path, "extracted_${System.currentTimeMillis()}_${header.fileName}")
-                    extractedFiles.add(outFile)
-                }
-            }
-            if (extractedFiles.isEmpty()) throw Exception("No files were extracted from the archive.")
-            val firstFile = extractedFiles.first()
-            val savedUri = fileOutputManager.saveToDefault(firstFile.readBytes(), firstFile.name.substringAfterLast('_'), "*/*", "Archive")
-                ?: throw Exception("Failed to save extracted file.")
-            registerRecentFile(savedUri, firstFile.name.substringAfterLast('_'), "*/*", firstFile.length())
-            if (tempInputFile.exists()) tempInputFile.delete()
-            extractedFiles.forEach { if (it.exists()) it.delete() }
-            Result.success(savedUri)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun createGzipArchive(uris: List<Uri>, outputName: String): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             if (uris.size != 1) throw Exception("GZIP supports single file compression only. Use TGZ for multiple files.")

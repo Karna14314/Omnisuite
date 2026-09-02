@@ -142,7 +142,7 @@ fun TxtViewerScreen(
         var idx = content.indexOf(query, 0, ignoreCase = true)
         while (idx >= 0) {
             matches.add(idx)
-            idx = content.indexOf(idx + query.length, ignoreCase = true)
+            idx = content.indexOf(query, idx + query.length, ignoreCase = true)
         }
         searchResults = matches
         currentMatchIndex = if (matches.isNotEmpty()) 0 else -1
@@ -395,7 +395,7 @@ fun TxtViewerScreen(
                 .padding(paddingValues)
                 .background(currentTheme.first)
         ) {
-            when (loadState) {
+            when (val currentLoadState = loadState) {
                 is TxtLoadState.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -437,7 +437,7 @@ fun TxtViewerScreen(
                         if (searchMatchOffset >= 0) {
                             val text = textFieldValue.text
                             val lineNum = text.substring(0, searchMatchOffset).count { it == '\n' }
-                            val lineHeight = (fontSize * 1.5f).value
+                            val lineHeight = fontSize * 1.5f
                             val targetScroll = ((lineNum - 5) * lineHeight).toInt().coerceAtLeast(0)
                             verticalScrollState.animateScrollTo(targetScroll)
                         }
@@ -474,14 +474,15 @@ fun TxtViewerScreen(
                                         }
                                     }
                                     BasicTextField(
-                                            value = textFieldValue,
-                                            onValueChange = { textFieldValue = it },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            textStyle = textStyle,
-                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                            decorationBox = { innerTextField ->
-                                                innerTextField()
-                                            }
+                                        value = textFieldValue,
+                                        onValueChange = { textFieldValue = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = textStyle,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        decorationBox = { innerTextField ->
+                                            innerTextField()
+                                        }
+                                    )
                                 }
                             } else {
                                 SelectionContainer {
@@ -565,7 +566,7 @@ fun TxtViewerScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = loadState.message,
+                            text = currentLoadState.message,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center

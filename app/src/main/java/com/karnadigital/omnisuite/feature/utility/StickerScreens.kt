@@ -218,9 +218,10 @@ fun ExactResizeScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hil
     var selectedPreset by remember { mutableStateOf("") }
     val presets = listOf("500x500 (Icon)", "1080x1080 (Instagram)", "1200x628 (LinkedIn)", "1024x768 (Tablet)", "256x256 (Favicon)", "1080x1920 (Story)")
 
+    val context = LocalContext.current
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
-            LocalContext.current.contentResolver.openInputStream(it)?.use { stream ->
+            context.contentResolver.openInputStream(it)?.use { stream ->
                 sourceBitmap = BitmapFactory.decodeStream(stream)
             }
         }

@@ -11,11 +11,8 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import java.io.File
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
@@ -41,21 +38,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.TextSnippet
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -348,7 +330,6 @@ fun PptxViewerScreen(
                                             EditMenuItem(Icons.Default.Image, "Insert Image", onClick = { imagePickerLauncher.launch("image/*") })
                                         )
                                     )
-                                }
                                 }
                                 // Edit button temporarily hidden
                                 // IconButton(onClick = {

@@ -41,3 +41,7 @@ signing/
 # JVM heap dumps
 *.hprof
 
+# Local Store Listing assets
+store_listing/
+store listing/
+
