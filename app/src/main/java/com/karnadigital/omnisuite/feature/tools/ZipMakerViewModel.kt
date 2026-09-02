@@ -54,14 +54,14 @@ class ZipMakerViewModel @Inject constructor(
     private val _toastMessage = MutableSharedFlow<String>()
     val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
-    fun addFiles(context: Context, uris: List<Uri>) {
+    fun addFiles(uris: List<Uri>) {
         viewModelScope.launch {
             val list = _selectedFiles.value.toMutableList()
             withContext(Dispatchers.IO) {
                 uris.forEach { uri ->
                     if (list.none { it.uri == uri }) {
-                        val name = getFileName(context, uri) ?: "file_${System.currentTimeMillis()}"
-                        val size = getFileSize(context, uri)
+                        val name = getFileName(uri) ?: "file_${System.currentTimeMillis()}"
+                        val size = getFileSize(uri)
                         list.add(SelectedFile(uri, name, size))
                     }
                 }
@@ -81,7 +81,7 @@ class ZipMakerViewModel @Inject constructor(
         _zipState.value = ZipMakerState.Idle
     }
 
-    fun compressFiles(context: Context, zipFileName: String) {
+    fun compressFiles(zipFileName: String) {
         if (_selectedFiles.value.isEmpty()) {
             _zipState.value = ZipMakerState.Error("No files selected to compress")
             return
@@ -145,7 +145,7 @@ class ZipMakerViewModel @Inject constructor(
         }
     }
 
-    private fun getFileName(context: Context, uri: Uri): String? {
+    private fun getFileName(uri: Uri): String? {
         var name: String? = null
         if (uri.scheme == "content") {
             try {
@@ -165,7 +165,7 @@ class ZipMakerViewModel @Inject constructor(
         return name
     }
 
-    private fun getFileSize(context: Context, uri: Uri): Long {
+    private fun getFileSize(uri: Uri): Long {
         var size = 0L
         if (uri.scheme == "content") {
             try {

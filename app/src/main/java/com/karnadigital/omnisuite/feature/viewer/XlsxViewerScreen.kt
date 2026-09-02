@@ -182,7 +182,6 @@ fun XlsxViewerScreen(
             uri?.let {
                 isExporting = true
                 viewModel.exportToPdf(
-                    context = context,
                     outputUri = it,
                     onSuccess = {
                         isExporting = false

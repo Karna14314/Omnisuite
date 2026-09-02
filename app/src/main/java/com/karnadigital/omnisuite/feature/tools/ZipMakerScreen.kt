@@ -44,7 +44,7 @@ fun ZipMakerScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
         onResult = { uris ->
             if (uris.isNotEmpty()) {
-                viewModel.addFiles(context, uris)
+                viewModel.addFiles(uris)
             }
         }
     )
@@ -204,7 +204,7 @@ fun ZipMakerScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
-                            onClick = { viewModel.compressFiles(context, zipNameInput) },
+                            onClick = { viewModel.compressFiles(zipNameInput) },
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
                             modifier = Modifier.fillMaxWidth(),
