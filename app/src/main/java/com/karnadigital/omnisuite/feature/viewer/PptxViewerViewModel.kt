@@ -314,17 +314,57 @@ class PptxViewerViewModel @Inject constructor(
             val rawCx = try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) } catch (_: Throwable) { null }
             val rawCy = try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) } catch (_: Throwable) { null }
 
-            val x = extractLongValue(rawX)
-            val y = extractLongValue(rawY)
-            val cx = extractLongValue(rawCx)
-            val cy = extractLongValue(rawCy)
+            val rawXVal = extractLongValue(rawX)
+            val rawYVal = extractLongValue(rawY)
+            val rawCxVal = extractLongValue(rawCx)
+            val rawCyVal = extractLongValue(rawCy)
 
-            if (x != null && y != null && cx != null && cy != null && cx > 0 && cy > 0) {
+            if (rawXVal != null && rawYVal != null && rawCxVal != null && rawCyVal != null && rawCxVal > 0 && rawCyVal > 0) {
+                var curX: Long = rawXVal
+                var curY: Long = rawYVal
+                var curCx: Long = rawCxVal
+                var curCy: Long = rawCyVal
+
+                // Apply parent group transforms recursively if shape is nested in a group shape
+                var parentShape = (shape as? XSLFShape)?.parent
+                while (parentShape is org.apache.poi.xslf.usermodel.XSLFGroupShape) {
+                    val groupXml = getXmlObjectReflection(parentShape)
+                    if (groupXml != null) {
+                        val grpXfrm = tryGetXfrm(groupXml, "getGrpSpPr")
+                            ?: try { groupXml.javaClass.getMethod("getXfrm").invoke(groupXml) } catch (_: Throwable) { null }
+                        if (grpXfrm != null) {
+                            val gOff = try { grpXfrm.javaClass.getMethod("getOff").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gExt = try { grpXfrm.javaClass.getMethod("getExt").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gChOff = try { grpXfrm.javaClass.getMethod("getChOff").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gChExt = try { grpXfrm.javaClass.getMethod("getChExt").invoke(grpXfrm) } catch (_: Throwable) { null }
+
+                            val gX = extractLongValue(try { gOff?.javaClass?.getMethod("getX")?.invoke(gOff) } catch (_: Throwable) { null }) ?: 0L
+                            val gY = extractLongValue(try { gOff?.javaClass?.getMethod("getY")?.invoke(gOff) } catch (_: Throwable) { null }) ?: 0L
+                            val gCx = extractLongValue(try { gExt?.javaClass?.getMethod("getCx")?.invoke(gExt) } catch (_: Throwable) { null }) ?: slideWidthEmu
+                            val gCy = extractLongValue(try { gExt?.javaClass?.getMethod("getCy")?.invoke(gExt) } catch (_: Throwable) { null }) ?: slideHeightEmu
+
+                            val chX = extractLongValue(try { gChOff?.javaClass?.getMethod("getX")?.invoke(gChOff) } catch (_: Throwable) { null }) ?: gX
+                            val chY = extractLongValue(try { gChOff?.javaClass?.getMethod("getY")?.invoke(gChOff) } catch (_: Throwable) { null }) ?: gY
+                            val chCx = extractLongValue(try { gChExt?.javaClass?.getMethod("getCx")?.invoke(gChExt) } catch (_: Throwable) { null }) ?: gCx
+                            val chCy = extractLongValue(try { gChExt?.javaClass?.getMethod("getCy")?.invoke(gChExt) } catch (_: Throwable) { null }) ?: gCy
+
+                            val scaleX = if (chCx > 0) gCx.toDouble() / chCx.toDouble() else 1.0
+                            val scaleY = if (chCy > 0) gCy.toDouble() / chCy.toDouble() else 1.0
+
+                            curX = (gX + (curX - chX) * scaleX).toLong()
+                            curY = (gY + (curY - chY) * scaleY).toLong()
+                            curCx = (curCx * scaleX).toLong()
+                            curCy = (curCy * scaleY).toLong()
+                        }
+                    }
+                    parentShape = parentShape.parent
+                }
+
                 return floatArrayOf(
-                    (x.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
-                    (y.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
-                    (cx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.01f, 1f),
-                    (cy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.01f, 1f)
+                    (curX.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
+                    (curY.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
+                    (curCx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.001f, 1f),
+                    (curCy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.001f, 1f)
                 )
             }
         } catch (_: Throwable) { }
@@ -1260,18 +1300,37 @@ class PptxViewerViewModel @Inject constructor(
 
             // Helper function to recursively flatten group shapes and collect all shapes
             val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
-            fun collectShapes(shapeList: List<org.apache.poi.sl.usermodel.Shape<*, *>>) {
+            fun collectShapes(shapeList: List<org.apache.poi.sl.usermodel.Shape<*, *>>, isMasterOrLayout: Boolean = false) {
                 for (sh in shapeList) {
+                    if (isMasterOrLayout && sh is org.apache.poi.sl.usermodel.SimpleShape<*, *> && sh.isPlaceholder) {
+                        // Skip master/layout placeholders so placeholder prompt text doesn't render
+                        continue
+                    }
                     if (sh is org.apache.poi.sl.usermodel.GroupShape<*, *>) {
                         val nested = try { sh.shapes } catch (t: Throwable) { emptyList() }
-                        collectShapes(nested)
+                        collectShapes(nested, isMasterOrLayout)
                     } else {
                         allShapes.add(sh)
                     }
                 }
             }
+            val showMaster = try {
+                if (slide is XSLFSlide) {
+                    (slide.javaClass.getMethod("getDisplayMasterShapes").invoke(slide) as? Boolean) ?: true
+                } else true
+            } catch (_: Throwable) { true }
+            if (showMaster && slide is XSLFSlide) {
+                try {
+                    val masterShapes = slide.slideLayout?.slideMaster?.shapes ?: emptyList()
+                    collectShapes(masterShapes, isMasterOrLayout = true)
+                } catch (_: Throwable) { }
+                try {
+                    val layoutShapes = slide.slideLayout?.shapes ?: emptyList()
+                    collectShapes(layoutShapes, isMasterOrLayout = true)
+                } catch (_: Throwable) { }
+            }
             val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
-            collectShapes(rootShapes)
+            collectShapes(rootShapes, isMasterOrLayout = false)
 
             // Z-order counter: shapes are processed in document order, which matches z-order
             // Use the index in allShapes as the z-order to ensure correct layering
