@@ -158,3 +158,86 @@ private fun FormatToggleButton(label: String, isSelected: Boolean, onClick: () -
         Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/**
+ * Microsoft 365 Inspired Context-Aware Editing Floating Toolbar.
+ * Displays smart quick-action buttons based on selection context (Text, Image, Table).
+ */
+enum class SelectionType { NONE, TEXT, IMAGE, TABLE }
+
+@Composable
+fun ContextAwareFloatingToolbar(
+    selectionType: SelectionType,
+    onBoldToggle: () -> Unit = {},
+    onItalicToggle: () -> Unit = {},
+    onUnderlineToggle: () -> Unit = {},
+    onCopy: () -> Unit = {},
+    onCut: () -> Unit = {},
+    onComment: () -> Unit = {},
+    onInsertRow: () -> Unit = {},
+    onInsertCol: () -> Unit = {},
+    onDeleteTable: () -> Unit = {},
+    onReplaceImage: () -> Unit = {},
+    onRotateImage: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    if (selectionType == SelectionType.NONE) return
+
+    Surface(
+        modifier = modifier.padding(8.dp),
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 10.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            when (selectionType) {
+                SelectionType.TEXT -> {
+                    IconButton(onClick = onBoldToggle, modifier = Modifier.size(36.dp)) {
+                        Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                    }
+                    IconButton(onClick = onItalicToggle, modifier = Modifier.size(36.dp)) {
+                        Text("I", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                    IconButton(onClick = onUnderlineToggle, modifier = Modifier.size(36.dp)) {
+                        Text("U", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                    VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 4.dp))
+                    IconButton(onClick = onCopy, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onCut, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ContentCut, contentDescription = "Cut", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onComment, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.AddComment, contentDescription = "Comment", modifier = Modifier.size(18.dp))
+                    }
+                }
+                SelectionType.IMAGE -> {
+                    IconButton(onClick = onReplaceImage, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Image, contentDescription = "Replace Image", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onRotateImage, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.RotateRight, contentDescription = "Rotate Image", modifier = Modifier.size(18.dp))
+                    }
+                }
+                SelectionType.TABLE -> {
+                    IconButton(onClick = onInsertRow, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.TableRows, contentDescription = "Insert Row", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onInsertCol, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ViewColumn, contentDescription = "Insert Column", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onDeleteTable, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Table", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+}

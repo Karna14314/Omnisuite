@@ -146,6 +146,46 @@ class DocxViewerViewModel @Inject constructor(
     private val _currentMatchIndex = MutableStateFlow(-1)
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
+    // Undo / Redo Stacks for Docx Document State
+    private val undoStack = java.util.ArrayDeque<DocxDocument>()
+    private val redoStack = java.util.ArrayDeque<DocxDocument>()
+
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
+    private val _canRedo = MutableStateFlow(false)
+    val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    private fun pushUndoState(doc: DocxDocument) {
+        undoStack.push(doc)
+        if (undoStack.size > 25) undoStack.removeLast()
+        redoStack.clear()
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = false
+    }
+
+    fun undo() {
+        if (undoStack.isEmpty()) return
+        val current = (_loadState.value as? DocxLoadState.Success)?.document ?: return
+        redoStack.push(current)
+        val previous = undoStack.pop()
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = redoStack.isNotEmpty()
+        val name = activeFilePath?.let { File(it).name } ?: "Document"
+        _loadState.value = DocxLoadState.Success(previous, name)
+    }
+
+    fun redo() {
+        if (redoStack.isEmpty()) return
+        val current = (_loadState.value as? DocxLoadState.Success)?.document ?: return
+        undoStack.push(current)
+        val next = redoStack.pop()
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = redoStack.isNotEmpty()
+        val name = activeFilePath?.let { File(it).name } ?: "Document"
+        _loadState.value = DocxLoadState.Success(next, name)
+    }
+
     /**
      * Safely reads DOCX/DOC paragraphs inside coroutines using Apache POI,
      * translating typography run formats, and updating Room DB logs.
@@ -647,6 +687,11 @@ class DocxViewerViewModel @Inject constructor(
                 saveParagraphComments(filePath, commentsMap)
             }
 
+            val currentDoc = (_loadState.value as? DocxLoadState.Success)?.document
+            if (currentDoc != null) {
+                pushUndoState(currentDoc)
+            }
+
             val parsedDoc = parseDocument(doc)
             _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
         }
@@ -706,6 +751,11 @@ class DocxViewerViewModel @Inject constructor(
         val newP = doc.createParagraph()
         newP.createRun().setText(text)
 
+        val currentDoc = (_loadState.value as? DocxLoadState.Success)?.document
+        if (currentDoc != null) {
+            pushUndoState(currentDoc)
+        }
+
         // Re-parse and update screen state
         val parsedDoc = parseDocument(doc)
         _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
@@ -730,8 +780,21 @@ class DocxViewerViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 var fileOutputStream: java.io.FileOutputStream? = null
                 try {
-                    fileOutputStream = java.io.FileOutputStream(File(filePath))
+                    val f = File(filePath)
+                    fileOutputStream = java.io.FileOutputStream(f)
                     doc.write(fileOutputStream)
+
+                    recentFileRepository.insertRecentFile(
+                        RecentFile(
+                            fileUri = Uri.fromFile(f).toString(),
+                            fileName = f.name,
+                            mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            fileSize = f.length(),
+                            lastOpened = System.currentTimeMillis(),
+                            isOperation = true
+                        )
+                    )
+
                     _saveStatus.emit("Word document changes committed successfully!")
                 } catch (e: Exception) {
                     e.printStackTrace()

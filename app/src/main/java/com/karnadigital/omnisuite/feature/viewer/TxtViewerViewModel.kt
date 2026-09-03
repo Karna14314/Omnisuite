@@ -38,6 +38,51 @@ class TxtViewerViewModel @Inject constructor(
 
     private val maxTextFileSize = 50L * 1024 * 1024
 
+    // Undo / Redo Stacks for Text Document State
+    private val undoStack = java.util.ArrayDeque<String>()
+    private val redoStack = java.util.ArrayDeque<String>()
+
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
+    private val _canRedo = MutableStateFlow(false)
+    val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    fun updateContent(newContent: String) {
+        val current = (_loadState.value as? TxtLoadState.Success)?.content
+        if (current != null && current != newContent) {
+            undoStack.push(current)
+            if (undoStack.size > 50) undoStack.removeLast()
+            redoStack.clear()
+            _canUndo.value = undoStack.isNotEmpty()
+            _canRedo.value = false
+        }
+        val name = currentFile?.name ?: "Document.txt"
+        _loadState.value = TxtLoadState.Success(content = newContent, fileName = name)
+    }
+
+    fun undo() {
+        if (undoStack.isEmpty()) return
+        val current = (_loadState.value as? TxtLoadState.Success)?.content ?: return
+        redoStack.push(current)
+        val previous = undoStack.pop()
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = redoStack.isNotEmpty()
+        val name = currentFile?.name ?: "Document.txt"
+        _loadState.value = TxtLoadState.Success(content = previous, fileName = name)
+    }
+
+    fun redo() {
+        if (redoStack.isEmpty()) return
+        val current = (_loadState.value as? TxtLoadState.Success)?.content ?: return
+        undoStack.push(current)
+        val next = redoStack.pop()
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = redoStack.isNotEmpty()
+        val name = currentFile?.name ?: "Document.txt"
+        _loadState.value = TxtLoadState.Success(content = next, fileName = name)
+    }
+
     fun loadTextFile(filePath: String) {
         viewModelScope.launch {
             _loadState.value = TxtLoadState.Loading
@@ -79,6 +124,16 @@ class TxtViewerViewModel @Inject constructor(
             val success = withContext(Dispatchers.IO) {
                 try {
                     file.bufferedWriter().use { it.write(content) }
+                    recentFileRepository.insertRecentFile(
+                        RecentFile(
+                            fileUri = android.net.Uri.fromFile(file).toString(),
+                            fileName = file.name,
+                            mimeType = "text/plain",
+                            fileSize = file.length(),
+                            lastOpened = System.currentTimeMillis(),
+                            isOperation = true
+                        )
+                    )
                     true
                 } catch (e: Exception) {
                     e.printStackTrace()
