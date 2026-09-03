@@ -1,23 +1,75 @@
 package com.karnadigital.omnisuite.feature.pdf_tools
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@Composable
+fun rememberPdfThumbnails(context: Context, uri: Uri?): List<Bitmap> {
+    var thumbnails by remember(uri) { mutableStateOf<List<Bitmap>>(emptyList()) }
+    LaunchedEffect(uri) {
+        if (uri == null) {
+            thumbnails = emptyList()
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            try {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                pfd?.use { fd ->
+                    val renderer = android.graphics.pdf.PdfRenderer(fd)
+                    val list = mutableListOf<Bitmap>()
+                    val count = renderer.pageCount
+                    for (i in 0 until count) {
+                        val page = renderer.openPage(i)
+                        val w = (page.width / 3).coerceAtLeast(100)
+                        val h = (page.height / 3).coerceAtLeast(100)
+                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        val canvas = android.graphics.Canvas(bitmap)
+                        canvas.drawColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        list.add(bitmap)
+                    }
+                    renderer.close()
+                    thumbnails = list
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    return thumbnails
+}
 
 private fun parseRangeToSet(range: String): Set<Int> {
     val set = mutableSetOf<Int>()
@@ -62,7 +114,7 @@ fun PdfRotateScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Rotate PDF Pages", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
             )
         }
     ) { padding ->
@@ -96,18 +148,36 @@ fun PdfRotateScreen(
             if (viewModel.rotateInputUri != null) {
                 Text("Rotation Angle", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = viewModel.rotateDegrees == 90, onClick = { viewModel.rotateDegrees = 90 }, label = { Text("90°") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = viewModel.rotateDegrees == 90, onClick = { viewModel.rotateDegrees = 90 }, label = { Text("90° Right") }, modifier = Modifier.weight(1f))
                     FilterChip(selected = viewModel.rotateDegrees == 180, onClick = { viewModel.rotateDegrees = 180 }, label = { Text("180°") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateDegrees == 270, onClick = { viewModel.rotateDegrees = 270 }, label = { Text("270°") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = viewModel.rotateDegrees == 270, onClick = { viewModel.rotateDegrees = 270 }, label = { Text("270° Left") }, modifier = Modifier.weight(1f))
+                }
+
+                Text("Pages to Rotate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = viewModel.rotateTargetMode == "ALL", onClick = { viewModel.rotateTargetMode = "ALL" }, label = { Text("All Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = viewModel.rotateTargetMode == "ODD", onClick = { viewModel.rotateTargetMode = "ODD" }, label = { Text("Odd Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = viewModel.rotateTargetMode == "EVEN", onClick = { viewModel.rotateTargetMode = "EVEN" }, label = { Text("Even Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = viewModel.rotateTargetMode == "CUSTOM", onClick = { viewModel.rotateTargetMode = "CUSTOM" }, label = { Text("Custom") }, modifier = Modifier.weight(1f))
+                }
+
+                if (viewModel.rotateTargetMode == "CUSTOM") {
+                    OutlinedTextField(
+                        value = viewModel.rotatePageRange,
+                        onValueChange = { viewModel.rotatePageRange = it },
+                        label = { Text("Custom Page Range (e.g. 1-3, 5)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
                 }
 
                 Button(
-                    onClick = { viewModel.rotatePdfPages(mapOf(0 to viewModel.rotateDegrees)) },
+                    onClick = { viewModel.rotatePdfPages() },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    enabled = !viewModel.isProcessing
+                    enabled = !viewModel.isProcessing && (viewModel.rotateTargetMode != "CUSTOM" || viewModel.rotatePageRange.isNotBlank())
                 ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.RotateRight, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Rotate PDF") }
+                    else { Icon(Icons.Default.RotateRight, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Rotate Pages") }
                 }
             }
 
@@ -124,13 +194,21 @@ fun PdfReorderScreen(
     viewModel: PdfToolsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    var orderText by remember { mutableStateOf("") }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { viewModel.reorderInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
     }
 
+    val thumbnails = rememberPdfThumbnails(context, viewModel.reorderInputUri)
+    var pageOrder by remember(thumbnails) { mutableStateOf<List<Int>>(emptyList()) }
+
+    LaunchedEffect(thumbnails) {
+        if (thumbnails.isNotEmpty()) {
+            pageOrder = (0 until thumbnails.size).toList()
+        }
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Reorder Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }
+        topBar = { TopAppBar(title = { Text("Reorder Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
@@ -139,22 +217,99 @@ fun PdfReorderScreen(
                     Text(if (viewModel.reorderInputUri != null) "PDF Selected" else "Tap to select PDF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
             }
-            if (viewModel.reorderInputUri != null) {
-                OutlinedTextField(
-                    value = orderText,
-                    onValueChange = {
-                        orderText = it
-                        viewModel.reorderPageOrder = it.split(",").mapNotNull { s -> s.trim().toIntOrNull() }
+
+            if (thumbnails.isNotEmpty() && pageOrder.size == thumbnails.size) {
+                Text("Reorder pages using controls:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(pageOrder) { orderIndex, originalPageIdx ->
+                        val bitmap = thumbnails.getOrNull(originalPageIdx)
+                        Card(
+                            modifier = Modifier.fillMaxWidth().aspectRatio(0.7f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    if (bitmap != null) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Page ${originalPageIdx + 1}",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                    Surface(
+                                        modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                                        shape = CircleShape,
+                                        color = Color.Black.copy(alpha = 0.6f)
+                                    ) {
+                                        Text(
+                                            text = "P.${originalPageIdx + 1}",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (orderIndex > 0) {
+                                                val list = pageOrder.toMutableList()
+                                                val temp = list[orderIndex]
+                                                list[orderIndex] = list[orderIndex - 1]
+                                                list[orderIndex - 1] = temp
+                                                pageOrder = list
+                                            }
+                                        },
+                                        enabled = orderIndex > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Move Left", modifier = Modifier.size(16.dp))
+                                    }
+                                    Text("${orderIndex + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    IconButton(
+                                        onClick = {
+                                            if (orderIndex < pageOrder.size - 1) {
+                                                val list = pageOrder.toMutableList()
+                                                val temp = list[orderIndex]
+                                                list[orderIndex] = list[orderIndex + 1]
+                                                list[orderIndex + 1] = temp
+                                                pageOrder = list
+                                            }
+                                        },
+                                        enabled = orderIndex < pageOrder.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Move Right", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        viewModel.reorderPageOrder = pageOrder.map { it + 1 }
+                        viewModel.reorderPdfPages()
                     },
-                    label = { Text("New Page Order (e.g. 3,1,2,4)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Button(onClick = { viewModel.reorderPdfPages() }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !viewModel.isProcessing && pageOrder.isNotEmpty()
+                ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                     else { Icon(Icons.Default.SwapVert, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Apply Page Order") }
                 }
             }
+
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }
             if (viewModel.errorMessage != null) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.errorMessage!!, color = MaterialTheme.colorScheme.onErrorContainer) } }
         }
@@ -175,7 +330,10 @@ fun PdfExtractScreen(
 
     LaunchedEffect(fileUri) { fileUri?.let { viewModel.extractInputUri = Uri.parse(it) } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Extract Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    val thumbnails = rememberPdfThumbnails(context, viewModel.extractInputUri)
+    var selectedPages by remember { mutableStateOf<Set<Int>>(emptySet()) }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("Extract Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,13 +341,61 @@ fun PdfExtractScreen(
                     Text(if (viewModel.extractInputUri != null) "PDF Selected" else "Tap to select PDF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
             }
-            if (viewModel.extractInputUri != null) {
-                OutlinedTextField(value = viewModel.extractPageRange, onValueChange = { viewModel.extractPageRange = it }, label = { Text("Pages to Extract (e.g. 1-3, 5)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Button(onClick = { viewModel.extractPdfPages(parseRangeToSet(viewModel.extractPageRange)) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
+
+            if (thumbnails.isNotEmpty()) {
+                Text("Tap thumbnails to select pages for extraction:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(thumbnails) { index, bitmap ->
+                        val isSelected = selectedPages.contains(index)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clickable {
+                                    selectedPages = if (isSelected) selectedPages - index else selectedPages + index
+                                },
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Page ${index + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    shape = CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.extractPdfPages(selectedPages) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !viewModel.isProcessing && selectedPages.isNotEmpty()
+                ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.ContentCopy, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Extract Selected Pages") }
+                    else { Icon(Icons.Default.ContentCopy, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Extract ${selectedPages.size} Selected Pages") }
                 }
             }
+
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }
             if (viewModel.errorMessage != null) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.errorMessage!!, color = MaterialTheme.colorScheme.onErrorContainer) } }
         }
@@ -210,7 +416,10 @@ fun PdfDeleteScreen(
 
     LaunchedEffect(fileUri) { fileUri?.let { viewModel.deleteInputUri = Uri.parse(it) } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Delete Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    val thumbnails = rememberPdfThumbnails(context, viewModel.deleteInputUri)
+    var selectedPages by remember { mutableStateOf<Set<Int>>(emptySet()) }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("Delete Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -218,13 +427,62 @@ fun PdfDeleteScreen(
                     Text(if (viewModel.deleteInputUri != null) "PDF Selected" else "Tap to select PDF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
             }
-            if (viewModel.deleteInputUri != null) {
-                OutlinedTextField(value = viewModel.deletePageRange, onValueChange = { viewModel.deletePageRange = it }, label = { Text("Pages to Delete (e.g. 2, 4-6)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Button(onClick = { viewModel.deletePdfPages(parseRangeToSet(viewModel.deletePageRange)) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
-                    if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.Delete, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Delete Pages") }
+
+            if (thumbnails.isNotEmpty()) {
+                Text("Tap thumbnails to select pages for deletion:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(thumbnails) { index, bitmap ->
+                        val isSelected = selectedPages.contains(index)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clickable {
+                                    selectedPages = if (isSelected) selectedPages - index else selectedPages + index
+                                },
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Page ${index + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    shape = CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.deletePdfPages(selectedPages) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !viewModel.isProcessing && selectedPages.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onError, strokeWidth = 2.dp)
+                    else { Icon(Icons.Default.Delete, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Delete ${selectedPages.size} Selected Pages") }
                 }
             }
+
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }
             if (viewModel.errorMessage != null) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.errorMessage!!, color = MaterialTheme.colorScheme.onErrorContainer) } }
         }
@@ -239,7 +497,7 @@ fun PdfInsertPagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hilt
     val filePickerMain = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.insertMainUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
     val filePickerInsert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.insertInsertUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Insert Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Insert Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePickerMain.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -283,7 +541,7 @@ fun PdfReplacePagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hil
     val filePickerMain = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.replaceMainUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
     val filePickerReplace = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.replaceReplaceUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Replace Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Replace Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePickerMain.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -327,7 +585,7 @@ fun PdfCropMarginsScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hilt
         uri?.let { viewModel.cropInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Crop Margins", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Crop Margins", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,7 +624,7 @@ fun PdfPageNumberScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltV
         uri?.let { viewModel.pageNumberInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Add Page Numbers", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Add Page Numbers", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -395,7 +653,7 @@ fun PdfResizeScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewM
         uri?.let { viewModel.resizeInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Resize PDF Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Resize PDF Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {

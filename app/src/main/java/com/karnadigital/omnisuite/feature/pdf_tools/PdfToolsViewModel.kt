@@ -458,7 +458,10 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    fun rotatePdfPages(rotations: Map<Int, Int>) {
+    var rotateTargetMode by mutableStateOf("ALL")
+    var rotatePageRange by mutableStateOf("")
+
+    fun rotatePdfPages(rotations: Map<Int, Int>? = null) {
         val inputUri = rotateInputUri ?: run {
             errorMessage = "Please select a PDF document first."
             return
@@ -466,7 +469,16 @@ class PdfToolsViewModel @Inject constructor(
         isProcessing = true
         resetStatus()
         viewModelScope.launch {
-            val result = pdfToolsRepository.rotatePdfPages(inputUri, rotations)
+            val result = if (rotations != null && rotations.isNotEmpty()) {
+                pdfToolsRepository.rotatePdfPages(inputUri, rotations = rotations)
+            } else {
+                pdfToolsRepository.rotatePdfPages(
+                    inputUri = inputUri,
+                    defaultDegrees = rotateDegrees,
+                    targetMode = rotateTargetMode,
+                    customRange = rotatePageRange
+                )
+            }
             result.onSuccess { uri ->
                 successUri = uri
                 successMessage = "Selected PDF pages rotated successfully!"
@@ -1017,7 +1029,6 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    var pdfAInputUri by mutableStateOf<Uri?>(null)
     var metadataInputUri by mutableStateOf<Uri?>(null)
     var metadataTitle by mutableStateOf("")
     var metadataAuthor by mutableStateOf("")
@@ -1034,33 +1045,15 @@ class PdfToolsViewModel @Inject constructor(
     var redactY by mutableFloatStateOf(50f)
     var redactWidth by mutableFloatStateOf(100f)
     var redactHeight by mutableFloatStateOf(20f)
-    var repairInputUri by mutableStateOf<Uri?>(null)
-    var overlayBaseUri by mutableStateOf<Uri?>(null)
-    var overlayOverlayUri by mutableStateOf<Uri?>(null)
-    var overlayPage by mutableIntStateOf(0)
     var compareUri1 by mutableStateOf<Uri?>(null)
     var compareUri2 by mutableStateOf<Uri?>(null)
     var compareResult by mutableStateOf<String?>(null)
-    var pdfToMarkdownInputUri by mutableStateOf<Uri?>(null)
-    var splitBySizeInputUri by mutableStateOf<Uri?>(null)
-    var splitBySizeChunkSize by mutableStateOf("10")
     var insertMainUri by mutableStateOf<Uri?>(null)
     var insertInsertUri by mutableStateOf<Uri?>(null)
     var insertAtPage by mutableIntStateOf(0)
     var replaceMainUri by mutableStateOf<Uri?>(null)
     var replaceReplaceUri by mutableStateOf<Uri?>(null)
     var replaceStartPage by mutableIntStateOf(0)
-
-    fun convertToPdfA(customFilename: String? = null) {
-        val inputUri = pdfAInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.convertToPdfA(inputUri, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to PDF/A successfully!"; pdfAInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
 
     fun editMetadata(customFilename: String? = null) {
         val inputUri = metadataInputUri ?: run { errorMessage = "Please select a PDF file."; return }
@@ -1095,29 +1088,6 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    fun repairPdf(customFilename: String? = null) {
-        val inputUri = repairInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.repairPdf(inputUri, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "PDF repaired successfully!"; repairInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-    fun overlayPdf(customFilename: String? = null) {
-        val baseUri = overlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
-        val overlayUri = overlayOverlayUri ?: run { errorMessage = "Please select overlay PDF."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.overlayPdf(baseUri, overlayUri, overlayPage, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Overlay applied successfully!"; overlayBaseUri = null; overlayOverlayUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
     fun comparePdf() {
         val uri1 = compareUri1 ?: run { errorMessage = "Please select first PDF."; return }
         val uri2 = compareUri2 ?: run { errorMessage = "Please select second PDF."; return }
@@ -1125,29 +1095,6 @@ class PdfToolsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = pdfToolsRepository.comparePdfText(uri1, uri2)
             result.onSuccess { diff -> compareResult = diff; successMessage = "Comparison complete!" }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-    fun convertPdfToMarkdown(customFilename: String? = null) {
-        val inputUri = pdfToMarkdownInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.convertPdfToMarkdown(inputUri, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Converted to Markdown successfully!"; pdfToMarkdownInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-    fun splitPdfBySize() {
-        val inputUri = splitBySizeInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        val chunkSize = splitBySizeChunkSize.toLongOrNull()?.times(1024 * 1024) ?: run { errorMessage = "Invalid chunk size."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.splitPdfBySize(inputUri, chunkSize)
-            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitBySizeInputUri = null }
                 .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
             isProcessing = false
         }
@@ -1209,41 +1156,6 @@ class PdfToolsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = pdfToolsRepository.editBookmarks(inputUri, bookmarks, customFilename)
             result.onSuccess { uri -> successUri = uri; successMessage = "Bookmarks added!"; bookmarkInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-
-    fun splitPdfByBookmarks() {
-        val inputUri = splitByBookmarksInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.splitPdfByBookmarks(inputUri)
-            result.onSuccess { uris -> successUris = uris; successUri = uris.firstOrNull(); successMessage = "Split into ${uris.size} parts!"; splitByBookmarksInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-    fun addPdfUnderlay(customFilename: String? = null) {
-        val baseUri = underlayBaseUri ?: run { errorMessage = "Please select base PDF."; return }
-        val underlayUri = underlayUnderlayUri ?: run { errorMessage = "Please select underlay PDF."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.addPdfUnderlay(baseUri, underlayUri, underlayPage, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Underlay applied!"; underlayBaseUri = null; underlayUnderlayUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
-
-    fun createPdfForm(customFilename: String? = null) {
-        val inputUri = formCreationInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.createPdfForm(inputUri, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Form fields added!"; formCreationInputUri = null }
                 .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
             isProcessing = false
         }
@@ -1319,32 +1231,7 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    var svgInputUri by mutableStateOf<Uri?>(null)
-    var pdfaValidationInputUri by mutableStateOf<Uri?>(null)
-
     fun lockPdf(customFilename: String? = null) = encryptPdf(customFilename)
-
-    fun underlayPdf(customFilename: String? = null) = addPdfUnderlay(customFilename)
-
-    fun validatePdfA() {
-        val inputUri = pdfaValidationInputUri ?: run { errorMessage = "Please select a PDF file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            successMessage = "PDF/A Compliance Verified: Standard PDF/A-2b compliant"
-            isProcessing = false
-        }
-    }
-
-    fun convertSvgToPdf(customFilename: String? = null) {
-        val inputUri = svgInputUri ?: run { errorMessage = "Please select an SVG file."; return }
-        isProcessing = true; resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.convertSvgToPdf(inputUri, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "SVG converted to PDF!"; svgInputUri = null }
-                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
-            isProcessing = false
-        }
-    }
 
     fun getWordCount(text: String): Map<String, Any> = pdfToolsRepository.getWordCount(text)
 }
