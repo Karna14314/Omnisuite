@@ -786,18 +786,35 @@ class OfficeConverter @Inject constructor(
                     }
                 } catch (_: Throwable) { }
 
-                // 2. Flatten all shapes (including nested group children)
+                // 2. Flatten all shapes (including nested group children and Slide Master / Layout background shapes)
                 val allSlideShapes = mutableListOf<org.apache.poi.xslf.usermodel.XSLFShape>()
-                fun collectBitmapShapes(shapes: List<org.apache.poi.xslf.usermodel.XSLFShape>) {
+                fun collectBitmapShapes(shapes: List<org.apache.poi.xslf.usermodel.XSLFShape>, isMasterOrLayout: Boolean = false) {
                     for (s in shapes) {
+                        if (isMasterOrLayout && s is XSLFSimpleShape && s.isPlaceholder) {
+                            // Skip master/layout text placeholders so placeholder prompt text doesn't render
+                            continue
+                        }
                         if (s is XSLFGroupShape) {
-                            try { collectBitmapShapes(s.shapes) } catch (_: Throwable) { }
+                            try { collectBitmapShapes(s.shapes, isMasterOrLayout) } catch (_: Throwable) { }
                         } else {
                             allSlideShapes.add(s)
                         }
                     }
                 }
-                try { collectBitmapShapes(slide.shapes) } catch (_: Throwable) { }
+                val showMaster = try {
+                    (slide.javaClass.getMethod("getDisplayMasterShapes").invoke(slide) as? Boolean) ?: true
+                } catch (_: Throwable) { true }
+                if (showMaster) {
+                    try {
+                        val masterShapes = slide.slideLayout?.slideMaster?.shapes ?: emptyList()
+                        collectBitmapShapes(masterShapes, isMasterOrLayout = true)
+                    } catch (_: Throwable) { }
+                    try {
+                        val layoutShapes = slide.slideLayout?.shapes ?: emptyList()
+                        collectBitmapShapes(layoutShapes, isMasterOrLayout = true)
+                    } catch (_: Throwable) { }
+                }
+                try { collectBitmapShapes(slide.shapes, isMasterOrLayout = false) } catch (_: Throwable) { }
 
                 // 3. Draw all shapes in z-order
                 for (shape in allSlideShapes) {
@@ -821,28 +838,22 @@ class OfficeConverter @Inject constructor(
                     val pw = normBounds[2] * targetWidth.toFloat()
                     val ph = normBounds[3] * targetHeight.toFloat()
 
-                    val isEllipse = try {
-                        val st = (shape as? org.apache.poi.sl.usermodel.SimpleShape<*, *>)?.shapeType
-                        val stName = st?.name ?: ""
-                        st == org.apache.poi.sl.usermodel.ShapeType.ELLIPSE || stName.contains("ELLIPSE", ignoreCase = true) || stName.contains("OVAL", ignoreCase = true)
-                    } catch (_: Throwable) { false }
+                    val geomType = getShapeGeometryType(shape)
 
                     // Draw geometry fill & stroke
                     if (shape is XSLFSimpleShape) {
-                        val fillColor = getShapeFillColor(shape)
+                        val fillColor = getShapeFillColor(shape, themeColors)
                         if (fillColor != null) {
                             val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL; isAntiAlias = true }
-                            if (isEllipse) canvas.drawOval(px, py, px + pw, py + ph, fillPaint)
-                            else canvas.drawRect(px, py, px + pw, py + ph, fillPaint)
+                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, fillPaint)
                         }
-                        val lineColor = getShapeLineColor(shape)
+                        val lineColor = getShapeLineColor(shape, themeColors)
                         if (lineColor != null) {
                             val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f * (targetWidth / 960f); isAntiAlias = true }
-                            if (isEllipse) canvas.drawOval(px, py, px + pw, py + ph, strokePaint)
-                            else canvas.drawRect(px, py, px + pw, py + ph, strokePaint)
-                        } else if (isEllipse) {
+                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, strokePaint)
+                        } else if (geomType == ShapeGeom.ELLIPSE) {
                             val strokePaint = Paint().apply { color = android.graphics.Color.rgb(30, 41, 59); style = Paint.Style.STROKE; strokeWidth = 1.5f * (targetWidth / 960f); isAntiAlias = true }
-                            canvas.drawOval(px, py, px + pw, py + ph, strokePaint)
+                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, strokePaint)
                         }
                     }
 
@@ -862,10 +873,11 @@ class OfficeConverter @Inject constructor(
                                 val pText = try { pRuns.joinToString("") { it.rawText ?: "" } } catch (_: Throwable) { "" }
                                 if (pText.isBlank()) continue
 
+                                val isEllipseGeom = (geomType == ShapeGeom.ELLIPSE)
                                 val maxFontPt = pRuns.mapNotNull {
                                     val fs = try { it.fontSize } catch (_: Throwable) { null }
                                     if (fs != null && fs > 0) fs.toFloat() else null
-                                }.maxOrNull() ?: (if (isTitle) 26f else (if (isEllipse) 12f else 14f))
+                                }.maxOrNull() ?: (if (isTitle) 26f else (if (isEllipseGeom) 12f else 14f))
 
                                 val scaledFontSize = maxFontPt * fontScale
                                 val runColor = extractRunColor(pRuns.firstOrNull(), defaultTextColor)
@@ -880,7 +892,7 @@ class OfficeConverter @Inject constructor(
                                 curY += textPaint.textSize + (4f * fontScale)
 
                                 val bulletLevel = try { p.indentLevel } catch (_: Throwable) { 0 }
-                                val hasBullet = bulletLevel > 0 || (paragraphs.size > 1 && !isTitle && !isEllipse)
+                                val hasBullet = bulletLevel > 0 || (paragraphs.size > 1 && !isTitle && !isEllipseGeom)
                                 val bulletPrefix = if (hasBullet) "• " else ""
                                 val indentOffset = (bulletLevel * 16f * fontScale)
                                 val fullLine = bulletPrefix + pText.trim()
@@ -889,7 +901,7 @@ class OfficeConverter @Inject constructor(
 
                                 for (line in lines) {
                                     if (curY <= py + ph + (20f * fontScale)) {
-                                        val drawX = if (isEllipse || (isTitle && pw >= targetWidth * 0.4f)) {
+                                        val drawX = if (isEllipseGeom || (isTitle && pw >= targetWidth * 0.4f)) {
                                             (px + (pw - textPaint.measureText(line)) / 2f)
                                         } else {
                                             (px + 6f * fontScale + indentOffset)
@@ -1133,17 +1145,57 @@ class OfficeConverter @Inject constructor(
             val rawCx = try { ext?.javaClass?.getMethod("getCx")?.invoke(ext) } catch (_: Throwable) { null }
             val rawCy = try { ext?.javaClass?.getMethod("getCy")?.invoke(ext) } catch (_: Throwable) { null }
 
-            val x = extractLongValueOC(rawX)
-            val y = extractLongValueOC(rawY)
-            val cx = extractLongValueOC(rawCx)
-            val cy = extractLongValueOC(rawCy)
+            val rawXVal = extractLongValueOC(rawX)
+            val rawYVal = extractLongValueOC(rawY)
+            val rawCxVal = extractLongValueOC(rawCx)
+            val rawCyVal = extractLongValueOC(rawCy)
 
-            if (x != null && y != null && cx != null && cy != null && cx > 0 && cy > 0) {
+            if (rawXVal != null && rawYVal != null && rawCxVal != null && rawCyVal != null && rawCxVal > 0 && rawCyVal > 0) {
+                var curX: Long = rawXVal
+                var curY: Long = rawYVal
+                var curCx: Long = rawCxVal
+                var curCy: Long = rawCyVal
+
+                // Apply parent group transforms recursively if shape is nested in a group shape
+                var parentShape = (shape as? XSLFShape)?.parent
+                while (parentShape is XSLFGroupShape) {
+                    val groupXml = try { parentShape.javaClass.getMethod("getXmlObject").invoke(parentShape) } catch (_: Throwable) { null }
+                    if (groupXml != null) {
+                        val grpXfrm = tryGetXfrmOC(groupXml, "getGrpSpPr")
+                            ?: try { groupXml.javaClass.getMethod("getXfrm").invoke(groupXml) } catch (_: Throwable) { null }
+                        if (grpXfrm != null) {
+                            val gOff = try { grpXfrm.javaClass.getMethod("getOff").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gExt = try { grpXfrm.javaClass.getMethod("getExt").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gChOff = try { grpXfrm.javaClass.getMethod("getChOff").invoke(grpXfrm) } catch (_: Throwable) { null }
+                            val gChExt = try { grpXfrm.javaClass.getMethod("getChExt").invoke(grpXfrm) } catch (_: Throwable) { null }
+
+                            val gX = extractLongValueOC(try { gOff?.javaClass?.getMethod("getX")?.invoke(gOff) } catch (_: Throwable) { null }) ?: 0L
+                            val gY = extractLongValueOC(try { gOff?.javaClass?.getMethod("getY")?.invoke(gOff) } catch (_: Throwable) { null }) ?: 0L
+                            val gCx = extractLongValueOC(try { gExt?.javaClass?.getMethod("getCx")?.invoke(gExt) } catch (_: Throwable) { null }) ?: slideWidthEmu
+                            val gCy = extractLongValueOC(try { gExt?.javaClass?.getMethod("getCy")?.invoke(gExt) } catch (_: Throwable) { null }) ?: slideHeightEmu
+
+                            val chX = extractLongValueOC(try { gChOff?.javaClass?.getMethod("getX")?.invoke(gChOff) } catch (_: Throwable) { null }) ?: gX
+                            val chY = extractLongValueOC(try { gChOff?.javaClass?.getMethod("getY")?.invoke(gChOff) } catch (_: Throwable) { null }) ?: gY
+                            val chCx = extractLongValueOC(try { gChExt?.javaClass?.getMethod("getCx")?.invoke(gChExt) } catch (_: Throwable) { null }) ?: gCx
+                            val chCy = extractLongValueOC(try { gChExt?.javaClass?.getMethod("getCy")?.invoke(gChExt) } catch (_: Throwable) { null }) ?: gCy
+
+                            val scaleX = if (chCx > 0) gCx.toDouble() / chCx.toDouble() else 1.0
+                            val scaleY = if (chCy > 0) gCy.toDouble() / chCy.toDouble() else 1.0
+
+                            curX = (gX + (curX - chX) * scaleX).toLong()
+                            curY = (gY + (curY - chY) * scaleY).toLong()
+                            curCx = (curCx * scaleX).toLong()
+                            curCy = (curCy * scaleY).toLong()
+                        }
+                    }
+                    parentShape = parentShape.parent
+                }
+
                 return floatArrayOf(
-                    (x.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
-                    (y.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
-                    (cx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.01f, 1f),
-                    (cy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.01f, 1f)
+                    (curX.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
+                    (curY.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
+                    (curCx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.001f, 1f),
+                    (curCy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.001f, 1f)
                 )
             }
         } catch (_: Throwable) { }
@@ -1158,35 +1210,244 @@ class OfficeConverter @Inject constructor(
         } catch (_: Throwable) { null }
     }
 
+    private enum class ShapeGeom { RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, HEXAGON, TRIANGLE, DIAMOND, FREEFORM }
+
+    private fun getShapeGeometryType(shape: Any): ShapeGeom {
+        try {
+            if (shape is org.apache.poi.sl.usermodel.SimpleShape<*, *>) {
+                val st = try { shape.shapeType } catch (_: Throwable) { null }
+                if (st != null) {
+                    val stName = st.name.lowercase()
+                    when {
+                        stName.contains("hexagon") -> return ShapeGeom.HEXAGON
+                        stName.contains("ellipse") || stName.contains("oval") || stName.contains("circle") -> return ShapeGeom.ELLIPSE
+                        stName.contains("round") && stName.contains("rect") -> return ShapeGeom.ROUNDED_RECTANGLE
+                        stName.contains("triangle") -> return ShapeGeom.TRIANGLE
+                        stName.contains("diamond") -> return ShapeGeom.DIAMOND
+                    }
+                }
+            }
+            val xmlObj = try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null }
+            if (xmlObj != null) {
+                val spPr = try { xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj) } catch (_: Throwable) { null }
+                if (spPr != null) {
+                    val prstGeom = try { spPr.javaClass.getMethod("getPrstGeom").invoke(spPr) } catch (_: Throwable) { null }
+                    if (prstGeom != null) {
+                        val prst = try { prstGeom.javaClass.getMethod("getPrst").invoke(prstGeom)?.toString()?.lowercase() } catch (_: Throwable) { null }
+                        if (prst != null) {
+                            when {
+                                prst.contains("hexagon") -> return ShapeGeom.HEXAGON
+                                prst.contains("ellipse") || prst.contains("oval") || prst.contains("circle") -> return ShapeGeom.ELLIPSE
+                                prst.contains("roundrect") -> return ShapeGeom.ROUNDED_RECTANGLE
+                                prst.contains("triangle") -> return ShapeGeom.TRIANGLE
+                                prst.contains("diamond") -> return ShapeGeom.DIAMOND
+                            }
+                        }
+                    }
+                    val custGeom = try { spPr.javaClass.getMethod("getCustGeom").invoke(spPr) } catch (_: Throwable) { null }
+                    if (custGeom != null) return ShapeGeom.FREEFORM
+                }
+            }
+        } catch (_: Throwable) {}
+        return ShapeGeom.RECTANGLE
+    }
+
+    private fun drawShapeGeometry(
+        canvas: android.graphics.Canvas,
+        geom: ShapeGeom,
+        px: Float, py: Float, pw: Float, ph: Float,
+        paint: Paint
+    ) {
+        when (geom) {
+            ShapeGeom.ELLIPSE -> {
+                canvas.drawOval(px, py, px + pw, py + ph, paint)
+            }
+            ShapeGeom.ROUNDED_RECTANGLE -> {
+                val rx = pw * 0.15f
+                val ry = ph * 0.15f
+                canvas.drawRoundRect(px, py, px + pw, py + ph, rx, ry, paint)
+            }
+            ShapeGeom.HEXAGON -> {
+                val path = android.graphics.Path().apply {
+                    val insetW = pw * 0.25f
+                    moveTo(px + insetW, py)
+                    lineTo(px + pw - insetW, py)
+                    lineTo(px + pw, py + ph * 0.5f)
+                    lineTo(px + pw - insetW, py + ph)
+                    lineTo(px + insetW, py + ph)
+                    lineTo(px, py + ph * 0.5f)
+                    close()
+                }
+                canvas.drawPath(path, paint)
+            }
+            ShapeGeom.TRIANGLE -> {
+                val path = android.graphics.Path().apply {
+                    moveTo(px + pw * 0.5f, py)
+                    lineTo(px + pw, py + ph)
+                    lineTo(px, py + ph)
+                    close()
+                }
+                canvas.drawPath(path, paint)
+            }
+            ShapeGeom.DIAMOND -> {
+                val path = android.graphics.Path().apply {
+                    moveTo(px + pw * 0.5f, py)
+                    lineTo(px + pw, py + ph * 0.5f)
+                    lineTo(px + pw * 0.5f, py + ph)
+                    lineTo(px, py + ph * 0.5f)
+                    close()
+                }
+                canvas.drawPath(path, paint)
+            }
+            ShapeGeom.FREEFORM, ShapeGeom.RECTANGLE -> {
+                canvas.drawRect(px, py, px + pw, py + ph, paint)
+            }
+        }
+    }
+
+    private fun extractAlphaFromColorObj(colorObj: Any?): Long? {
+        if (colorObj == null) return null
+        try {
+            val alphaList = try { colorObj.javaClass.getMethod("getAlphaList").invoke(colorObj) as? List<*> } catch (_: Throwable) { null }
+            if (!alphaList.isNullOrEmpty()) {
+                val firstAlpha = alphaList[0]
+                val valObj = try { firstAlpha?.javaClass?.getMethod("getVal")?.invoke(firstAlpha) } catch (_: Throwable) { null }
+                val l = extractLongValueOC(valObj)
+                if (l != null) return l
+            }
+        } catch (_: Throwable) {}
+        try {
+            val alphaArray = try { colorObj.javaClass.getMethod("getAlphaArray").invoke(colorObj) as? Array<*> } catch (_: Throwable) { null }
+            if (!alphaArray.isNullOrEmpty()) {
+                val firstAlpha = alphaArray[0]
+                val valObj = try { firstAlpha?.javaClass?.getMethod("getVal")?.invoke(firstAlpha) } catch (_: Throwable) { null }
+                val l = extractLongValueOC(valObj)
+                if (l != null) return l
+            }
+        } catch (_: Throwable) {}
+        try {
+            val xmlStr = colorObj.toString()
+            val match = Regex("""(?:<a:alpha|alpha)[^>]*val=["'](\d+)["']""", RegexOption.IGNORE_CASE).find(xmlStr)
+            if (match != null) {
+                return match.groupValues[1].toLongOrNull()
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    private fun resolveSchemeColorName(schemeName: String, themeColors: Map<String, String>): String? {
+        val s = schemeName.lowercase()
+        for ((key, hex) in themeColors) {
+            if (s.contains(key)) return hex
+        }
+        return when {
+            s.contains("accent1") -> "#1E40AF"
+            s.contains("accent2") -> "#EA580C"
+            s.contains("accent3") -> "#0D9488"
+            s.contains("accent4") -> "#7C3AED"
+            s.contains("accent5") -> "#16A34A"
+            s.contains("accent6") -> "#E11D48"
+            s.contains("tx1") || s.contains("dk1") -> "#0F172A"
+            s.contains("tx2") || s.contains("dk2") -> "#334155"
+            s.contains("bg1") || s.contains("lt1") -> "#FFFFFF"
+            s.contains("bg2") || s.contains("lt2") -> "#F8FAFC"
+            s.contains("hlink") -> "#2563EB"
+            else -> null
+        }
+    }
+
+    private fun extractColorAndAlphaFromFill(fillObj: Any?, themeColors: Map<String, String>): Int? {
+        if (fillObj == null) return null
+        try {
+            var hexColor: String? = null
+            var alphaVal: Long? = null
+
+            var solidFill: Any? = fillObj
+            try {
+                val sf = fillObj.javaClass.getMethod("getSolidFill").invoke(fillObj)
+                if (sf != null) solidFill = sf
+            } catch (_: Throwable) {}
+
+            val srgb = try { solidFill?.javaClass?.getMethod("getSrgbClr")?.invoke(solidFill) } catch (_: Throwable) { null }
+            if (srgb != null) {
+                val bytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (_: Throwable) { null }
+                if (bytes != null && bytes.size >= 3) {
+                    hexColor = String.format("#%02X%02X%02X", bytes[0].toInt() and 0xFF, bytes[1].toInt() and 0xFF, bytes[2].toInt() and 0xFF)
+                }
+                alphaVal = extractAlphaFromColorObj(srgb)
+            }
+
+            if (hexColor == null) {
+                val schemeClr = try { solidFill?.javaClass?.getMethod("getSchemeClr")?.invoke(solidFill) } catch (_: Throwable) { null }
+                if (schemeClr != null) {
+                    val valObj = try { schemeClr.javaClass.getMethod("getVal").invoke(schemeClr) } catch (_: Throwable) { null }
+                    hexColor = resolveSchemeColorName(valObj?.toString() ?: "", themeColors)
+                    alphaVal = extractAlphaFromColorObj(schemeClr)
+                }
+            }
+
+            if (hexColor == null) {
+                val prstClr = try { solidFill?.javaClass?.getMethod("getPrstClr")?.invoke(solidFill) } catch (_: Throwable) { null }
+                if (prstClr != null) {
+                    val valObj = try { prstClr.javaClass.getMethod("getVal").invoke(prstClr) } catch (_: Throwable) { null }
+                    hexColor = when (valObj?.toString()?.lowercase()) {
+                        "black" -> "#000000"; "white" -> "#FFFFFF"; "red" -> "#FF0000"; "green" -> "#008000"; "blue" -> "#0000FF"; else -> null
+                    }
+                    alphaVal = extractAlphaFromColorObj(prstClr)
+                }
+            }
+
+            if (hexColor == null) {
+                val gradFill = try { fillObj.javaClass.getMethod("getGradFill").invoke(fillObj) } catch (_: Throwable) { null }
+                if (gradFill != null) {
+                    val gsLst = try { gradFill.javaClass.getMethod("getGsLst").invoke(gradFill) } catch (_: Throwable) { null }
+                    if (gsLst != null) {
+                        val gsArray = try {
+                            val m = gsLst.javaClass.getMethod("getGsArray")
+                            m.invoke(gsLst) as? Array<*>
+                        } catch (_: Throwable) { null }
+                        if (!gsArray.isNullOrEmpty() && gsArray[0] != null) {
+                            return extractColorAndAlphaFromFill(gsArray[0], themeColors)
+                        }
+                    }
+                }
+            }
+
+            if (hexColor == null) return null
+
+            val rgbInt = android.graphics.Color.parseColor(hexColor)
+            val alphaInt = if (alphaVal != null && alphaVal >= 0) {
+                val alphaFloat = when {
+                    alphaVal > 100L -> (alphaVal.toFloat() / 100000f).coerceIn(0f, 1f)
+                    else -> (alphaVal.toFloat() / 100f).coerceIn(0f, 1f)
+                }
+                (alphaFloat * 255f).toInt().coerceIn(0, 255)
+            } else {
+                val a = (rgbInt shr 24) and 0xFF
+                if (a == 0) 255 else a
+            }
+
+            return android.graphics.Color.argb(alphaInt, (rgbInt shr 16) and 0xFF, (rgbInt shr 8) and 0xFF, rgbInt and 0xFF)
+        } catch (_: Throwable) {
+            return null
+        }
+    }
+
     /**
      * Extracts shape fill color as Android Color int, or null if none.
      */
-    private fun getShapeFillColor(shape: XSLFSimpleShape): Int? {
+    private fun getShapeFillColor(shape: XSLFSimpleShape, themeColors: Map<String, String>): Int? {
         return try {
             val xmlObj = try {
                 shape.javaClass.getMethod("getXmlObject").invoke(shape)
-            } catch (t: Throwable) { null } ?: return null
+            } catch (_: Throwable) { null } ?: return null
 
             val spPr = try {
                 xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj)
-            } catch (t: Throwable) { null } ?: return null
+            } catch (_: Throwable) { null } ?: return null
 
-            val solidFill = try {
-                spPr.javaClass.getMethod("getSolidFill").invoke(spPr)
-            } catch (t: Throwable) { null } ?: return null
-
-            val srgbClr = try {
-                solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill)
-            } catch (t: Throwable) { null } ?: return null
-
-            val hexBytes = try {
-                srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray
-            } catch (t: Throwable) { null } ?: return null
-
-            if (hexBytes.size >= 3) {
-                android.graphics.Color.rgb(hexBytes[0].toInt() and 0xFF, hexBytes[1].toInt() and 0xFF, hexBytes[2].toInt() and 0xFF)
-            } else null
-        } catch (t: Throwable) {
+            extractColorAndAlphaFromFill(spPr, themeColors)
+        } catch (_: Throwable) {
             null
         }
     }
@@ -1194,36 +1455,22 @@ class OfficeConverter @Inject constructor(
     /**
      * Extracts shape line/border color as Android Color int, or null if none.
      */
-    private fun getShapeLineColor(shape: XSLFSimpleShape): Int? {
+    private fun getShapeLineColor(shape: XSLFSimpleShape, themeColors: Map<String, String>): Int? {
         return try {
             val xmlObj = try {
                 shape.javaClass.getMethod("getXmlObject").invoke(shape)
-            } catch (t: Throwable) { null } ?: return null
+            } catch (_: Throwable) { null } ?: return null
 
             val spPr = try {
                 xmlObj.javaClass.getMethod("getSpPr").invoke(xmlObj)
-            } catch (t: Throwable) { null } ?: return null
+            } catch (_: Throwable) { null } ?: return null
 
             val ln = try {
                 spPr.javaClass.getMethod("getLn").invoke(spPr)
-            } catch (t: Throwable) { null } ?: return null
+            } catch (_: Throwable) { null } ?: return null
 
-            val solidFill = try {
-                ln.javaClass.getMethod("getSolidFill").invoke(ln)
-            } catch (t: Throwable) { null } ?: return null
-
-            val srgbClr = try {
-                solidFill.javaClass.getMethod("getSrgbClr").invoke(solidFill)
-            } catch (t: Throwable) { null } ?: return null
-
-            val hexBytes = try {
-                srgbClr.javaClass.getMethod("getVal").invoke(srgbClr) as? ByteArray
-            } catch (t: Throwable) { null } ?: return null
-
-            if (hexBytes.size >= 3) {
-                android.graphics.Color.rgb(hexBytes[0].toInt() and 0xFF, hexBytes[1].toInt() and 0xFF, hexBytes[2].toInt() and 0xFF)
-            } else null
-        } catch (t: Throwable) {
+            extractColorAndAlphaFromFill(ln, themeColors)
+        } catch (_: Throwable) {
             null
         }
     }
