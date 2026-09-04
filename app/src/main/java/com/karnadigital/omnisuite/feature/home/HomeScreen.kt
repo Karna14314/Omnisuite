@@ -339,6 +339,46 @@ fun HomeScreen(
                             )
                         }
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Print & Imposition Studio Launcher Banner
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = OmniColors.PdfRedBg),
+                            border = BorderStroke(1.dp, OmniColors.PdfRed.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🖨️", fontSize = 24.sp)
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Print & Imposition Studio",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = OmniColors.PdfRed
+                                    )
+                                    Text(
+                                        text = "Booklet Saddle Stitch, N-Up, Crop, Bleeds & Marks",
+                                        fontSize = 11.sp,
+                                        color = OmniColors.TextMuted
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = null,
+                                    tint = OmniColors.PdfRed
+                                )
+                            }
+                        }
+
                         // Recent Files Header with Universal History button
                         Row(
                             modifier = Modifier

@@ -74,6 +74,7 @@ sealed class NavigationEvent {
     data object NavigateToExactResize : NavigationEvent()
     data object NavigateToReadAloud : NavigationEvent()
     data object NavigateToPdfBlockEditor : NavigationEvent()
+    data object NavigateToPrintImpositionStudio : NavigationEvent()
     data class OpenFile(val fileUri: String) : NavigationEvent()
     data class OpenSequentialImages(val imageUris: List<String>, val title: String = "Extracted Images") : NavigationEvent()
     data class SelectFileForType(val type: String) : NavigationEvent()

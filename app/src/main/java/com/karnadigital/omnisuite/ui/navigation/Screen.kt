@@ -479,6 +479,11 @@ sealed class Screen(val route: String) {
      * PDF Block Editor Screen (Experimental)
      */
     object PdfBlockEditor : Screen("pdf_block_editor")
+
+    /**
+     * Print & Imposition Studio Screen
+     */
+    object PrintImpositionStudio : Screen("print_imposition_studio")
 }
 
 

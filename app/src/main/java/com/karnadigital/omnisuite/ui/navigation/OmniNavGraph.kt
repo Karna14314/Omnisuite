@@ -107,6 +107,7 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToExactResize -> navController.navigate(Screen.ExactResize.route)
                         is NavigationEvent.NavigateToReadAloud -> navController.navigate(Screen.ReadAloud.route)
                         is NavigationEvent.NavigateToPdfBlockEditor -> navController.navigate(Screen.PdfBlockEditor.route)
+                        is NavigationEvent.NavigateToPrintImpositionStudio -> navController.navigate(Screen.PrintImpositionStudio.route)
                         is NavigationEvent.OpenFile -> navController.navigate(Screen.ViewerDispatcher.createRoute(event.fileUri))
                         is NavigationEvent.OpenSequentialImages -> navController.navigate(Screen.SequentialImageViewer.createRoute(event.imageUris, event.title))
                         is NavigationEvent.SelectFileForType -> { /* handled internally by HomeScreen */ }
@@ -919,6 +920,16 @@ fun OmniNavGraph(
         composable(route = Screen.PdfBlockEditor.route) {
             PdfBlockEditorScreen(
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        // 77. Print & Imposition Studio Screen
+        composable(route = Screen.PrintImpositionStudio.route) {
+            com.karnadigital.omnisuite.feature.imposition.PrintImpositionStudioScreen(
+                onBack = { navController.popBackStack() },
+                onOpenFile = { fileUri ->
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
+                }
             )
         }
     }
