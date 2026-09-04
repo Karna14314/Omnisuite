@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.*
 import java.io.File
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
@@ -251,133 +252,154 @@ fun DocxViewerScreen(
                     }
                 }
             } else {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = when (val s = state) {
-                                is DocxLoadState.Success -> s.fileName
-                                else -> "Document Viewer"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back"
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = when (val s = state) {
+                                    is DocxLoadState.Success -> s.fileName
+                                    else -> "Document Viewer"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                    },
-                    actions = {
-                        if (state is DocxLoadState.Success) {
-                            var showMenu by remember { mutableStateOf(false) }
-
-                            IconButton(onClick = { searchExpanded = true }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search text")
-                            }
-
-                            // Edit Menu Button
-                            Box {
-                                EditMenuButton(onClick = {
-                                    isEditMode = true
-                                    showEditMenu = true
-                                })
-                                EditMenuPopup(
-                                    expanded = showEditMenu,
-                                    onDismiss = { showEditMenu = false },
-                                    items = listOf(
-                                        EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { pendingFormatBold = !pendingFormatBold }),
-                                        EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { pendingFormatItalic = !pendingFormatItalic }),
-                                        EditMenuItem(Icons.Default.FormatUnderlined, "Underline", onClick = { pendingFormatUnderline = !pendingFormatUnderline }),
-                                        EditMenuItem(Icons.Default.FormatStrikethrough, "Strikethrough", onClick = { pendingFormatStrike = !pendingFormatStrike }),
-                                        EditMenuItem(Icons.Default.FormatSize, "Font Size", onClick = { showFormatMenu = true }),
-                                        EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { showFormatMenu = true }),
-                                        EditMenuItem(Icons.Default.FormatColorFill, "Highlight", onClick = { showFormatMenu = true }),
-                                        EditMenuItem(Icons.Default.FormatAlignLeft, "Align Left", onClick = { pendingAlignment = "LEFT" }),
-                                        EditMenuItem(Icons.Default.FormatAlignCenter, "Align Center", onClick = { pendingAlignment = "CENTER" }),
-                                        EditMenuItem(Icons.Default.FormatAlignRight, "Align Right", onClick = { pendingAlignment = "RIGHT" }),
-                                        EditMenuItem(Icons.Default.FormatListBulleted, "Bullet List", onClick = { pendingListType = "BULLET" }),
-                                        EditMenuItem(Icons.Default.FormatListNumbered, "Numbered List", onClick = { pendingListType = "NUMBER" }),
-                                        EditMenuItem(Icons.Default.Add, "Insert Image", onClick = { imagePickerLauncher.launch("image/*") }),
-                                        EditMenuItem(Icons.Default.Link, "Insert Link", onClick = { showLinkDialog = true })
-                                    )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Navigate back"
                                 )
                             }
+                        },
+                        actions = {
+                            if (state is DocxLoadState.Success) {
+                                var showMenu by remember { mutableStateOf(false) }
 
-                            if (isEditMode) {
-                                IconButton(onClick = { viewModel.commitChanges() }) {
-                                    Icon(Icons.Default.Check, contentDescription = "Commit changes", tint = MaterialTheme.colorScheme.primary)
+                                IconButton(onClick = { searchExpanded = true }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search text")
+                                }
+
+                                if (isEditMode) {
+                                    IconButton(onClick = { viewModel.commitChanges() }) {
+                                        Icon(Icons.Default.Check, contentDescription = "Commit changes", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                IconButton(onClick = { isEditMode = !isEditMode }) {
+                                    Icon(
+                                        imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
+                                        contentDescription = "Toggle Edit Mode",
+                                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                                }
+
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Print") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Print)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Share)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Open in...") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.OpenIn)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Export to PDF") },
+                                        onClick = {
+                                            showMenu = false
+                                            val currentSuccess = state as DocxLoadState.Success
+                                            val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                            exportPdfLauncher.launch(defaultName)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Convert to TXT") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.DocxToTxt.createRoute(fileUri)))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
+                                    )
                                 }
                             }
-                            IconButton(onClick = { isEditMode = !isEditMode }) {
-                                Icon(
-                                    imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
-                                    contentDescription = "Toggle Edit Mode"
-                                )
-                            }
-                            
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
-                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
 
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
+                    // Top Contextual Edit Bar
+                    if (isEditMode && state is DocxLoadState.Success) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Print") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Print)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
+                                FilterChip(
+                                    selected = pendingFormatBold,
+                                    onClick = { pendingFormatBold = !pendingFormatBold },
+                                    label = { Text("B", fontWeight = FontWeight.Bold) }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Share)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                FilterChip(
+                                    selected = pendingFormatItalic,
+                                    onClick = { pendingFormatItalic = !pendingFormatItalic },
+                                    label = { Text("I", fontStyle = FontStyle.Italic) }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Open in...") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.OpenIn)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                FilterChip(
+                                    selected = pendingFormatUnderline,
+                                    onClick = { pendingFormatUnderline = !pendingFormatUnderline },
+                                    label = { Text("U", textDecoration = TextDecoration.Underline) }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Export to PDF") },
-                                    onClick = {
-                                        showMenu = false
-                                        val currentSuccess = state as DocxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Convert to TXT") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.DocxToTxt.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
-                                )
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+                                IconButton(onClick = { showFormatMenu = true }) {
+                                    Icon(Icons.Default.FormatSize, contentDescription = "Font Style")
+                                }
+                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
+                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
+                                }
+                                IconButton(onClick = { showLinkDialog = true }) {
+                                    Icon(Icons.Default.Link, contentDescription = "Insert Link")
+                                }
+                                IconButton(onClick = { showAppendDialog = true }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Append Paragraph")
+                                }
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                )
+                    }
+                }
             }
         },
         floatingActionButton = {
@@ -393,7 +415,6 @@ fun DocxViewerScreen(
         },
         bottomBar = {
             if (state is DocxLoadState.Success) {
-                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
@@ -414,52 +435,10 @@ fun DocxViewerScreen(
                         }
 
                         ViewerActionColumnButton(
-                            icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                            title = if (isEditMode) "Save" else "Edit"
-                        ) {
-                            if (isEditMode) {
-                                viewModel.commitChanges()
-                            }
-                            isEditMode = !isEditMode
-                        }
-
-                        ViewerActionColumnButton(
                             icon = Icons.Default.Search,
                             title = "Search"
                         ) {
                             searchExpanded = true
-                        }
-
-                        Box {
-                            ViewerActionColumnButton(
-                                icon = Icons.Default.Build,
-                                title = "Tools"
-                            ) {
-                                showToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showToolsMenu,
-                                onDismissRequest = { showToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Export to PDF") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        val currentSuccess = state as DocxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Convert to TXT") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.DocxToTxt.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
-                                )
-                            }
                         }
 
                         ViewerActionColumnButton(

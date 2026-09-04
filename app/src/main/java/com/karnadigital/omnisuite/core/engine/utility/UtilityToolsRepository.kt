@@ -1,5 +1,18 @@
 package com.karnadigital.omnisuite.core.engine.utility
 
+import com.karnadigital.omnisuite.core.model.RecentFile
+import com.karnadigital.omnisuite.core.repository.RecentFileRepository
+import com.karnadigital.omnisuite.core.util.FileOutputManager
+import com.karnadigital.omnisuite.core.util.UriCacheUtils
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.CipherInputStream
+import javax.crypto.CipherOutputStream
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -25,7 +38,10 @@ import kotlin.math.min
 
 @Singleton
 class UtilityToolsRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val uriCacheUtils: UriCacheUtils,
+    private val fileOutputManager: FileOutputManager,
+    private val recentFileRepository: RecentFileRepository
 ) {
 
     fun convertUnit(value: Double, fromUnit: String, toUnit: String, category: String): Double {
@@ -413,14 +429,6 @@ class UtilityToolsRepository @Inject constructor(
         return result
     }
 
-    fun extractSticker(bitmap: Bitmap, left: Int, top: Int, right: Int, bottom: Int, removeBg: Boolean = true, bgThreshold: Int = 30): Bitmap {
-        val width = (right - left).coerceAtLeast(1)
-        val height = (bottom - top).coerceAtLeast(1)
-        val cropped = Bitmap.createBitmap(bitmap, left.coerceIn(0, bitmap.width - 1), top.coerceIn(0, bitmap.height - 1), width.coerceAtMost(bitmap.width - left), height.coerceAtMost(bitmap.height - top))
-        if (!removeBg) return cropped
-        return removeBackground(cropped, bgThreshold)
-    }
-
     fun resizeExact(bitmap: Bitmap, targetWidth: Int, targetHeight: Int, keepAspectRatio: Boolean = false, bgColor: Int = Color.TRANSPARENT): Bitmap {
         if (!keepAspectRatio) {
             return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
@@ -442,14 +450,6 @@ class UtilityToolsRepository @Inject constructor(
         return result
     }
 
-    fun placeSticker(background: Bitmap, sticker: Bitmap, x: Int, y: Int, stickerWidth: Int = sticker.width, stickerHeight: Int = sticker.height): Bitmap {
-        val result = background.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = android.graphics.Canvas(result)
-        val scaledSticker = Bitmap.createScaledBitmap(sticker, stickerWidth.coerceAtLeast(1), stickerHeight.coerceAtLeast(1), true)
-        canvas.drawBitmap(scaledSticker, x.toFloat(), y.toFloat(), null)
-        return result
-    }
-
     fun addTextToImage(bitmap: Bitmap, text: String, x: Float, y: Float, size: Float = 48f, color: Int = Color.WHITE, bold: Boolean = true): Bitmap {
         val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = android.graphics.Canvas(result)
@@ -464,22 +464,198 @@ class UtilityToolsRepository @Inject constructor(
         return result
     }
 
-    fun saveSticker(context: Context, bitmap: Bitmap, name: String): File {
-        val stickersDir = File(context.filesDir, "stickers")
-        if (!stickersDir.exists()) stickersDir.mkdirs()
-        val file = File(stickersDir, "$name.png")
-        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        return file
+    suspend fun encryptFile(inputUri: Uri, pass: String, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val file = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open source file.")
+            val tempOutputFile = File(context.cacheDir, "encrypted_${System.currentTimeMillis()}.enc")
+
+            val salt = ByteArray(16)
+            SecureRandom().nextBytes(salt)
+
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val spec = PBEKeySpec(pass.toCharArray(), salt, 65536, 256)
+            val secretKey = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+
+            val iv = ByteArray(12)
+            SecureRandom().nextBytes(iv)
+
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
+
+            FileOutputStream(tempOutputFile).use { fos ->
+                fos.write(salt)
+                fos.write(iv)
+                CipherOutputStream(fos, cipher).use { cos ->
+                    file.inputStream().use { fis ->
+                        val buffer = ByteArray(8192)
+                        var read: Int
+                        while (fis.read(buffer).also { read = it } >= 0) {
+                            cos.write(buffer, 0, read)
+                        }
+                    }
+                }
+            }
+
+            val originalName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
+            val outName = customFilename ?: "$originalName.enc"
+            val savedUri = fileOutputManager.saveFileToDefault(tempOutputFile, outName, "application/octet-stream", "Encrypted")
+                ?: throw Exception("Failed to save encrypted file.")
+
+            recentFileRepository.insertRecentFile(
+                RecentFile(
+                    fileUri = savedUri.toString(),
+                    fileName = outName,
+                    mimeType = "application/octet-stream",
+                    fileSize = tempOutputFile.length(),
+                    lastOpened = System.currentTimeMillis(),
+                    isOperation = true
+                )
+            )
+
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            if (file.exists()) file.delete()
+
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
-    fun loadStickers(context: Context): List<File> {
-        val stickersDir = File(context.filesDir, "stickers")
-        if (!stickersDir.exists()) return emptyList()
-        return stickersDir.listFiles()?.filter { it.extension == "png" } ?: emptyList()
+    suspend fun decryptFile(inputUri: Uri, pass: String, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val file = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open source file.")
+            val tempOutputFile = File(context.cacheDir, "decrypted_${System.currentTimeMillis()}")
+
+            val salt = ByteArray(16)
+            val iv = ByteArray(12)
+
+            file.inputStream().use { fis ->
+                if (fis.read(salt) != 16) throw Exception("Invalid encrypted file header.")
+                if (fis.read(iv) != 12) throw Exception("Invalid encrypted file header.")
+
+                val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                val spec = PBEKeySpec(pass.toCharArray(), salt, 65536, 256)
+                val secretKey = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
+
+                CipherInputStream(fis, cipher).use { cis ->
+                    FileOutputStream(tempOutputFile).use { fos ->
+                        val buffer = ByteArray(8192)
+                        var read: Int
+                        while (cis.read(buffer).also { read = it } >= 0) {
+                            fos.write(buffer, 0, read)
+                        }
+                    }
+                }
+            }
+
+            val originalName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
+            val outName = customFilename ?: originalName
+            val savedUri = fileOutputManager.saveFileToDefault(tempOutputFile, outName, "application/octet-stream", "Decrypted")
+                ?: throw Exception("Failed to save decrypted file.")
+
+            recentFileRepository.insertRecentFile(
+                RecentFile(
+                    fileUri = savedUri.toString(),
+                    fileName = outName,
+                    mimeType = "application/octet-stream",
+                    fileSize = tempOutputFile.length(),
+                    lastOpened = System.currentTimeMillis(),
+                    isOperation = true
+                )
+            )
+
+            if (tempOutputFile.exists()) tempOutputFile.delete()
+            if (file.exists()) file.delete()
+
+            Result.success(savedUri)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
-    fun deleteSticker(context: Context, name: String): Boolean {
-        val file = File(context.filesDir, "stickers/$name.png")
-        return file.delete()
+    suspend fun getFileChecksum(inputUri: Uri, algorithm: String = "SHA-256"): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val file = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open file.")
+            val digest = MessageDigest.getInstance(algorithm)
+            file.inputStream().use { fis ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (fis.read(buffer).also { read = it } >= 0) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            if (file.exists()) file.delete()
+            val hashBytes = digest.digest()
+            val hexString = hashBytes.joinToString("") { "%02x".format(it) }
+            Result.success(hexString)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun compareText(text1: String, text2: String): Result<String> {
+        return try {
+            val lines1 = text1.lines()
+            val lines2 = text2.lines()
+            val sb = StringBuilder()
+            sb.appendLine("=== Text Comparison Diff ===")
+            sb.appendLine("Text 1 lines: ${lines1.size}, Text 2 lines: ${lines2.size}")
+            sb.appendLine()
+            val maxLines = maxOf(lines1.size, lines2.size)
+            var diffCount = 0
+            for (i in 0 until maxLines) {
+                val l1 = lines1.getOrElse(i) { "" }
+                val l2 = lines2.getOrElse(i) { "" }
+                if (l1 != l2) {
+                    diffCount++
+                    sb.appendLine("Line ${i + 1}:")
+                    if (l1.isNotBlank()) sb.appendLine(" - Text 1: $l1")
+                    if (l2.isNotBlank()) sb.appendLine(" + Text 2: $l2")
+                }
+            }
+            sb.appendLine()
+            sb.appendLine("Total line differences: $diffCount")
+            Result.success(sb.toString())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun getWordCount(text: String): Map<String, Any> {
+        val words = if (text.isBlank()) 0 else text.trim().split(Regex("""\s+""")).size
+        val characters = text.length
+        val lines = if (text.isBlank()) 0 else text.lines().size
+        val readingTimeMinutes = (words / 200.0).coerceAtLeast(0.0)
+        val readingTimeStr = if (readingTimeMinutes < 1.0) "< 1 min" else "${readingTimeMinutes.toInt()} min"
+        return mapOf(
+            "words" to words,
+            "characters" to characters,
+            "lines" to lines,
+            "readingTime" to readingTimeStr
+        )
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String? {
+        var name: String? = null
+        if (uri.scheme == "content") {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) name = it.getString(index)
+                }
+            }
+        }
+        if (name == null) {
+            name = uri.path
+            val cut = name?.lastIndexOf('/')
+            if (cut != null && cut != -1) {
+                name = name?.substring(cut + 1)
+            }
+        }
+        return name
     }
 }

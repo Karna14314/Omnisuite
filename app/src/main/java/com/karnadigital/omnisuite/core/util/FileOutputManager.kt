@@ -18,6 +18,44 @@ class FileOutputManager @Inject constructor(
      * Saves a byte array as a file under the default Documents/OmniSuite/<subfolder> directory.
      * Works on Android 10+ (API 29+) using Scoped Storage MediaStore without explicit permissions.
      */
+    fun saveFileToDefault(
+        file: java.io.File,
+        filename: String,
+        mimeType: String,
+        subfolder: String
+    ): Uri? {
+        return try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOCUMENTS}/OmniSuite/$subfolder")
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+            val resolver = context.contentResolver
+            val contentUri = MediaStore.Files.getContentUri("external")
+            val uri = resolver.insert(contentUri, contentValues) ?: return null
+            resolver.openOutputStream(uri)?.use { out ->
+                file.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+                out.flush()
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val updateValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    put(MediaStore.MediaColumns.SIZE, file.length())
+                }
+                resolver.update(uri, updateValues, null, null)
+            }
+            uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     fun saveToDefault(
         bytes: ByteArray,
         filename: String,

@@ -82,22 +82,14 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPdfHeaderFooter -> navController.navigate(Screen.PdfHeaderFooter.route)
                         is NavigationEvent.NavigateToPdfResize -> navController.navigate(Screen.PdfResize.route)
                         is NavigationEvent.NavigateToPasswordZip -> navController.navigate(Screen.PasswordZip.route)
-                        is NavigationEvent.NavigateToPdfToPdfA -> navController.navigate(Screen.PdfToPdfA.route)
                         is NavigationEvent.NavigateToPdfMetadata -> navController.navigate(Screen.PdfMetadata.route)
                         is NavigationEvent.NavigateToPdfCropMargins -> navController.navigate(Screen.PdfCropMargins.route)
                         is NavigationEvent.NavigateToPdfRedact -> navController.navigate(Screen.PdfRedact.route)
-                        is NavigationEvent.NavigateToPdfRepair -> navController.navigate(Screen.PdfRepair.route)
-                        is NavigationEvent.NavigateToPdfOverlay -> navController.navigate(Screen.PdfOverlay.route)
                         is NavigationEvent.NavigateToPdfCompare -> navController.navigate(Screen.PdfCompare.route)
-                        is NavigationEvent.NavigateToPdfToMarkdown -> navController.navigate(Screen.PdfToMarkdown.route)
-                        is NavigationEvent.NavigateToPdfSplitBySize -> navController.navigate(Screen.PdfSplitBySize.route)
                         is NavigationEvent.NavigateToPdfInsertPages -> navController.navigate(Screen.PdfInsertPages.route)
                         is NavigationEvent.NavigateToPdfReplacePages -> navController.navigate(Screen.PdfReplacePages.route)
                         is NavigationEvent.NavigateToPdfBookmarks -> navController.navigate(Screen.PdfBookmarks.route)
                         is NavigationEvent.NavigateToPasswordZipExtract -> navController.navigate(Screen.PasswordZipExtract.route)
-                        is NavigationEvent.NavigateToPdfSplitByBookmarks -> navController.navigate(Screen.PdfSplitByBookmarks.route)
-                        is NavigationEvent.NavigateToPdfUnderlay -> navController.navigate(Screen.PdfUnderlay.route)
-                        is NavigationEvent.NavigateToPdfFormCreation -> navController.navigate(Screen.PdfFormCreation.route)
                         is NavigationEvent.NavigateToFileEncrypt -> navController.navigate(Screen.FileEncrypt.route)
                         is NavigationEvent.NavigateToFileDecrypt -> navController.navigate(Screen.FileDecrypt.route)
                         is NavigationEvent.NavigateToPdfSelectiveImageExtract -> navController.navigate(Screen.PdfSelectiveImageExtract.route)
@@ -109,13 +101,9 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToCollageMaker -> navController.navigate(Screen.CollageMaker.route)
                         is NavigationEvent.NavigateToMemeMaker -> navController.navigate(Screen.MemeMaker.route)
                         is NavigationEvent.NavigateToPdfBookmarkReader -> navController.navigate(Screen.PdfBookmarkReader.route)
-                        is NavigationEvent.NavigateToPdfAValidation -> navController.navigate(Screen.PdfAValidation.route)
                         is NavigationEvent.NavigateToPdfToWordEnhanced -> navController.navigate(Screen.PdfToWordEnhanced.route)
                         is NavigationEvent.NavigateToMarkdownToPdfEnhanced -> navController.navigate(Screen.MarkdownToPdfEnhanced.route)
-                        is NavigationEvent.NavigateToSvgToPdf -> navController.navigate(Screen.SvgToPdf.route)
                         is NavigationEvent.NavigateToAdvancedWordCount -> navController.navigate(Screen.AdvancedWordCount.route)
-                        is NavigationEvent.NavigateToStickerMaker -> navController.navigate(Screen.StickerMaker.route)
-                        is NavigationEvent.NavigateToStickerImport -> navController.navigate(Screen.StickerImport.route)
                         is NavigationEvent.NavigateToExactResize -> navController.navigate(Screen.ExactResize.route)
                         is NavigationEvent.NavigateToReadAloud -> navController.navigate(Screen.ReadAloud.route)
                         is NavigationEvent.NavigateToPdfBlockEditor -> navController.navigate(Screen.PdfBlockEditor.route)
@@ -782,12 +770,6 @@ fun OmniNavGraph(
             )
         }
 
-        // 40. PDF to PDF/A Screen
-        composable(route = Screen.PdfToPdfA.route) {
-            PdfToPdfAScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 41. PDF Metadata Editor Screen
         composable(route = Screen.PdfMetadata.route) {
@@ -810,19 +792,7 @@ fun OmniNavGraph(
             )
         }
 
-        // 44. PDF Repair Screen
-        composable(route = Screen.PdfRepair.route) {
-            PdfRepairScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 45. PDF Overlay Screen
-        composable(route = Screen.PdfOverlay.route) {
-            PdfOverlayScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 46. PDF Compare Screen
         composable(route = Screen.PdfCompare.route) {
@@ -831,19 +801,7 @@ fun OmniNavGraph(
             )
         }
 
-        // 47. PDF to Markdown Screen
-        composable(route = Screen.PdfToMarkdown.route) {
-            PdfToMarkdownScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 48. PDF Split by Size Screen
-        composable(route = Screen.PdfSplitBySize.route) {
-            PdfSplitBySizeScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 49. PDF Insert Pages Screen
         composable(route = Screen.PdfInsertPages.route) {
@@ -873,26 +831,8 @@ fun OmniNavGraph(
             )
         }
 
-        // 53. PDF Split by Bookmarks Screen
-        composable(route = Screen.PdfSplitByBookmarks.route) {
-            PdfSplitByBookmarksScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 54. PDF Underlay Screen
-        composable(route = Screen.PdfUnderlay.route) {
-            PdfUnderlayScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 55. PDF Form Creation Screen
-        composable(route = Screen.PdfFormCreation.route) {
-            PdfFormCreationScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 56. File Encrypt Screen
         composable(route = Screen.FileEncrypt.route) {
@@ -950,19 +890,7 @@ fun OmniNavGraph(
             )
         }
 
-        // 67. PDF/A Validation Screen
-        composable(route = Screen.PdfAValidation.route) {
-            PdfAValidationScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 70. SVG to PDF Screen
-        composable(route = Screen.SvgToPdf.route) {
-            SvgToPdfScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 71. Advanced Word Count Screen
         composable(route = Screen.AdvancedWordCount.route) {
@@ -971,19 +899,7 @@ fun OmniNavGraph(
             )
         }
 
-        // 72. Sticker Maker Screen
-        composable(route = Screen.StickerMaker.route) {
-            StickerMakerScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
-        // 73. Sticker Import Screen
-        composable(route = Screen.StickerImport.route) {
-            StickerImportScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         // 74. Exact Resize Screen
         composable(route = Screen.ExactResize.route) {

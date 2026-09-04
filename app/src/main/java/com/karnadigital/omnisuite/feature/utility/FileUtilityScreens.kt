@@ -1,11 +1,18 @@
 package com.karnadigital.omnisuite.feature.utility
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,17 +21,22 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.karnadigital.omnisuite.feature.pdf_tools.PdfToolsViewModel
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FileEncryptScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
+fun FileEncryptScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { viewModel.fileEncryptInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
@@ -53,7 +65,7 @@ fun FileEncryptScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FileDecryptScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
+fun FileDecryptScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { viewModel.fileDecryptInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
@@ -82,7 +94,7 @@ fun FileDecryptScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FileChecksumScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
+fun FileChecksumScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { viewModel.checksumInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
@@ -122,7 +134,7 @@ fun FileChecksumScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TextCompareScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
+fun TextCompareScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
     Scaffold(topBar = { TopAppBar(title = { Text("Text Comparison Diff", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             OutlinedTextField(value = viewModel.textCompare1, onValueChange = { viewModel.textCompare1 = it }, label = { Text("Original Text") }, modifier = Modifier.fillMaxWidth().height(140.dp), maxLines = 10)
@@ -147,7 +159,7 @@ fun TextCompareScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdvancedWordCountScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
+fun AdvancedWordCountScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
     var text by remember { mutableStateOf("") }
     var wordCountResult by remember { mutableStateOf<Map<String, Any>?>(null) }
     Scaffold(topBar = { TopAppBar(title = { Text("Advanced Word Count", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
@@ -168,6 +180,122 @@ fun AdvancedWordCountScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = h
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Estimated Read Time:"); Text("${result["readingTime"]}", fontWeight = FontWeight.Bold) }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExactResizeScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
+    var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var resultBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var widthInput by remember { mutableStateOf("500") }
+    var heightInput by remember { mutableStateOf("500") }
+    var keepAspectRatio by remember { mutableStateOf(false) }
+    var selectedPreset by remember { mutableStateOf("") }
+    val presets = listOf("500x500 (Icon)", "1080x1080 (Instagram)", "1200x628 (LinkedIn)", "1024x768 (Tablet)", "256x256 (Favicon)", "1080x1920 (Story)")
+
+    val context = LocalContext.current
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.openInputStream(it)?.use { stream ->
+                sourceBitmap = BitmapFactory.decodeStream(stream)
+            }
+        }
+    }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("Exact Resize", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (sourceBitmap == null) {
+                Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("image/*")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.PhotoSizeSelectLarge, contentDescription = null, modifier = Modifier.size(48.dp))
+                        Text("Tap to select image", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Text("Original: ${sourceBitmap!!.width}x${sourceBitmap!!.height}", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+                Text("Presets:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(presets) { preset ->
+                        FilterChip(selected = selectedPreset == preset, onClick = {
+                            selectedPreset = preset
+                            val dims = preset.substringBefore(" ").split("x")
+                            if (dims.size == 2) { widthInput = dims[0]; heightInput = dims[1] }
+                        }, label = { Text(preset.substringBefore(" "), fontSize = 11.sp) })
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = widthInput, onValueChange = { widthInput = it.filter { c -> c.isDigit() } }, label = { Text("Width (px)") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = heightInput, onValueChange = { heightInput = it.filter { c -> c.isDigit() } }, label = { Text("Height (px)") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = keepAspectRatio, onCheckedChange = { keepAspectRatio = it }); Text("Keep aspect ratio") }
+                Button(onClick = {
+                    val w = widthInput.toIntOrNull() ?: return@Button
+                    val h = heightInput.toIntOrNull() ?: return@Button
+                    resultBitmap = viewModel.utilityToolsRepository.resizeExact(sourceBitmap!!, w, h, keepAspectRatio)
+                }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = widthInput.isNotBlank() && heightInput.isNotBlank()) {
+                    Icon(Icons.Default.PhotoSizeSelectLarge, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Resize")
+                }
+                if (resultBitmap != null) {
+                    Text("Result: ${resultBitmap!!.width}x${resultBitmap!!.height}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Image(bitmap = resultBitmap!!.asImageBitmap(), contentDescription = "Result", modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReadAloudScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf("") }
+    var isSpeaking by remember { mutableStateOf(false) }
+    var pitch by remember { mutableFloatStateOf(1.0f) }
+    var speed by remember { mutableFloatStateOf(1.0f) }
+    val tts = remember { android.speech.tts.TextToSpeech(context) { } }
+
+    DisposableEffect(Unit) {
+        onDispose { tts.stop(); tts.shutdown() }
+    }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("Read Aloud", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("About", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Lightweight offline text-to-speech. Paste text or load from a document to have it read aloud. Uses Android's built-in TTS engine.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Enter or paste text to read aloud") }, modifier = Modifier.fillMaxWidth().height(200.dp), maxLines = 20)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    if (text.isNotBlank()) {
+                        tts.language = java.util.Locale.getDefault()
+                        tts.setPitch(pitch)
+                        tts.setSpeechRate(speed)
+                        tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "readaloud")
+                        isSpeaking = true
+                    }
+                }, modifier = Modifier.weight(1f), enabled = text.isNotBlank() && !isSpeaking) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("Play")
+                }
+                OutlinedButton(onClick = { tts.stop(); isSpeaking = false }, modifier = Modifier.weight(1f), enabled = isSpeaking) {
+                    Icon(Icons.Default.Stop, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("Stop")
+                }
+            }
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Speed", style = MaterialTheme.typography.bodySmall); Text("${String.format("%.1f", speed)}x", style = MaterialTheme.typography.bodySmall) }
+                Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.5f..2.0f)
+            }
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Pitch", style = MaterialTheme.typography.bodySmall); Text("${String.format("%.1f", pitch)}", style = MaterialTheme.typography.bodySmall) }
+                Slider(value = pitch, onValueChange = { pitch = it }, valueRange = 0.5f..2.0f)
             }
         }
     }

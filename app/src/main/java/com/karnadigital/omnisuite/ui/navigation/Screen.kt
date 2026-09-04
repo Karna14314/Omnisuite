@@ -343,10 +343,6 @@ sealed class Screen(val route: String) {
      */
     object PasswordZip : Screen("password_zip")
 
-    /**
-     * PDF to PDF/A Screen
-     */
-    object PdfToPdfA : Screen("pdf_to_pdfa")
 
     /**
      * PDF Metadata Editor Screen
@@ -363,30 +359,14 @@ sealed class Screen(val route: String) {
      */
     object PdfRedact : Screen("pdf_redact")
 
-    /**
-     * PDF Repair Screen
-     */
-    object PdfRepair : Screen("pdf_repair")
 
-    /**
-     * PDF Overlay Screen
-     */
-    object PdfOverlay : Screen("pdf_overlay")
 
     /**
      * PDF Compare Screen
      */
     object PdfCompare : Screen("pdf_compare")
 
-    /**
-     * PDF to Markdown Screen
-     */
-    object PdfToMarkdown : Screen("pdf_to_markdown")
 
-    /**
-     * PDF Split by Size Screen
-     */
-    object PdfSplitBySize : Screen("pdf_split_by_size")
 
     /**
      * PDF Insert Pages Screen
@@ -408,20 +388,8 @@ sealed class Screen(val route: String) {
      */
     object PasswordZipExtract : Screen("password_zip_extract")
 
-    /**
-     * PDF Split by Bookmarks Screen
-     */
-    object PdfSplitByBookmarks : Screen("pdf_split_by_bookmarks")
 
-    /**
-     * PDF Underlay Screen
-     */
-    object PdfUnderlay : Screen("pdf_underlay")
 
-    /**
-     * PDF Form Creation Screen
-     */
-    object PdfFormCreation : Screen("pdf_form_creation")
 
     /**
      * File Encrypt Screen
@@ -478,10 +446,6 @@ sealed class Screen(val route: String) {
      */
     object PdfBookmarkReader : Screen("pdf_bookmark_reader")
 
-    /**
-     * PDF/A Validation Screen
-     */
-    object PdfAValidation : Screen("pdf_a_validation")
 
     /**
      * Enhanced PDF to Word Screen
@@ -493,25 +457,13 @@ sealed class Screen(val route: String) {
      */
     object MarkdownToPdfEnhanced : Screen("markdown_to_pdf_enhanced")
 
-    /**
-     * SVG to PDF Screen
-     */
-    object SvgToPdf : Screen("svg_to_pdf")
 
     /**
      * Advanced Word Count Screen
      */
     object AdvancedWordCount : Screen("advanced_word_count")
 
-    /**
-     * Sticker Maker Screen
-     */
-    object StickerMaker : Screen("sticker_maker")
 
-    /**
-     * Sticker Import Screen
-     */
-    object StickerImport : Screen("sticker_import")
 
     /**
      * Exact Resize Screen

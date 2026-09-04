@@ -273,127 +273,152 @@ fun XlsxViewerScreen(
                     }
                 }
             } else {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = when (val s = state) {
-                                is XlsxLoadState.Success -> s.fileName
-                                else -> "Spreadsheet Viewer"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back"
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = when (val s = state) {
+                                    is XlsxLoadState.Success -> s.fileName
+                                    else -> "Spreadsheet Viewer"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                    },
-                    actions = {
-                        if (state is XlsxLoadState.Success) {
-                            var showMenu by remember { mutableStateOf(false) }
-
-                            IconButton(onClick = { searchExpanded = true }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search")
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Navigate back"
+                                )
                             }
+                        },
+                        actions = {
+                            if (state is XlsxLoadState.Success) {
+                                var showMenu by remember { mutableStateOf(false) }
 
-                            // Edit Menu Button
-                            Box {
-                                EditMenuButton(onClick = { showEditMenu = true })
-                                EditMenuPopup(
-                                    expanded = showEditMenu,
-                                    onDismiss = { showEditMenu = false },
-                                    items = listOf(
-                                        EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }),
-                                        EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }),
-                                        EditMenuItem(Icons.Default.FormatUnderlined, "Underline", onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }),
-                                        EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { showFormatMenu = true }),
-                                        EditMenuItem(Icons.Default.FormatColorFill, "Cell Color", onClick = { }),
-                                        EditMenuItem(Icons.Default.FormatClear, "Clear Format", onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) })
+                                IconButton(onClick = { searchExpanded = true }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
+
+                                IconButton(onClick = { viewModel.commitChanges() }) {
+                                    Icon(Icons.Default.Check, contentDescription = "Commit changes to disk", tint = MaterialTheme.colorScheme.primary)
+                                }
+
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                                }
+
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Print") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Print)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
                                     )
-                                )
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Share)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Open in...") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.OpenIn)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Export to PDF") },
+                                        onClick = {
+                                            showMenu = false
+                                            val currentSuccess = state as XlsxLoadState.Success
+                                            val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
+                                            exportPdfLauncher.launch(defaultName)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Convert to CSV") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.XlsxToCsv.createRoute(fileUri)))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Import CSV") },
+                                        onClick = {
+                                            showMenu = false
+                                            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.CsvToXlsx.createRoute(fileUri)))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
+                                    )
+                                }
                             }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
 
-                            IconButton(onClick = { viewModel.commitChanges() }) {
-                                Icon(Icons.Default.Check, contentDescription = "Commit changes to disk", tint = MaterialTheme.colorScheme.primary)
-                            }
-
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More Options")
-                            }
-
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
+                    // Top Contextual Formatting Toolbar
+                    if (state is XlsxLoadState.Success) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Print") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Print)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Share)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Open in...") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.OpenIn)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Export to PDF") },
-                                    onClick = {
-                                        showMenu = false
-                                        val currentSuccess = state as XlsxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Convert to CSV") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.XlsxToCsv.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Import CSV") },
-                                    onClick = {
-                                        showMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.CsvToXlsx.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
-                                )
+                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }) {
+                                    Icon(Icons.Default.FormatBold, contentDescription = "Bold")
+                                }
+                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }) {
+                                    Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
+                                }
+                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }) {
+                                    Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
+                                }
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+                                IconButton(onClick = { showFormatMenu = true }) {
+                                    Icon(Icons.Default.FormatColorText, contentDescription = "Color")
+                                }
+                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) }) {
+                                    Icon(Icons.Default.FormatClear, contentDescription = "Clear Format")
+                                }
+                                IconButton(onClick = { if (selectedCell != null) showBottomSheet = true }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Edit Cell",
+                                        tint = if (selectedCell != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    )
+                                }
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                )
+                    }
+                }
             }
         },
         bottomBar = {
             if (state is XlsxLoadState.Success) {
-                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
@@ -407,64 +432,10 @@ fun XlsxViewerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ViewerActionColumnButton(
-                            icon = Icons.Default.Save,
-                            title = "Save"
-                        ) {
-                            viewModel.commitChanges()
-                        }
-
-                        ViewerActionColumnButton(
                             icon = Icons.Default.Search,
                             title = "Find"
                         ) {
                             searchExpanded = true
-                        }
-
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.TableChart,
-                            title = "Sheets"
-                        ) {
-                            // Focus or scroll to active sheet
-                        }
-
-                        Box {
-                            ViewerActionColumnButton(
-                                icon = Icons.Default.Build,
-                                title = "Tools"
-                            ) {
-                                showToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showToolsMenu,
-                                onDismissRequest = { showToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Export to PDF") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        val currentSuccess = state as XlsxLoadState.Success
-                                        val defaultName = currentSuccess.fileName.substringBeforeLast(".") + ".pdf"
-                                        exportPdfLauncher.launch(defaultName)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Convert to CSV") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.XlsxToCsv.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Import CSV") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.CsvToXlsx.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
-                                )
-                            }
                         }
 
                         ViewerActionColumnButton(

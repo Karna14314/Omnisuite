@@ -293,28 +293,18 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("🖼️", "Images to PDF+", "Compile images with layout options", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdfLayout) }) }
         item { ToolListRow("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }) }
         item { ToolListRow("📐", "Resize Pages", "Change PDF page size (A3/A4/A5/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }) }
-        item { ToolListRow("📑", "PDF to PDF/A", "Convert to archival PDF/A format", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPdfA) }) }
         item { ToolListRow("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }) }
         item { ToolListRow("✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }) }
         item { ToolListRow("⬛", "Redact PDF", "Permanently blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }) }
-        item { ToolListRow("🔧", "Repair PDF", "Fix corrupted PDF files", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRepair) }) }
-        item { ToolListRow("📋", "Overlay PDF", "Overlay one PDF on another", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfOverlay) }) }
         item { ToolListRow("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }) }
-        item { ToolListRow("📝", "PDF to Markdown", "Convert PDF to Markdown format", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToMarkdown) }) }
-        item { ToolListRow("✂️", "Split by Size", "Split PDF into size-based chunks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplitBySize) }) }
         item { ToolListRow("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }) }
         item { ToolListRow("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }) }
         item { ToolListRow("🔖", "Edit Bookmarks", "Add bookmarks to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }) }
-        item { ToolListRow("📑", "Split by Bookmarks", "Split at bookmark boundaries", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplitByBookmarks) }) }
-        item { ToolListRow("📋", "PDF Underlay", "Place PDF behind content", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfUnderlay) }) }
-        item { ToolListRow("📝", "Create Form", "Add fillable form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormCreation) }) }
         item { ToolListRow("🖼️", "Extract Images (Selective)", "Choose specific images to extract", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSelectiveImageExtract) }) }
         item { ToolListRow("🖼️", "Extract All Pages as Images", "Render every page as PNG", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAllPagesToImage) }) }
         item { ToolListRow("📖", "Read Bookmarks", "View PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarkReader) }) }
-        item { ToolListRow("✅", "PDF/A Validation", "Check PDF/A compliance", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAValidation) }) }
         item { ToolListRow("📄", "PDF to Word (Enhanced)", "Better formatting preservation", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWordEnhanced) }) }
         item { ToolListRow("📝", "MD to PDF (Enhanced)", "Full GFM support", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdfEnhanced) }) }
-        item { ToolListRow("🎨", "SVG to PDF", "Convert SVG to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSvgToPdf) }) }
         item { ToolListRow("🔢", "Word Count (Advanced)", "Reading time, chars, lines", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }) }
         item { ToolListRow("🧩", "Block Editor (Experimental)", "Edit PDF block-by-block like LightPDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBlockEditor) }) }
     }
@@ -409,8 +399,6 @@ fun ArchiveQrToolsList(
         item { ToolListRow("🎨", "Color Picker", "Pick colors from images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToColorPicker) }) }
         item { ToolListRow("🖼️", "Collage Maker", "Photo collage with layouts", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToCollageMaker) }) }
         item { ToolListRow("😄", "Meme Maker", "Add top/bottom text to images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToMemeMaker) }) }
-        item { ToolListRow("🏷️", "Sticker Maker", "Extract objects as stickers", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToStickerMaker) }) }
-        item { ToolListRow("📌", "Import Sticker", "Place stickers on images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToStickerImport) }) }
         item { ToolListRow("📐", "Exact Resize", "Resize to exact dimensions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToExactResize) }) }
         item { ToolListRow("🔊", "Read Aloud", "Text-to-speech (offline)", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToReadAloud) }) }
     }

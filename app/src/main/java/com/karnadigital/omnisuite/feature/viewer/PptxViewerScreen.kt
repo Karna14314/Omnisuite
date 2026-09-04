@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import java.io.File
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -250,6 +251,7 @@ fun PptxViewerScreen(
                         }
                     }
                 } else {
+                Column {
                     TopAppBar(
                         title = {
                             Text(
@@ -261,20 +263,19 @@ fun PptxViewerScreen(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
-                            )
+                                )
                         },
                         navigationIcon = {
                             IconButton(onClick = onBack) {
-                                Icon(
+                                    Icon(
                                     imageVector = Icons.Default.ArrowBack,
                                     contentDescription = "Navigate back"
-                                )
-                            }
+                                    )
+                                }
                         },
                         actions = {
                             if (state is PptxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
-                                var showEditMenu by remember { mutableStateOf(false) }
 
                                 // Toggle Continuous Flow vs Single Slide Pager
                                 IconButton(onClick = {
@@ -302,48 +303,14 @@ fun PptxViewerScreen(
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }
 
-                                // Edit Menu
-                                Box {
-                                    EditMenuButton(onClick = {
-                                        isEditMode = !isEditMode
-                                        showEditMenu = true
-                                    })
-                                    EditMenuPopup(
-                                        expanded = showEditMenu,
-                                        onDismiss = { showEditMenu = false },
-                                        items = listOf(
-                                            EditMenuItem(Icons.Default.Title, "Edit Title", onClick = {
-                                                activeIndexToEdit = pagerState.currentPage
-                                                isTitleEdit = true
-                                                blockIndexToEdit = 0
-                                                showFormatter = true
-                                            }),
-                                            EditMenuItem(Icons.Default.TextFields, "Edit Text", onClick = {
-                                                activeIndexToEdit = pagerState.currentPage
-                                                isTitleEdit = false
-                                                blockIndexToEdit = 0
-                                                showFormatter = true
-                                            }),
-                                            EditMenuItem(Icons.Default.FormatBold, "Bold", onClick = { }),
-                                            EditMenuItem(Icons.Default.FormatItalic, "Italic", onClick = { }),
-                                            EditMenuItem(Icons.Default.FormatColorText, "Text Color", onClick = { }),
-                                            EditMenuItem(Icons.Default.Image, "Insert Image", onClick = { imagePickerLauncher.launch("image/*") })
+                                IconButton(onClick = { isEditMode = !isEditMode }) {
+                                    Icon(
+                                        imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
+                                        contentDescription = "Toggle Edit Mode",
+                                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                         )
-                                    )
                                 }
-                                // Edit button temporarily hidden
-                                // IconButton(onClick = {
-                                //     if (isEditMode) {
-                                //         viewModel.commitChanges()
-                                //     }
-                                //     isEditMode = !isEditMode
-                                // }) {
-                                //     Icon(
-                                //         imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                //         contentDescription = "Toggle Edit Mode",
-                                //         tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                //     )
-                                // }
+
                                 IconButton(onClick = { showMenu = true }) {
                                     Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                                 }
@@ -400,19 +367,66 @@ fun PptxViewerScreen(
                                         leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
                                     )
                                 }
-                            }
+                                }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = MaterialTheme.colorScheme.surface,
                             titleContentColor = MaterialTheme.colorScheme.onSurface
                         )
                     )
+
+                    // Top Contextual Edit Bar
+                    if (isEditMode && state is PptxLoadState.Success) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                IconButton(onClick = {
+                                    activeIndexToEdit = pagerState.currentPage
+                                    isTitleEdit = true
+                                    blockIndexToEdit = 0
+                                    showFormatter = true
+                                }) {
+                                    Icon(Icons.Default.Title, contentDescription = "Edit Title")
+                                }
+                                IconButton(onClick = {
+                                    activeIndexToEdit = pagerState.currentPage
+                                    isTitleEdit = false
+                                    blockIndexToEdit = 0
+                                    showFormatter = true
+                                }) {
+                                    Icon(Icons.Default.TextFields, contentDescription = "Edit Text")
+                                }
+                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
+                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
+                                }
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+                                IconButton(onClick = { viewModel.addSlide(pagerState.currentPage) }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Slide")
+                                }
+                                IconButton(onClick = { viewModel.duplicateSlide(pagerState.currentPage) }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Slide")
+                                }
+                                IconButton(onClick = { viewModel.deleteSlide(pagerState.currentPage) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Slide", tint = MaterialTheme.colorScheme.error)
+                                }
+                                }
+                            }
+                    }
+                }
                 }
             }
         },
         bottomBar = {
             if (state is PptxLoadState.Success && viewMode != PptxViewMode.SLIDESHOW) {
-                var showToolsMenu by remember { mutableStateOf(false) }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
@@ -462,36 +476,6 @@ fun PptxViewerScreen(
                             title = "Notes"
                         ) {
                             showNotesPanel = !showNotesPanel
-                        }
-
-                        Box {
-                            ViewerActionColumnButton(
-                                icon = Icons.Default.Build,
-                                title = "Tools"
-                            ) {
-                                showToolsMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showToolsMenu,
-                                onDismissRequest = { showToolsMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Convert to PDF") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptToPdf.route))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Extract Text to TXT") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.PptxToTxt.createRoute(fileUri)))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.TextSnippet, contentDescription = null) }
-                                )
-                            }
                         }
 
                         ViewerActionColumnButton(
