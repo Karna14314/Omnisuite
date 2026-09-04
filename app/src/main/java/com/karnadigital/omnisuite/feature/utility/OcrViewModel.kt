@@ -37,6 +37,10 @@ class OcrViewModel @Inject constructor(
         private set
 
     var recognizedText by mutableStateOf("")
+    var markdownText by mutableStateOf("")
+    var activeTab by mutableStateOf(0) // 0 = Plain Text, 1 = Markdown
+    var ocrOutputName by mutableStateOf("OCR_Result")
+
     var isProcessing by mutableStateOf(false)
         private set
 
@@ -112,6 +116,153 @@ class OcrViewModel @Inject constructor(
     /**
      * Performs character parsing offline using ML Kit Latin recognizers.
      */
+    /**
+     * Preprocesses the bitmap with scaling, contrast enhancement, and noise reduction.
+     */
+    private fun preprocessImage(original: Bitmap): Bitmap {
+        var bmp = original
+        val width = original.width
+        val height = original.height
+
+        val maxSide = Math.max(width, height)
+        if (maxSide < 800) {
+            val scale = 1200f / maxSide
+            bmp = Bitmap.createScaledBitmap(original, (width * scale).toInt(), (height * scale).toInt(), true)
+        } else if (maxSide > 2400) {
+            val scale = 2000f / maxSide
+            bmp = Bitmap.createScaledBitmap(original, (width * scale).toInt(), (height * scale).toInt(), true)
+        }
+
+        val processed = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(processed)
+        val paint = android.graphics.Paint()
+
+        val contrast = 1.25f
+        val brightness = 10f
+        val cm = android.graphics.ColorMatrix(floatArrayOf(
+            contrast, 0f, 0f, 0f, brightness,
+            0f, contrast, 0f, 0f, brightness,
+            0f, 0f, contrast, 0f, brightness,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        paint.colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+        canvas.drawBitmap(bmp, 0f, 0f, paint)
+
+        return processed
+    }
+
+    /**
+     * Parses ML Kit Text object layout into structured Markdown (Headings, Lists, Tables, Paragraphs).
+     */
+    private fun buildStructuredMarkdown(textResult: com.google.mlkit.vision.text.Text): String {
+        val blocks = textResult.textBlocks
+        if (blocks.isEmpty()) return ""
+
+        var totalHeight = 0
+        var lineCount = 0
+        blocks.forEach { block ->
+            block.lines.forEach { line ->
+                line.boundingBox?.let { box ->
+                    totalHeight += box.height()
+                    lineCount++
+                }
+            }
+        }
+        val avgLineHeight = if (lineCount > 0) totalHeight.toFloat() / lineCount else 30f
+
+        val sb = StringBuilder()
+
+        blocks.forEach blockLoop@{ block ->
+            val lines = block.lines
+            if (lines.isEmpty()) return@blockLoop
+
+            val isTable = checkIsTableBlock(lines)
+            if (isTable) {
+                sb.append(buildMarkdownTable(lines)).append("\n\n")
+            } else {
+                lines.forEach lineLoop@{ line ->
+                    val lineText = line.text.trim()
+                    if (lineText.isBlank()) return@lineLoop
+
+                    val boxHeight = line.boundingBox?.height() ?: 0
+                    val isHeading = boxHeight > avgLineHeight * 1.35f || (lineText.length < 50 && lineText.uppercase() == lineText && lineText.any { it.isLetter() })
+
+                    if (isHeading) {
+                        if (boxHeight > avgLineHeight * 1.6f) {
+                            sb.append("# ").append(lineText).append("\n\n")
+                        } else {
+                            sb.append("## ").append(lineText).append("\n\n")
+                        }
+                    } else if (lineText.startsWith("•") || lineText.startsWith("-") || lineText.startsWith("*") || lineText.startsWith("o ")) {
+                        val clean = lineText.substring(1).trim()
+                        sb.append("- ").append(clean).append("\n")
+                    } else if (lineText.matches(Regex("""^\d+[\.\)]\s+.*"""))) {
+                        sb.append(lineText).append("\n")
+                    } else {
+                        sb.append(lineText).append(" ")
+                    }
+                }
+                sb.append("\n\n")
+            }
+        }
+
+        return sb.toString().replace(Regex("""\n{3,}"""), "\n\n").trim()
+    }
+
+    private fun checkIsTableBlock(lines: List<com.google.mlkit.vision.text.Text.Line>): Boolean {
+        if (lines.size < 2) return false
+        var multiElementLines = 0
+        lines.forEach { line ->
+            if (line.elements.size >= 2) multiElementLines++
+        }
+        return multiElementLines >= 2 && multiElementLines.toFloat() / lines.size >= 0.6f
+    }
+
+    private fun buildMarkdownTable(lines: List<com.google.mlkit.vision.text.Text.Line>): String {
+        val tableSb = StringBuilder()
+        var colCount = 0
+        val rows = mutableListOf<List<String>>()
+
+        lines.forEach { line ->
+            val elements = line.elements
+            if (elements.isNotEmpty()) {
+                val cellTexts = elements.map { it.text.trim() }
+                if (cellTexts.size > colCount) colCount = cellTexts.size
+                rows.add(cellTexts)
+            }
+        }
+
+        if (colCount == 0 || rows.isEmpty()) return ""
+
+        val headerRow = rows[0]
+        tableSb.append("| ")
+        for (i in 0 until colCount) {
+            val valStr = headerRow.getOrNull(i) ?: ""
+            tableSb.append(valStr).append(" | ")
+        }
+        tableSb.append("\n| ")
+
+        for (i in 0 until colCount) {
+            tableSb.append("--- | ")
+        }
+        tableSb.append("\n")
+
+        for (r in 1 until rows.size) {
+            val row = rows[r]
+            tableSb.append("| ")
+            for (i in 0 until colCount) {
+                val valStr = row.getOrNull(i) ?: ""
+                tableSb.append(valStr).append(" | ")
+            }
+            tableSb.append("\n")
+        }
+
+        return tableSb.toString().trim()
+    }
+
+    /**
+     * Performs character parsing offline using ML Kit Latin recognizers with preprocessed image pipeline.
+     */
     fun performOcr() {
         val bitmap = selectedImageBitmap
         if (bitmap == null) {
@@ -133,18 +284,20 @@ class OcrViewModel @Inject constructor(
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 try {
+                    val preprocessedBitmap = preprocessImage(bitmap)
                     val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                    val inputImage = InputImage.fromBitmap(bitmap, 0)
+                    val inputImage = InputImage.fromBitmap(preprocessedBitmap, 0)
 
                     recognizer.process(inputImage)
                         .addOnSuccessListener { result ->
                             recognizedText = result.text
+                            markdownText = buildStructuredMarkdown(result)
                             isProcessing = false
                             if (result.text.isBlank()) {
                                 errorMessage = "No text could be identified in the selected image."
                             } else {
-                                successMessage = "Text parsed successfully!"
-                                saveOcrTextToFileAndLog(result.text)
+                                successMessage = "Text and Markdown structure parsed successfully!"
+                                saveOcrTextToFileAndLog(result.text, ocrOutputName)
                             }
                         }
                         .addOnFailureListener { exception ->
@@ -159,16 +312,20 @@ class OcrViewModel @Inject constructor(
         }
     }
 
-    private fun saveOcrTextToFileAndLog(text: String) {
+    fun saveOcrTextToFileAndLog(text: String, customName: String = "OCR_Result") {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 try {
                     val bytes = text.toByteArray()
-                    val fileName = "Ocr_${System.currentTimeMillis()}.txt"
+                    val cleanBase = customName.replace(Regex("""[^a-zA-Z0-9._-]"""), "_")
+                    val ext = if (activeTab == 1) ".md" else ".txt"
+                    val mime = if (activeTab == 1) "text/markdown" else "text/plain"
+                    val fileName = if (cleanBase.endsWith(".txt") || cleanBase.endsWith(".md")) cleanBase else "$cleanBase$ext"
+
                     val savedUri = fileOutputManager.saveToDefault(
                         bytes = bytes,
                         filename = fileName,
-                        mimeType = "text/plain",
+                        mimeType = mime,
                         subfolder = "OCR"
                     )
                     if (savedUri != null) {
@@ -180,7 +337,7 @@ class OcrViewModel @Inject constructor(
                             RecentFile(
                                 fileUri = savedUri.toString(),
                                 fileName = fileName,
-                                mimeType = "text/plain",
+                                mimeType = mime,
                                 fileSize = bytes.size.toLong(),
                                 lastOpened = System.currentTimeMillis(),
                                 isOperation = true
@@ -193,6 +350,7 @@ class OcrViewModel @Inject constructor(
             }
         }
     }
+
 
     /**
      * Exports transcribed text string directly to target SAF text file stream.

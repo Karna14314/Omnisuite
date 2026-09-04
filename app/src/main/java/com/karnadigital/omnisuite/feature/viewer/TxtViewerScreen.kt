@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.engine.EncodingDetector
@@ -297,7 +298,17 @@ fun TxtViewerScreen(
                         IconButton(onClick = { showMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More")
                         }
+                        var showRenameDialog by remember { mutableStateOf(false) }
+
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Rename document") },
+                                onClick = {
+                                    showMenu = false
+                                    showRenameDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (showLineNumbers) "Hide line numbers" else "Show line numbers") },
                                 onClick = {
@@ -326,6 +337,48 @@ fun TxtViewerScreen(
                                     themeIndex = (themeIndex + 1) % themes.size
                                 },
                                 leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null) }
+                            )
+                        }
+
+                        if (showRenameDialog) {
+                            var newNameInput by remember { mutableStateOf(fileUri.substringAfterLast('/')) }
+                            AlertDialog(
+                                onDismissRequest = { showRenameDialog = false },
+                                title = { Text("Rename Document", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    OutlinedTextField(
+                                        value = newNameInput,
+                                        onValueChange = { newNameInput = it },
+                                        label = { Text("New File Name") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            if (newNameInput.isNotBlank()) {
+                                                val oldFile = File(fileUri)
+                                                if (oldFile.exists() && oldFile.isFile) {
+                                                    val ext = oldFile.extension
+                                                    val cleanName = if (newNameInput.contains(".")) newNameInput else if (ext.isNotBlank()) "$newNameInput.$ext" else newNameInput
+                                                    val newFile = File(oldFile.parentFile, cleanName)
+                                                    if (oldFile.renameTo(newFile)) {
+                                                        Toast.makeText(context, "Renamed to $cleanName", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                            showRenameDialog = false
+                                        }
+                                    ) {
+                                        Text("Rename")
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showRenameDialog = false }) {
+                                        Text("Cancel")
+                                    }
+                                }
                             )
                         }
                     }

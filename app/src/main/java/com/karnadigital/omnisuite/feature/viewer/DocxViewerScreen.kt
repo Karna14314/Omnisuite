@@ -258,6 +258,26 @@ fun DocxViewerScreen(
                 }
             } else {
                 Column {
+                    if (fileUri.endsWith(".doc", ignoreCase = true)) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "View Mode (Read-Only .doc format). Convert to .docx to enable editing.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
                     TopAppBar(
                         title = {
                             Text(
@@ -862,7 +882,13 @@ fun DocxViewerScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = { showLinkDialog = false }) { Text("Insert") }
+                Button(onClick = {
+                    if (linkText.isNotBlank() && linkUrl.isNotBlank()) {
+                        viewModel.appendParagraph("$linkText ($linkUrl)")
+                        Toast.makeText(context, "Link inserted as new paragraph", Toast.LENGTH_SHORT).show()
+                    }
+                    showLinkDialog = false
+                }) { Text("Insert") }
             },
             dismissButton = {
                 TextButton(onClick = { showLinkDialog = false }) { Text("Cancel") }

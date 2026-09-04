@@ -88,8 +88,10 @@ fun ViewerDispatcherScreen(
                 return@LaunchedEffect
             }
             val parsedUri = Uri.parse(fileUri)
+            uriCacheUtils.takePersistablePermission(parsedUri)
+
             val cachedFile = uriCacheUtils.cacheUriToFile(parsedUri)
-            if (cachedFile != null && cachedFile.exists()) {
+            if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
                 val fileType = determineFileType(context, fileUri, cachedFile)
                 if (fileType != null) {
                     state = DispatcherState.Success(cachedFile.absolutePath, fileType)
@@ -98,12 +100,12 @@ fun ViewerDispatcherScreen(
                     val mimeType = getMimeTypeFromFileType(fileType)
                     viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
                 } else {
-                    state = DispatcherState.Error("This file format is not supported by OmniSuite.")
+                    state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                 }
             } else {
                 val pathToCheck = parsedUri.path ?: fileUri
                 val directFile = File(pathToCheck)
-                if (directFile.exists() && directFile.isFile) {
+                if (directFile.exists() && directFile.isFile && directFile.length() > 0) {
                     val fileType = determineFileType(context, fileUri, directFile)
                     if (fileType != null) {
                         state = DispatcherState.Success(directFile.absolutePath, fileType)
@@ -112,18 +114,22 @@ fun ViewerDispatcherScreen(
                         val mimeType = getMimeTypeFromFileType(fileType)
                         viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
                     } else {
-                        state = DispatcherState.Error("This file format is not supported by OmniSuite.")
+                        state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                     }
                 } else {
-                    state = DispatcherState.Error("Unable to load document. The file stream could not be isolated.")
+                    if (fileUri.startsWith("content://")) {
+                        state = DispatcherState.Error("File Moved or Permission Expired: The original document stream could not be accessed. The file may have been moved, deleted, or its access permission was revoked.")
+                    } else {
+                        state = DispatcherState.Error("File Moved or Deleted: The file could not be found at $pathToCheck.")
+                    }
                 }
             }
         } catch (e: SecurityException) {
             e.printStackTrace()
-            state = DispatcherState.Error("File permission has expired or was denied. Please re-open this file from the storage browser to grant fresh system permissions.")
+            state = DispatcherState.Error("Permission Revoked or Expired: Storage access permission has expired. Please re-open this file from the file picker to grant fresh permissions.")
         } catch (e: Exception) {
             e.printStackTrace()
-            state = DispatcherState.Error("System error during document ingestion: ${e.localizedMessage}")
+            state = DispatcherState.Error("Document Read Error: Unable to access document (${e.localizedMessage}).")
         }
     }
 

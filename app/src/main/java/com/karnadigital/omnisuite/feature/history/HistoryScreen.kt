@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
@@ -216,6 +217,8 @@ fun HistoryScreen(
                 }
             }
             is HistoryUiState.Success -> {
+                var itemToRename by remember { mutableStateOf<RecentFile?>(null) }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -232,9 +235,44 @@ fun HistoryScreen(
                                     onOpenFile(item.fileUri)
                                 }
                             },
+                            onRename = { itemToRename = item },
                             onDelete = { viewModel.deleteItem(item) }
                         )
                     }
+                }
+
+                if (itemToRename != null) {
+                    var newNameInput by remember(itemToRename) { mutableStateOf(itemToRename!!.fileName) }
+                    AlertDialog(
+                        onDismissRequest = { itemToRename = null },
+                        title = { Text("Rename History File", fontWeight = FontWeight.Bold) },
+                        text = {
+                            OutlinedTextField(
+                                value = newNameInput,
+                                onValueChange = { newNameInput = it },
+                                label = { Text("New File Name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    if (newNameInput.isNotBlank()) {
+                                        viewModel.renameItem(itemToRename!!, newNameInput)
+                                    }
+                                    itemToRename = null
+                                }
+                            ) {
+                                Text("Rename")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { itemToRename = null }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -248,6 +286,7 @@ fun HistoryScreen(
 fun HistoryItemRow(
     item: RecentFile,
     onClick: () -> Unit,
+    onRename: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     val (typeLabel, iconText, themeColor, categoryBg) = when {
@@ -357,6 +396,15 @@ fun HistoryItemRow(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+
+            IconButton(onClick = onRename) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Rename item",
+                    tint = OmniColors.TextMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
 
             IconButton(onClick = onDelete) {
                 Icon(

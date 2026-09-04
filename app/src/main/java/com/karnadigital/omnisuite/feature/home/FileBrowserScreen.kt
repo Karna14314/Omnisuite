@@ -293,6 +293,9 @@ fun FileBrowserScreen(
                                         },
                                         onShare = {
                                             shareLocalFile(context, file)
+                                        },
+                                        onRefresh = {
+                                            refreshFiles()
                                         }
                                     )
                                 }
@@ -345,7 +348,6 @@ fun FileBrowserScreen(
                                         fileUri = node.uriString,
                                         onOpenFile = onOpenFile,
                                         onDelete = {
-                                            // Request content resolver to delete
                                             try {
                                                 context.contentResolver.delete(Uri.parse(node.uriString), null, null)
                                                 refreshFiles()
@@ -356,6 +358,9 @@ fun FileBrowserScreen(
                                         },
                                         onShare = {
                                             shareContentUri(context, Uri.parse(node.uriString), node.mimeType)
+                                        },
+                                        onRefresh = {
+                                            refreshFiles()
                                         }
                                     )
                                 }
@@ -448,7 +453,8 @@ fun FileItemRow(
     fileUri: String,
     onOpenFile: (String) -> Unit,
     onDelete: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val extension = name.substringAfterLast('.', "").lowercase()
@@ -470,6 +476,7 @@ fun FileItemRow(
     }
 
     var showMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -526,6 +533,14 @@ fun FileItemRow(
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = {
+                            showMenu = false
+                            showRenameDialog = true
+                        },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    )
+                    DropdownMenuItem(
                         text = { Text("Share") },
                         onClick = {
                             showMenu = false
@@ -544,6 +559,54 @@ fun FileItemRow(
                 }
             }
         }
+    }
+
+    if (showRenameDialog) {
+        var newNameInput by remember(name) { mutableStateOf(name) }
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("Rename File", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newNameInput,
+                    onValueChange = { newNameInput = it },
+                    label = { Text("New File Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newNameInput.isNotBlank()) {
+                            val parsed = Uri.parse(fileUri)
+                            if (parsed.scheme == "file" || parsed.scheme == null) {
+                                val oldFile = File(parsed.path ?: fileUri)
+                                if (oldFile.exists() && oldFile.isFile) {
+                                    val oldExt = oldFile.extension
+                                    val cleanName = if (newNameInput.contains(".")) newNameInput else if (oldExt.isNotBlank()) "$newNameInput.$oldExt" else newNameInput
+                                    val newFile = File(oldFile.parentFile, cleanName)
+                                    if (oldFile.renameTo(newFile)) {
+                                        onRefresh()
+                                        Toast.makeText(context, "Renamed to $cleanName", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                Toast.makeText(context, "File renamed", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        showRenameDialog = false
+                    }
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

@@ -55,6 +55,36 @@ class RecentFileRepository @Inject constructor(
     }
 
     /**
+     * Renames a recent file record in persistence database and storage handle.
+     */
+    suspend fun renameFile(oldUriString: String, newName: String): String {
+        try {
+            val parsed = android.net.Uri.parse(oldUriString)
+            val scheme = parsed.scheme?.lowercase()
+            val oldExt = oldUriString.substringAfterLast('.', "")
+            val cleanName = if (newName.contains(".")) newName else if (oldExt.isNotBlank()) "$newName.$oldExt" else newName
+
+            var newUriString = oldUriString
+
+            if (scheme == "file" || scheme == null) {
+                val oldFile = java.io.File(parsed.path ?: oldUriString)
+                if (oldFile.exists() && oldFile.isFile) {
+                    val newFile = java.io.File(oldFile.parentFile, cleanName)
+                    if (oldFile.renameTo(newFile)) {
+                        newUriString = android.net.Uri.fromFile(newFile).toString()
+                    }
+                }
+            }
+
+            recentFileDao.updateRecentFileNameAndUri(oldUriString, cleanName, newUriString)
+            return newUriString
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return oldUriString
+        }
+    }
+
+    /**
      * Deletes a specific file reference from the persistence cache.
      */
     suspend fun deleteRecentFile(recentFile: RecentFile) {
