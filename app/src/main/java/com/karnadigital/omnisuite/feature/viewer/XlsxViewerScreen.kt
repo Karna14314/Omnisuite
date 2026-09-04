@@ -299,6 +299,12 @@ fun XlsxViewerScreen(
                             if (state is XlsxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
 
+                                val xlsxText = remember(state, activeSheetIndex) {
+                                    (state as? XlsxLoadState.Success)?.workbook?.sheets?.getOrNull(activeSheetIndex)?.rows?.flatten()?.joinToString(" ") { it.text } ?: ""
+                                }
+
+                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = xlsxText)
+
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search")
                                 }
@@ -374,75 +380,98 @@ fun XlsxViewerScreen(
                         )
                     )
 
-                    // Top Contextual Formatting Toolbar
-                    if (state is XlsxLoadState.Success) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }) {
-                                    Icon(Icons.Default.FormatBold, contentDescription = "Bold")
-                                }
-                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }) {
-                                    Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
-                                }
-                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }) {
-                                    Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
-                                }
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-                                IconButton(onClick = { showFormatMenu = true }) {
-                                    Icon(Icons.Default.FormatColorText, contentDescription = "Color")
-                                }
-                                IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) }) {
-                                    Icon(Icons.Default.FormatClear, contentDescription = "Clear Format")
-                                }
-                                IconButton(onClick = { if (selectedCell != null) showBottomSheet = true }) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = "Edit Cell",
-                                        tint = if (selectedCell != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         },
         bottomBar = {
             if (state is XlsxLoadState.Success) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // M365 Spreadsheet Editing Ribbon Bar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 8.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Search,
-                            title = "Find"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            searchExpanded = true
-                        }
+                            IconButton(
+                                onClick = { if (selectedCell != null) showBottomSheet = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit Cell",
+                                    tint = if (selectedCell != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Share,
-                            title = "Share"
+                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.FormatBold, contentDescription = "Bold")
+                            }
+                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
+                            }
+                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                            IconButton(onClick = { showFormatMenu = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.FormatColorText, contentDescription = "Color")
+                            }
+
+                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.FormatClear, contentDescription = "Clear Format")
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                            Button(
+                                onClick = { viewModel.commitChanges() },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Save Sheet", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Main Dock Action Bar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            onToolAction(ViewerTool.Share)
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Search,
+                                title = "Find"
+                            ) {
+                                searchExpanded = true
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Share,
+                                title = "Share"
+                            ) {
+                                onToolAction(ViewerTool.Share)
+                            }
                         }
                     }
                 }

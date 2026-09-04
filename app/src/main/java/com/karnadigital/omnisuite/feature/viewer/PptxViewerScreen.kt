@@ -11,6 +11,11 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import java.io.File
@@ -299,6 +304,13 @@ fun PptxViewerScreen(
                                     )
                                 }
 
+                                val slideText = remember(state, pagerState.currentPage) {
+                                    val s = (state as? PptxLoadState.Success)?.presentation?.slides?.getOrNull(pagerState.currentPage)
+                                    s?.let { "${it.title.primaryText}\n${it.textShapes.joinToString("\n") { shape -> shape.primaryText }}\n${it.speakerNotes ?: ""}" } ?: ""
+                                }
+
+                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = slideText)
+
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }
@@ -375,114 +387,138 @@ fun PptxViewerScreen(
                         )
                     )
 
-                    // Top Contextual Edit Bar
-                    if (isEditMode && state is PptxLoadState.Success) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                IconButton(onClick = {
-                                    activeIndexToEdit = pagerState.currentPage
-                                    isTitleEdit = true
-                                    blockIndexToEdit = 0
-                                    showFormatter = true
-                                }) {
-                                    Icon(Icons.Default.Title, contentDescription = "Edit Title")
-                                }
-                                IconButton(onClick = {
-                                    activeIndexToEdit = pagerState.currentPage
-                                    isTitleEdit = false
-                                    blockIndexToEdit = 0
-                                    showFormatter = true
-                                }) {
-                                    Icon(Icons.Default.TextFields, contentDescription = "Edit Text")
-                                }
-                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
-                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
-                                }
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-                                IconButton(onClick = { viewModel.addSlide(pagerState.currentPage) }) {
-                                    Icon(Icons.Default.Add, contentDescription = "Add Slide")
-                                }
-                                IconButton(onClick = { viewModel.duplicateSlide(pagerState.currentPage) }) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Slide")
-                                }
-                                IconButton(onClick = { viewModel.deleteSlide(pagerState.currentPage) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete Slide", tint = MaterialTheme.colorScheme.error)
-                                }
-                                }
-                            }
-                    }
                 }
                 }
             }
         },
         bottomBar = {
             if (state is PptxLoadState.Success && viewMode != PptxViewMode.SLIDESHOW) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // M365 Presentation Editing Ribbon (when edit mode active)
+                    AnimatedVisibility(
+                        visible = isEditMode,
+                        enter = slideInVertically { it } + fadeIn(),
+                        exit = slideOutVertically { it } + fadeOut()
                     ) {
-                        ViewerActionColumnButton(
-                            icon = if (viewMode == PptxViewMode.CONTINUOUS) Icons.Default.ViewCarousel else Icons.Default.ViewStream,
-                            title = if (viewMode == PptxViewMode.CONTINUOUS) "Single" else "Flow"
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 8.dp,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            viewMode = if (viewMode == PptxViewMode.CONTINUOUS) PptxViewMode.PAGER else PptxViewMode.CONTINUOUS
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = {
+                                    activeIndexToEdit = pagerState.currentPage
+                                    isTitleEdit = true
+                                    blockIndexToEdit = 0
+                                    showFormatter = true
+                                }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Title, contentDescription = "Edit Title")
+                                }
+
+                                IconButton(onClick = {
+                                    activeIndexToEdit = pagerState.currentPage
+                                    isTitleEdit = false
+                                    blockIndexToEdit = 0
+                                    showFormatter = true
+                                }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.TextFields, contentDescription = "Edit Text")
+                                }
+
+                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
+                                }
+
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                IconButton(onClick = { viewModel.addSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Slide")
+                                }
+
+                                IconButton(onClick = { viewModel.duplicateSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Slide")
+                                }
+
+                                IconButton(onClick = { viewModel.deleteSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Slide", tint = MaterialTheme.colorScheme.error)
+                                }
+
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                Button(
+                                    onClick = { viewModel.commitChanges() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Save Slides", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
+                    }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.GridView,
-                            title = "Grid"
+                    // Main Dock Action Bar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.CONTINUOUS else PptxViewMode.GRID
-                        }
+                            ViewerActionColumnButton(
+                                icon = if (viewMode == PptxViewMode.CONTINUOUS) Icons.Default.ViewCarousel else Icons.Default.ViewStream,
+                                title = if (viewMode == PptxViewMode.CONTINUOUS) "Single" else "Flow"
+                            ) {
+                                viewMode = if (viewMode == PptxViewMode.CONTINUOUS) PptxViewMode.PAGER else PptxViewMode.CONTINUOUS
+                            }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.PlayArrow,
-                            title = "SlideShow"
-                        ) {
-                            viewMode = PptxViewMode.SLIDESHOW
-                        }
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.GridView,
+                                title = "Grid"
+                            ) {
+                                viewMode = if (viewMode == PptxViewMode.GRID) PptxViewMode.CONTINUOUS else PptxViewMode.GRID
+                            }
 
-                        // Edit button temporarily hidden
-                        // ViewerActionColumnButton(
-                        //     icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                        //     title = if (isEditMode) "Save" else "Edit"
-                        // ) {
-                        //     if (isEditMode) {
-                        //         viewModel.commitChanges()
-                        //     }
-                        //     isEditMode = !isEditMode
-                        // }
+                            ViewerActionColumnButton(
+                                icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                title = if (isEditMode) "Done" else "Edit"
+                            ) {
+                                isEditMode = !isEditMode
+                            }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.SpeakerNotes,
-                            title = "Notes"
-                        ) {
-                            showNotesPanel = !showNotesPanel
-                        }
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.PlayArrow,
+                                title = "SlideShow"
+                            ) {
+                                viewMode = PptxViewMode.SLIDESHOW
+                            }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Share,
-                            title = "Share"
-                        ) {
-                            onToolAction(ViewerTool.Share)
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.SpeakerNotes,
+                                title = "Notes"
+                            ) {
+                                showNotesPanel = !showNotesPanel
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Share,
+                                title = "Share"
+                            ) {
+                                onToolAction(ViewerTool.Share)
+                            }
                         }
                     }
                 }

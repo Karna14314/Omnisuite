@@ -10,6 +10,11 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -278,6 +283,14 @@ fun DocxViewerScreen(
                             if (state is DocxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
 
+                                val docxText = remember(state) {
+                                    (state as? DocxLoadState.Success)?.document?.elements
+                                        ?.filterIsInstance<DocxBodyElement.Para>()
+                                        ?.joinToString("\n") { it.paragraph.runs.joinToString("") { r -> r.text } } ?: ""
+                                }
+
+                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = docxText)
+
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }
@@ -354,51 +367,6 @@ fun DocxViewerScreen(
                         )
                     )
 
-                    // Top Contextual Edit Bar
-                    if (isEditMode && state is DocxLoadState.Success) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                FilterChip(
-                                    selected = pendingFormatBold,
-                                    onClick = { pendingFormatBold = !pendingFormatBold },
-                                    label = { Text("B", fontWeight = FontWeight.Bold) }
-                                )
-                                FilterChip(
-                                    selected = pendingFormatItalic,
-                                    onClick = { pendingFormatItalic = !pendingFormatItalic },
-                                    label = { Text("I", fontStyle = FontStyle.Italic) }
-                                )
-                                FilterChip(
-                                    selected = pendingFormatUnderline,
-                                    onClick = { pendingFormatUnderline = !pendingFormatUnderline },
-                                    label = { Text("U", textDecoration = TextDecoration.Underline) }
-                                )
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-                                IconButton(onClick = { showFormatMenu = true }) {
-                                    Icon(Icons.Default.FormatSize, contentDescription = "Font Style")
-                                }
-                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
-                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
-                                }
-                                IconButton(onClick = { showLinkDialog = true }) {
-                                    Icon(Icons.Default.Link, contentDescription = "Insert Link")
-                                }
-                                IconButton(onClick = { showAppendDialog = true }) {
-                                    Icon(Icons.Default.Add, contentDescription = "Append Paragraph")
-                                }
-                            }
-                        }
-                    }
                 }
             }
         },
@@ -415,37 +383,133 @@ fun DocxViewerScreen(
         },
         bottomBar = {
             if (state is DocxLoadState.Success) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Microsoft 365 Bottom Editing Ribbon Sheet (when in edit mode)
+                    AnimatedVisibility(
+                        visible = isEditMode,
+                        enter = slideInVertically { it } + fadeIn(),
+                        exit = slideOutVertically { it } + fadeOut()
                     ) {
-                        ViewerActionColumnButton(
-                            icon = if (isPrintLayout) Icons.Default.TextSnippet else Icons.Default.PictureAsPdf,
-                            title = if (isPrintLayout) "Reflow" else "Print Layout"
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 8.dp,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            isPrintLayout = !isPrintLayout
-                        }
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val canUndo by viewModel.canUndo.collectAsState()
+                                    val canRedo by viewModel.canRedo.collectAsState()
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Search,
-                            title = "Search"
-                        ) {
-                            searchExpanded = true
-                        }
+                                    IconButton(
+                                        onClick = { viewModel.undo() },
+                                        enabled = canUndo,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Undo, contentDescription = "Undo", tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                                    }
 
-                        ViewerActionColumnButton(
-                            icon = Icons.Default.Share,
-                            title = "Share"
+                                    IconButton(
+                                        onClick = { viewModel.redo() },
+                                        enabled = canRedo,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Redo, contentDescription = "Redo", tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                                    }
+
+                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                    FilterChip(
+                                        selected = pendingFormatBold,
+                                        onClick = { pendingFormatBold = !pendingFormatBold },
+                                        label = { Text("B", fontWeight = FontWeight.Bold) }
+                                    )
+                                    FilterChip(
+                                        selected = pendingFormatItalic,
+                                        onClick = { pendingFormatItalic = !pendingFormatItalic },
+                                        label = { Text("I", fontStyle = FontStyle.Italic) }
+                                    )
+                                    FilterChip(
+                                        selected = pendingFormatUnderline,
+                                        onClick = { pendingFormatUnderline = !pendingFormatUnderline },
+                                        label = { Text("U", textDecoration = TextDecoration.Underline) }
+                                    )
+
+                                    IconButton(onClick = { showFormatMenu = true }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.FormatSize, contentDescription = "Font Style")
+                                    }
+                                    IconButton(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.Image, contentDescription = "Insert Image")
+                                    }
+                                    IconButton(onClick = { showLinkDialog = true }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.Link, contentDescription = "Insert Link")
+                                    }
+                                    IconButton(onClick = { showAppendDialog = true }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.Add, contentDescription = "Append Paragraph")
+                                    }
+
+                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                    Button(
+                                        onClick = { viewModel.commitChanges() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Save Changes", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Main Viewer Dock Bar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            onToolAction(ViewerTool.Share)
+                            ViewerActionColumnButton(
+                                icon = if (isPrintLayout) Icons.Default.TextSnippet else Icons.Default.PictureAsPdf,
+                                title = if (isPrintLayout) "Reflow" else "Print Layout"
+                            ) {
+                                isPrintLayout = !isPrintLayout
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                title = if (isEditMode) "Done" else "Edit"
+                            ) {
+                                isEditMode = !isEditMode
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Search,
+                                title = "Search"
+                            ) {
+                                searchExpanded = true
+                            }
+
+                            ViewerActionColumnButton(
+                                icon = Icons.Default.Share,
+                                title = "Share"
+                            ) {
+                                onToolAction(ViewerTool.Share)
+                            }
                         }
                     }
                 }

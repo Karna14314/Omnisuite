@@ -110,6 +110,9 @@ fun PdfRotateScreen(
 
     LaunchedEffect(fileUri) { fileUri?.let { viewModel.rotateInputUri = Uri.parse(it) } }
 
+    val thumbnails = rememberPdfThumbnails(context, viewModel.rotateInputUri)
+    var selectedPageIndices by remember(thumbnails) { mutableStateOf<Set<Int>>(emptySet()) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -145,7 +148,7 @@ fun PdfRotateScreen(
                 }
             }
 
-            if (viewModel.rotateInputUri != null) {
+            if (thumbnails.isNotEmpty()) {
                 Text("Rotation Angle", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = viewModel.rotateDegrees == 90, onClick = { viewModel.rotateDegrees = 90 }, label = { Text("90° Right") }, modifier = Modifier.weight(1f))
@@ -153,31 +156,67 @@ fun PdfRotateScreen(
                     FilterChip(selected = viewModel.rotateDegrees == 270, onClick = { viewModel.rotateDegrees = 270 }, label = { Text("270° Left") }, modifier = Modifier.weight(1f))
                 }
 
-                Text("Pages to Rotate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("Quick Selection Presets", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = viewModel.rotateTargetMode == "ALL", onClick = { viewModel.rotateTargetMode = "ALL" }, label = { Text("All Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateTargetMode == "ODD", onClick = { viewModel.rotateTargetMode = "ODD" }, label = { Text("Odd Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateTargetMode == "EVEN", onClick = { viewModel.rotateTargetMode = "EVEN" }, label = { Text("Even Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateTargetMode == "CUSTOM", onClick = { viewModel.rotateTargetMode = "CUSTOM" }, label = { Text("Custom") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = selectedPageIndices.size == thumbnails.size, onClick = { selectedPageIndices = (0 until thumbnails.size).toSet() }, label = { Text("All Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = false, onClick = { selectedPageIndices = (0 until thumbnails.size).filter { it % 2 == 0 }.toSet() }, label = { Text("Odd Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = false, onClick = { selectedPageIndices = (0 until thumbnails.size).filter { it % 2 == 1 }.toSet() }, label = { Text("Even Pages") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = selectedPageIndices.isEmpty(), onClick = { selectedPageIndices = emptySet() }, label = { Text("Clear") }, modifier = Modifier.weight(1f))
                 }
 
-                if (viewModel.rotateTargetMode == "CUSTOM") {
-                    OutlinedTextField(
-                        value = viewModel.rotatePageRange,
-                        onValueChange = { viewModel.rotatePageRange = it },
-                        label = { Text("Custom Page Range (e.g. 1-3, 5)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                Text("Visual Page Selection (Tap to toggle rotation):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(thumbnails) { index, bitmap ->
+                        val isSelected = selectedPageIndices.contains(index)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clickable {
+                                    selectedPageIndices = if (isSelected) selectedPageIndices - index else selectedPageIndices + index
+                                },
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Page ${index + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    shape = CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}${if (isSelected) " (${viewModel.rotateDegrees}°)" else ""}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Button(
-                    onClick = { viewModel.rotatePdfPages() },
+                    onClick = {
+                        val rotationsMap = selectedPageIndices.associateWith { viewModel.rotateDegrees }
+                        viewModel.rotatePdfPages(rotations = rotationsMap)
+                    },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    enabled = !viewModel.isProcessing && (viewModel.rotateTargetMode != "CUSTOM" || viewModel.rotatePageRange.isNotBlank())
+                    enabled = !viewModel.isProcessing && selectedPageIndices.isNotEmpty()
                 ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.RotateRight, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Rotate Pages") }
+                    else { Icon(Icons.Default.RotateRight, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Rotate ${selectedPageIndices.size} Selected Pages") }
                 }
             }
 
@@ -493,9 +532,11 @@ fun PdfDeleteScreen(
 @Composable
 fun PdfInsertPagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    var pageText by remember { mutableStateOf("1") }
     val filePickerMain = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.insertMainUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
     val filePickerInsert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.insertInsertUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
+
+    val mainThumbnails = rememberPdfThumbnails(context, viewModel.insertMainUri)
+    var selectedInsertIndex by remember(mainThumbnails) { mutableIntStateOf(0) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Insert Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -511,20 +552,62 @@ fun PdfInsertPagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hilt
                     Text(if (viewModel.insertInsertUri != null) "PDF to Insert Selected" else "Select PDF to Insert", style = MaterialTheme.typography.titleMedium)
                 }
             }
-            if (viewModel.insertMainUri != null && viewModel.insertInsertUri != null) {
-                OutlinedTextField(
-                    value = pageText,
-                    onValueChange = {
-                        pageText = it
-                        viewModel.insertAtPage = it.toIntOrNull() ?: 1
+
+            if (mainThumbnails.isNotEmpty() && viewModel.insertInsertUri != null) {
+                Text("Tap thumbnail to select where to insert pages:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(mainThumbnails) { index, bitmap ->
+                        val isSelected = selectedInsertIndex == index
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clickable {
+                                    selectedInsertIndex = index
+                                    viewModel.insertAtPage = index
+                                },
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Page ${index + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    shape = CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        viewModel.insertAtPage = selectedInsertIndex
+                        viewModel.insertPages()
                     },
-                    label = { Text("Insert at Page Index (1-based)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Button(onClick = { viewModel.insertPages() }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !viewModel.isProcessing
+                ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.NoteAdd, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Insert Pages") }
+                    else { Icon(Icons.Default.NoteAdd, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Insert Before Page ${selectedInsertIndex + 1}") }
                 }
             }
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }
@@ -537,9 +620,12 @@ fun PdfInsertPagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hilt
 @Composable
 fun PdfReplacePagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    var startPageText by remember { mutableStateOf("1") }
     val filePickerMain = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.replaceMainUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
     val filePickerReplace = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let { viewModel.replaceReplaceUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} } }
+
+    val mainThumbnails = rememberPdfThumbnails(context, viewModel.replaceMainUri)
+    val replacementThumbnails = rememberPdfThumbnails(context, viewModel.replaceReplaceUri)
+    var selectedReplaceIndex by remember(mainThumbnails) { mutableIntStateOf(0) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Replace Pages", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -552,23 +638,65 @@ fun PdfReplacePagesScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hil
             Card(modifier = Modifier.fillMaxWidth().clickable { filePickerReplace.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.FindReplace, contentDescription = null, tint = if (viewModel.replaceReplaceUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (viewModel.replaceReplaceUri != null) "Replacement PDF Selected" else "Select Replacement PDF", style = MaterialTheme.typography.titleMedium)
+                    Text(if (viewModel.replaceReplaceUri != null) "Replacement PDF Selected (${replacementThumbnails.size} pages)" else "Select Replacement PDF", style = MaterialTheme.typography.titleMedium)
                 }
             }
-            if (viewModel.replaceMainUri != null && viewModel.replaceReplaceUri != null) {
-                OutlinedTextField(
-                    value = startPageText,
-                    onValueChange = {
-                        startPageText = it
-                        viewModel.replaceStartPage = it.toIntOrNull() ?: 1
+
+            if (mainThumbnails.isNotEmpty() && viewModel.replaceReplaceUri != null) {
+                Text("Tap thumbnail in Original PDF to select start page to replace:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(mainThumbnails) { index, bitmap ->
+                        val isSelected = selectedReplaceIndex == index
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clickable {
+                                    selectedReplaceIndex = index
+                                    viewModel.replaceStartPage = index
+                                },
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Page ${index + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    shape = CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        viewModel.replaceStartPage = selectedReplaceIndex
+                        viewModel.replacePages()
                     },
-                    label = { Text("Start Replacing at Page Index (1-based)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Button(onClick = { viewModel.replacePages() }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !viewModel.isProcessing
+                ) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.FindReplace, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Replace Pages") }
+                    else { Icon(Icons.Default.FindReplace, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Replace Starting at Page ${selectedReplaceIndex + 1}") }
                 }
             }
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }
