@@ -17,14 +17,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfToTxtScreen(
     onBack: () -> Unit,
+    onOpenFile: (String) -> Unit = {},
     viewModel: PdfToolsViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showResultSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.successUri) {
+        if (viewModel.successUri != null && viewModel.successMessage?.contains("PDF converted to text") == true) {
+            showResultSheet = true
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -156,4 +165,15 @@ fun PdfToTxtScreen(
             }
         }
     }
+
+    OperationResultBottomSheet(
+        show = showResultSheet,
+        onDismiss = { showResultSheet = false },
+        title = "Text Extracted Successfully",
+        fileName = viewModel.successName,
+        fileUri = viewModel.successUri?.toString(),
+        fileSize = viewModel.lastOutputBytes?.size?.toLong() ?: 0L,
+        mimeType = "text/plain",
+        onOpenFile = onOpenFile
+    )
 }

@@ -266,6 +266,8 @@ fun TxtViewerScreen(
                         }
                     },
                     actions = {
+                        com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = textFieldValue.text)
+
                         IconButton(onClick = { showSearch = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
@@ -331,59 +333,136 @@ fun TxtViewerScreen(
             }
         },
         bottomBar = {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                tonalElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // M365 Text Editing Ribbon Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    val lineCount = textFieldValue.text.count { it == '\n' } + 1
-                    val wordCount = if (textFieldValue.text.isBlank()) 0
-                    else textFieldValue.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-                    val charCount = textFieldValue.text.length
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val canUndo by viewModel.canUndo.collectAsState()
+                        val canRedo by viewModel.canRedo.collectAsState()
 
-                    Text(
-                        text = "Ln $lineCount",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "$wordCount words",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "$charCount chars",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = currentEncoding,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
-                            onClick = { fontSize = maxOf(8f, fontSize - 1f) },
-                            modifier = Modifier.size(28.dp)
+                            onClick = { viewModel.undo() },
+                            enabled = canUndo,
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.TextDecrease, contentDescription = "Decrease font", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Undo, contentDescription = "Undo", tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
                         }
-                        Text(
-                            text = "${fontSize.toInt()}",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.width(20.dp),
-                            textAlign = TextAlign.Center
+
+                        IconButton(
+                            onClick = { viewModel.redo() },
+                            enabled = canRedo,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Redo, contentDescription = "Redo", tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                        }
+
+                        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { fontSize = maxOf(8f, fontSize - 1f) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.TextDecrease, contentDescription = "Decrease font", modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                text = "${fontSize.toInt()}pt",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 2.dp)
+                            )
+                            IconButton(
+                                onClick = { fontSize = minOf(32f, fontSize + 1f) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.TextIncrease, contentDescription = "Increase font", modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                        FilterChip(
+                            selected = showLineNumbers,
+                            onClick = { showLineNumbers = !showLineNumbers },
+                            label = { Text("Lines", fontSize = 11.sp) }
                         )
-                        IconButton(
-                            onClick = { fontSize = minOf(32f, fontSize + 1f) },
-                            modifier = Modifier.size(28.dp)
+
+                        FilterChip(
+                            selected = wordWrap,
+                            onClick = { wordWrap = !wordWrap },
+                            label = { Text("Wrap", fontSize = 11.sp) }
+                        )
+
+                        FilterChip(
+                            selected = false,
+                            onClick = { showEncodingPicker = true },
+                            label = { Text(currentEncoding, fontSize = 11.sp) }
+                        )
+
+                        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                        Button(
+                            onClick = {
+                                viewModel.saveTextFile(textFieldValue.text)
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.TextIncrease, contentDescription = "Increase font", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+                }
+
+                // Document Metadata Footer Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val lineCount = textFieldValue.text.count { it == '\n' } + 1
+                        val wordCount = if (textFieldValue.text.isBlank()) 0
+                        else textFieldValue.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                        val charCount = textFieldValue.text.length
+
+                        Text(
+                            text = "Ln $lineCount",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "$wordCount words",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "$charCount chars",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = currentEncoding,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

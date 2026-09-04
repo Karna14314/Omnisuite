@@ -22,6 +22,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
@@ -511,7 +512,7 @@ fun PdfViewerScreen(
                         }
                     }
 
-                    // Annotation toolbar (only visible in edit mode)
+                    // Annotation M365 Ribbon (only visible in edit mode)
                     AnimatedVisibility(
                         visible = isEditMode,
                         enter = fadeIn() + expandVertically(),
@@ -520,96 +521,117 @@ fun PdfViewerScreen(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             tonalElevation = 8.dp,
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            shadowElevation = 8.dp,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Pan/Select tool
-                                AnnotationToolButton(
-                                    icon = Icons.Default.PanTool,
-                                    label = "Select",
-                                    isSelected = annotationMode == AnnotationMode.NONE,
-                                    onClick = { annotationMode = AnnotationMode.NONE }
-                                )
-                                // Highlighter
-                                AnnotationToolButton(
-                                    icon = Icons.Default.Highlight,
-                                    label = "Highlight",
-                                    isSelected = annotationMode == AnnotationMode.HIGHLIGHT,
-                                    onClick = { annotationMode = AnnotationMode.HIGHLIGHT }
-                                )
-                                // Marker
-                                AnnotationToolButton(
-                                    icon = Icons.Default.Gesture,
-                                    label = "Marker",
-                                    isSelected = annotationMode == AnnotationMode.MARKER,
-                                    onClick = { annotationMode = AnnotationMode.MARKER }
-                                )
-                                // Comment/Text Note
-                                AnnotationToolButton(
-                                    icon = Icons.Default.AddComment,
-                                    label = "Comment",
-                                    isSelected = annotationMode == AnnotationMode.TEXT_NOTE,
-                                    onClick = { annotationMode = AnnotationMode.TEXT_NOTE }
-                                )
-                                // Eraser
-                                AnnotationToolButton(
-                                    icon = Icons.Default.AutoFixHigh,
-                                    label = "Eraser",
-                                    isSelected = annotationMode == AnnotationMode.ERASER,
-                                    onClick = { annotationMode = AnnotationMode.ERASER }
-                                )
-                                // Color picker
-                                IconButton(onClick = { showColorPickerDialog = true }) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(selectedMarkerColor)
-                                            .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                                    )
-                                }
-                                // Brush size toggle
-                                IconButton(
-                                    onClick = { showBrushSizeSlider = !showBrushSizeSlider },
-                                    enabled = annotationMode != AnnotationMode.NONE && annotationMode != AnnotationMode.TEXT_NOTE
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        Icons.Default.Tune,
-                                        contentDescription = "Brush size",
-                                        tint = if (annotationMode != AnnotationMode.NONE && annotationMode != AnnotationMode.TEXT_NOTE)
-                                            MaterialTheme.colorScheme.onSurface
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    // Pan/Select tool
+                                    AnnotationToolButton(
+                                        icon = Icons.Default.PanTool,
+                                        label = "Select",
+                                        isSelected = annotationMode == AnnotationMode.NONE,
+                                        onClick = { annotationMode = AnnotationMode.NONE }
                                     )
-                                }
-                                // Undo
-                                IconButton(
-                                    onClick = {
-                                        // Undo last stroke
-                                        if (pagePaths.isNotEmpty()) {
-                                            val lastPage = pagePaths.keys.maxOrNull() ?: -1
-                                            if (lastPage >= 0) {
-                                                val paths = pagePaths[lastPage] ?: emptyList()
-                                                if (paths.isNotEmpty()) {
-                                                    pagePaths[lastPage] = paths.dropLast(1)
+                                    // Highlighter
+                                    AnnotationToolButton(
+                                        icon = Icons.Default.Highlight,
+                                        label = "Highlight",
+                                        isSelected = annotationMode == AnnotationMode.HIGHLIGHT,
+                                        onClick = { annotationMode = AnnotationMode.HIGHLIGHT }
+                                    )
+                                    // Marker
+                                    AnnotationToolButton(
+                                        icon = Icons.Default.Gesture,
+                                        label = "Marker",
+                                        isSelected = annotationMode == AnnotationMode.MARKER,
+                                        onClick = { annotationMode = AnnotationMode.MARKER }
+                                    )
+                                    // Comment/Text Note
+                                    AnnotationToolButton(
+                                        icon = Icons.Default.AddComment,
+                                        label = "Comment",
+                                        isSelected = annotationMode == AnnotationMode.TEXT_NOTE,
+                                        onClick = { annotationMode = AnnotationMode.TEXT_NOTE }
+                                    )
+                                    // Eraser
+                                    AnnotationToolButton(
+                                        icon = Icons.Default.AutoFixHigh,
+                                        label = "Eraser",
+                                        isSelected = annotationMode == AnnotationMode.ERASER,
+                                        onClick = { annotationMode = AnnotationMode.ERASER }
+                                    )
+
+                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                    // Color picker
+                                    IconButton(onClick = { showColorPickerDialog = true }, modifier = Modifier.size(36.dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(selectedMarkerColor)
+                                                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                        )
+                                    }
+                                    // Brush size toggle
+                                    IconButton(
+                                        onClick = { showBrushSizeSlider = !showBrushSizeSlider },
+                                        enabled = annotationMode != AnnotationMode.NONE && annotationMode != AnnotationMode.TEXT_NOTE,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Tune,
+                                            contentDescription = "Brush size",
+                                            tint = if (annotationMode != AnnotationMode.NONE && annotationMode != AnnotationMode.TEXT_NOTE)
+                                                MaterialTheme.colorScheme.onSurface
+                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }
+
+                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
+                                    // Save PDF Annotations Button
+                                    Button(
+                                        onClick = {
+                                            val pathsDataMap = pagePaths.mapValues { (_, paths) ->
+                                                paths.map { path ->
+                                                    DrawingPathData(
+                                                        points = path.points.map { DrawingPointData(it.x, it.y) },
+                                                        colorHex = String.format("#%08X", path.color.toArgb()),
+                                                        strokeWidth = path.strokeWidth,
+                                                        isHighlight = path.isHighlight
+                                                    )
                                                 }
                                             }
-                                        }
-                                    },
-                                    enabled = pagePaths.isNotEmpty()
-                                ) {
-                                    Icon(
-                                        Icons.Default.Undo,
-                                        contentDescription = "Undo",
-                                        tint = if (pagePaths.isNotEmpty())
-                                            MaterialTheme.colorScheme.onSurface
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
+                                            val notesDataMap = pageTextNotes.mapValues { (_, notes) ->
+                                                notes.map { TextNoteData(it.text, it.x, it.y) }
+                                            }
+                                            viewModel.saveAllPdfAnnotations(pathsDataMap, notesDataMap) { success ->
+                                                if (success) {
+                                                    pagePaths.clear()
+                                                    pageTextNotes.clear()
+                                                    Toast.makeText(context, "Annotations saved to PDF!", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Failed to save annotations", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        enabled = pagePaths.isNotEmpty() || pageTextNotes.isNotEmpty(),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Save PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

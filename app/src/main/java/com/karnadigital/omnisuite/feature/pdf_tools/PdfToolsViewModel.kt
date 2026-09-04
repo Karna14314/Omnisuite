@@ -549,6 +549,7 @@ class PdfToolsViewModel @Inject constructor(
             val result = pdfToolsRepository.convertDocxToTxt(inputUri)
             result.onSuccess { uri ->
                 successUri = uri
+                successName = (inputUri.lastPathSegment ?: "document").removeSuffix(".docx").removeSuffix(".doc") + "_text.txt"
                 successMessage = "Word document converted to TXT successfully!"
                 docxToTxtInputUri = null
             }.onFailure { e ->
@@ -609,6 +610,7 @@ class PdfToolsViewModel @Inject constructor(
             val result = pdfToolsRepository.convertPptxToTxt(inputUri)
             result.onSuccess { uri ->
                 successUri = uri
+                successName = (inputUri.lastPathSegment ?: "presentation").removeSuffix(".pptx").removeSuffix(".ppt") + "_slides.txt"
                 successMessage = "PowerPoint slides converted to TXT successfully!"
                 pptxToTxtInputUri = null
             }.onFailure { e ->
@@ -867,6 +869,7 @@ class PdfToolsViewModel @Inject constructor(
             val result = pdfToolsRepository.convertPdfToTxt(inputUri, customFilename)
             result.onSuccess { uri ->
                 successUri = uri
+                successName = customFilename ?: ((inputUri.lastPathSegment ?: "document").removeSuffix(".pdf") + "_text.txt")
                 successMessage = "PDF converted to text successfully!"
                 pdfToTxtInputUri = null
             }.onFailure { e ->

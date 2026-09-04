@@ -6,11 +6,17 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -347,6 +353,76 @@ fun PdfSplitScreen(
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
+
+                        val thumbnails = rememberPdfThumbnails(context, viewModel.splitInputUri)
+                        var splitPoints by remember(thumbnails) { mutableStateOf<Set<Int>>(emptySet()) }
+
+                        if (thumbnails.isNotEmpty()) {
+                            Text("Visual Page Splitter (Tap thumbnails to set split points):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(thumbnails) { index, bitmap ->
+                                    val isSplitPoint = splitPoints.contains(index)
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(0.75f)
+                                            .clickable {
+                                                val newPoints = if (isSplitPoint) splitPoints - setOf(index) else splitPoints + setOf(index)
+                                                splitPoints = newPoints
+                                                // Generate range string from split points
+                                                if (newPoints.isEmpty()) {
+                                                    viewModel.splitRanges = "1-${thumbnails.size}"
+                                                } else {
+                                                    val sorted = newPoints.sorted()
+                                                    val ranges = mutableListOf<String>()
+                                                    var start = 1
+                                                    for (pt in sorted) {
+                                                        val end = pt + 1
+                                                        ranges.add(if (start == end) "$start" else "$start-$end")
+                                                        start = end + 1
+                                                    }
+                                                    if (start <= thumbnails.size) {
+                                                        ranges.add(if (start == thumbnails.size) "$start" else "$start-${thumbnails.size}")
+                                                    }
+                                                    viewModel.splitRanges = ranges.joinToString(", ")
+                                                }
+                                            },
+                                        border = BorderStroke(if (isSplitPoint) 2.5.dp else 1.dp, if (isSplitPoint) Color(0xFFEF4444) else MaterialTheme.colorScheme.outlineVariant),
+                                        colors = CardDefaults.cardColors(containerColor = if (isSplitPoint) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface)
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Image(
+                                                bitmap = bitmap.asImageBitmap(),
+                                                contentDescription = "Page ${index + 1}",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                            Surface(
+                                                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                                shape = CircleShape,
+                                                color = if (isSplitPoint) Color(0xFFEF4444) else Color.Black.copy(alpha = 0.5f)
+                                            ) {
+                                                Text(
+                                                    text = if (isSplitPoint) "P.${index + 1} ✂️" else "P.${index + 1}",
+                                                    color = Color.White,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
 
                         Text("Define Page Cut Ranges", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                         Spacer(modifier = Modifier.height(6.dp))
