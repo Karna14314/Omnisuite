@@ -2149,8 +2149,19 @@ class PptxViewerViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 var fileOutputStream: FileOutputStream? = null
                 try {
-                    fileOutputStream = FileOutputStream(File(filePath))
+                    val file = File(filePath)
+                    fileOutputStream = FileOutputStream(file)
                     ppt.write(fileOutputStream)
+                    recentFileRepository.insertRecentFile(
+                        com.karnadigital.omnisuite.core.model.RecentFile(
+                            fileUri = android.net.Uri.fromFile(file).toString(),
+                            fileName = file.name,
+                            mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            fileSize = file.length(),
+                            lastOpened = System.currentTimeMillis(),
+                            isOperation = true
+                        )
+                    )
                     _saveStatus.emit("Presentation changes committed successfully!")
                 } catch (t: Throwable) {
                     t.printStackTrace()

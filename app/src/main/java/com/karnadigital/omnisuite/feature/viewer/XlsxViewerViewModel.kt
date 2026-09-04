@@ -1458,7 +1458,18 @@ class XlsxViewerViewModel @Inject constructor(
                             }
                             stringBuilder.append(rowCells.joinToString(",")).append("\n")
                         }
-                        File(filePath).writeText(stringBuilder.toString())
+                        val csvFile = File(filePath)
+                        csvFile.writeText(stringBuilder.toString())
+                        recentFileRepository.insertRecentFile(
+                            com.karnadigital.omnisuite.core.model.RecentFile(
+                                fileUri = android.net.Uri.fromFile(csvFile).toString(),
+                                fileName = csvFile.name,
+                                mimeType = "text/csv",
+                                fileSize = csvFile.length(),
+                                lastOpened = System.currentTimeMillis(),
+                                isOperation = true
+                            )
+                        )
                         _saveStatus.emit("CSV changes committed successfully!")
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -1467,8 +1478,19 @@ class XlsxViewerViewModel @Inject constructor(
                 } else {
                     var fileOutputStream: java.io.FileOutputStream? = null
                     try {
-                        fileOutputStream = java.io.FileOutputStream(File(filePath))
+                        val xlsxFile = File(filePath)
+                        fileOutputStream = java.io.FileOutputStream(xlsxFile)
                         wb.write(fileOutputStream)
+                        recentFileRepository.insertRecentFile(
+                            com.karnadigital.omnisuite.core.model.RecentFile(
+                                fileUri = android.net.Uri.fromFile(xlsxFile).toString(),
+                                fileName = xlsxFile.name,
+                                mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                fileSize = xlsxFile.length(),
+                                lastOpened = System.currentTimeMillis(),
+                                isOperation = true
+                            )
+                        )
                         _saveStatus.emit("Spreadsheet changes committed successfully!")
                     } catch (e: Exception) {
                         e.printStackTrace()

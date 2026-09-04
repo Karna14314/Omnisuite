@@ -215,4 +215,35 @@ class AuditFixesUnitTest {
         // Blank query → empty (no re-parse needed; pure in-memory)
         assertTrue(PptxSearchEngine.search(presentation, "").isEmpty())
     }
+
+    // ---- Document Edit & Undo/Redo Unit Tests ----
+    @Test
+    fun testTxtViewerViewModel_undoRedo() {
+        val fakeDao = object : com.karnadigital.omnisuite.core.repository.RecentFileDao {
+            override fun getRecentFilesFlow() = kotlinx.coroutines.flow.emptyFlow<List<com.karnadigital.omnisuite.core.model.RecentFile>>()
+            override suspend fun insertRecentFile(recentFile: com.karnadigital.omnisuite.core.model.RecentFile) {}
+            override suspend fun deleteRecentFile(recentFile: com.karnadigital.omnisuite.core.model.RecentFile) {}
+            override suspend fun deleteRecentFileByUri(fileUri: String) {}
+            override suspend fun getRecentFilesList() = emptyList<com.karnadigital.omnisuite.core.model.RecentFile>()
+            override suspend fun getRecentFileByUri(fileUri: String): com.karnadigital.omnisuite.core.model.RecentFile? = null
+            override suspend fun updateLastOpened(fileUri: String, timestamp: Long) {}
+            override suspend fun clearAllRecentFiles() {}
+        }
+        val repo = com.karnadigital.omnisuite.core.repository.RecentFileRepository(fakeDao)
+        val viewModel = com.karnadigital.omnisuite.feature.viewer.TxtViewerViewModel(repo)
+
+        viewModel.updateContent("Initial Text")
+        viewModel.updateContent("Updated Text 1")
+        viewModel.updateContent("Updated Text 2")
+
+        assertTrue(viewModel.canUndo.value)
+        assertFalse(viewModel.canRedo.value)
+
+        viewModel.undo()
+        assertEquals("Updated Text 1", (viewModel.loadState.value as com.karnadigital.omnisuite.feature.viewer.TxtLoadState.Success).content)
+        assertTrue(viewModel.canRedo.value)
+
+        viewModel.redo()
+        assertEquals("Updated Text 2", (viewModel.loadState.value as com.karnadigital.omnisuite.feature.viewer.TxtLoadState.Success).content)
+    }
 }
