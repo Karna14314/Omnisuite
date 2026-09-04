@@ -39,6 +39,12 @@ interface RecentFileDao {
     suspend fun updateLastOpened(fileUri: String, timestamp: Long)
 
     /**
+     * Updates filename and URI references when a file is renamed.
+     */
+    @Query("UPDATE recent_files SET fileName = :newName, fileUri = :newUri WHERE fileUri = :oldUri")
+    suspend fun updateRecentFileNameAndUri(oldUri: String, newName: String, newUri: String)
+
+    /**
      * Deletes a recent file reference using its fileUri path.
      */
     @Query("DELETE FROM recent_files WHERE fileUri = :fileUri")

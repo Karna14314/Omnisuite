@@ -110,6 +110,15 @@ class HistoryViewModel @Inject constructor(
     }
 
     /**
+     * Renames a specific historical file entry.
+     */
+    fun renameItem(item: RecentFile, newName: String) {
+        viewModelScope.launch {
+            repository.renameFile(item.fileUri, newName)
+        }
+    }
+
+    /**
      * Deletes a specific historical record.
      */
     fun deleteItem(item: RecentFile) {

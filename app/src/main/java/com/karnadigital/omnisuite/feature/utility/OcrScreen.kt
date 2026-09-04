@@ -75,6 +75,13 @@ fun OcrScreen(
         }
     )
 
+    val exportMdLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown"),
+        onResult = { uri ->
+            uri?.let { viewModel.exportTranscribedText(it) }
+        }
+    )
+
     fun launchCamera() {
         try {
             val photoFile = File(context.cacheDir, "ocr_snap_${System.currentTimeMillis()}.jpg")
@@ -356,40 +363,108 @@ fun OcrScreen(
 
                 // Transcribed output section
                 if (viewModel.recognizedText.isNotEmpty()) {
-                    Row(
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Text("Transcribed Output", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Row {
-                            IconButton(onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("OmniSuite OCR", viewModel.recognizedText)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            }) {
-                                Icon(Icons.Default.AddCircle, contentDescription = "Copy text clipboard")
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            // Output Name Field
+                            OutlinedTextField(
+                                value = viewModel.ocrOutputName,
+                                onValueChange = { viewModel.ocrOutputName = it },
+                                label = { Text("OCR Result Name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Dual-Tab Format Selector
+                            TabRow(
+                                selectedTabIndex = viewModel.activeTab,
+                                containerColor = Color.Transparent,
+                                contentColor = MaterialTheme.colorScheme.primary
+                            ) {
+                                Tab(
+                                    selected = viewModel.activeTab == 0,
+                                    onClick = { viewModel.activeTab = 0 },
+                                    text = { Text("Plain Text", fontWeight = FontWeight.Bold) }
+                                )
+                                Tab(
+                                    selected = viewModel.activeTab == 1,
+                                    onClick = { viewModel.activeTab = 1 },
+                                    text = { Text("Structured Markdown", fontWeight = FontWeight.Bold) }
+                                )
                             }
-                            IconButton(onClick = {
-                                exportTextLauncher.launch("OCR_Transcription_${System.currentTimeMillis()}.txt")
-                            }) {
-                                Icon(Icons.Default.Share, contentDescription = "Export text file")
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (viewModel.activeTab == 0) "Plain Text Output" else "Structured Markdown Output",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Row {
+                                    IconButton(onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val textToCopy = if (viewModel.activeTab == 1) viewModel.markdownText else viewModel.recognizedText
+                                        val clip = ClipData.newPlainText("OmniSuite OCR", textToCopy)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    }) {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy text clipboard")
+                                    }
+                                    IconButton(onClick = {
+                                        if (viewModel.activeTab == 1) {
+                                            exportMdLauncher.launch("${viewModel.ocrOutputName}.md")
+                                        } else {
+                                            exportTextLauncher.launch("${viewModel.ocrOutputName}.txt")
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Share, contentDescription = "Export text file")
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val displayText = if (viewModel.activeTab == 1) viewModel.markdownText else viewModel.recognizedText
+                            OutlinedTextField(
+                                value = displayText,
+                                onValueChange = { newValue ->
+                                    if (viewModel.activeTab == 1) viewModel.markdownText = newValue
+                                    else viewModel.recognizedText = newValue
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 180.dp, max = 320.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = {
+                                    val textToSave = if (viewModel.activeTab == 1) viewModel.markdownText else viewModel.recognizedText
+                                    viewModel.saveOcrTextToFileAndLog(textToSave, viewModel.ocrOutputName)
+                                    Toast.makeText(context, "OCR result saved successfully!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Save Result to Storage", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = viewModel.recognizedText,
-                        onValueChange = { viewModel.recognizedText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 150.dp, max = 300.dp),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        shape = RoundedCornerShape(12.dp)
-                    )
                     Spacer(modifier = Modifier.height(30.dp))
                 }
             }

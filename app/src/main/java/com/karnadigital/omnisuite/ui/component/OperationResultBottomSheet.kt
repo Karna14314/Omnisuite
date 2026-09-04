@@ -55,7 +55,10 @@ fun OperationResultBottomSheet(
     if (!show) return
 
     val context = LocalContext.current
-    var resolvedSize by remember(fileUri, fileSize) { mutableStateOf(fileSize) }
+    var currentFileName by remember(fileName) { mutableStateOf(fileName ?: "Processed_File") }
+    var currentFileUri by remember(fileUri) { mutableStateOf(fileUri ?: "") }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var resolvedSize by remember(currentFileUri, fileSize) { mutableStateOf(fileSize) }
 
     LaunchedEffect(fileUri, fileSize) {
         if (resolvedSize <= 0L && !fileUri.isNullOrBlank()) {
@@ -350,7 +353,7 @@ fun OperationResultBottomSheet(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = fileName ?: "Processed_File",
+                                text = currentFileName,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 maxLines = 1,
@@ -362,6 +365,15 @@ fun OperationResultBottomSheet(
                                 text = "Size: ${formatFileSize(resolvedSize)} • Format: ${mimeType?.substringAfter('/')?.uppercase() ?: "UNKNOWN"}",
                                 fontSize = 12.sp,
                                 color = OmniColors.TextMuted
+                            )
+                        }
+
+                        IconButton(onClick = { showRenameDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Rename File",
+                                tint = OmniColors.TextMuted,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -452,6 +464,57 @@ fun OperationResultBottomSheet(
                 )
             }
         }
+    }
+
+    if (showRenameDialog) {
+        var newNameInput by remember { mutableStateOf(currentFileName) }
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("Rename File", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newNameInput,
+                    onValueChange = { newNameInput = it },
+                    label = { Text("New File Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newNameInput.isNotBlank()) {
+                            val oldUri = currentFileUri
+                            val parsed = Uri.parse(oldUri)
+                            if (parsed.scheme == "file" || parsed.scheme == null) {
+                                val oldFile = java.io.File(parsed.path ?: oldUri)
+                                if (oldFile.exists() && oldFile.isFile) {
+                                    val oldExt = oldFile.extension
+                                    val cleanName = if (newNameInput.contains(".")) newNameInput else if (oldExt.isNotBlank()) "$newNameInput.$oldExt" else newNameInput
+                                    val newFile = java.io.File(oldFile.parentFile, cleanName)
+                                    if (oldFile.renameTo(newFile)) {
+                                        currentFileName = newFile.name
+                                        currentFileUri = Uri.fromFile(newFile).toString()
+                                        Toast.makeText(context, "File renamed successfully!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                currentFileName = newNameInput
+                                Toast.makeText(context, "File name updated!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        showRenameDialog = false
+                    }
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

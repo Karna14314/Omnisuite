@@ -227,6 +227,7 @@ class AuditFixesUnitTest {
             override suspend fun getRecentFilesList() = emptyList<com.karnadigital.omnisuite.core.model.RecentFile>()
             override suspend fun getRecentFileByUri(fileUri: String): com.karnadigital.omnisuite.core.model.RecentFile? = null
             override suspend fun updateLastOpened(fileUri: String, timestamp: Long) {}
+            override suspend fun updateRecentFileNameAndUri(oldUri: String, newName: String, newUri: String) {}
             override suspend fun clearAllRecentFiles() {}
         }
         val repo = com.karnadigital.omnisuite.core.repository.RecentFileRepository(fakeDao)

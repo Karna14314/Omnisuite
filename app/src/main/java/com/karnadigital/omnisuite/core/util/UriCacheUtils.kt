@@ -42,6 +42,43 @@ class UriCacheUtils @Inject constructor(
      * @return The local cached [File], or null if the read/write operation fails or the
      *         scheme is unsupported (e.g. network URIs are intentionally rejected).
      */
+    /**
+     * Attempts to obtain persistable read/write URI permission if the content URI supports it.
+     */
+    fun takePersistablePermission(uri: Uri) {
+        if (uri.scheme == "content") {
+            try {
+                val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            } catch (e: Exception) {
+                // Ignore if URI grant is temporary or does not support persistable permissions
+            }
+        }
+    }
+
+    /**
+     * Gets or creates a handle for a persistent internal backup copy for history files.
+     */
+    fun getPersistentBackupFile(uri: Uri, suggestedName: String? = null): File {
+        val recentDir = File(context.filesDir, "recent_files").apply { if (!exists()) mkdirs() }
+        val name = suggestedName ?: getFileName(uri) ?: "recent_${uri.hashCode()}"
+        val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val hash = Math.abs(uri.toString().hashCode())
+        return File(recentDir, "${hash}_$safeName")
+    }
+
+    /**
+     * Copies a Content Uri's data into a temporary file in `cacheDir` and returns the file handle.
+     * Maintains a persistent backup copy in internal storage so files opened externally remain accessible
+     * even if temporary SAF URI permissions expire when reopened later from History.
+     *
+     * Runs strictly on [Dispatchers.IO] to guarantee non-blocking asynchronous storage ops.
+     *
+     * @param uri The incoming Storage Access Framework (SAF) Uri.
+     * @return The local cached [File], or null if the read/write operation fails or the
+     *         scheme is unsupported (e.g. network URIs are intentionally rejected).
+     */
     suspend fun cacheUriToFile(uri: Uri): File? = withContext(Dispatchers.IO) {
         val scheme = uri.scheme?.lowercase()
         if (!isOfflineScheme(scheme)) {
@@ -49,11 +86,13 @@ class UriCacheUtils @Inject constructor(
             return@withContext null
         }
 
+        takePersistablePermission(uri)
+
         if (scheme == "file" || scheme == null) {
             val path = uri.path
             if (path != null) {
                 val file = File(path)
-                if (file.exists()) {
+                if (file.exists() && file.isFile) {
                     return@withContext file
                 }
             }
@@ -61,9 +100,10 @@ class UriCacheUtils @Inject constructor(
 
         val fileName = getFileName(uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
         val cacheFile = File(context.cacheDir, fileName)
+        val persistentBackup = getPersistentBackupFile(uri, fileName)
 
+        var streamCopied = false
         try {
-            // Delete old temp file with the same name if it exists to avoid overlapping streams
             if (cacheFile.exists()) {
                 cacheFile.delete()
             }
@@ -73,6 +113,7 @@ class UriCacheUtils @Inject constructor(
             } catch (e: Exception) {
                 null
             }
+
             if (pfd != null) {
                 java.io.FileInputStream(pfd.fileDescriptor).use { inputStream ->
                     FileOutputStream(cacheFile).use { outputStream ->
@@ -80,19 +121,49 @@ class UriCacheUtils @Inject constructor(
                     }
                 }
                 pfd.close()
+                streamCopied = cacheFile.exists() && cacheFile.length() > 0
             } else {
                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
                     FileOutputStream(cacheFile).use { outputStream ->
                         inputStream.copyTo(outputStream)
                     }
                 }
+                streamCopied = cacheFile.exists() && cacheFile.length() > 0
             }
-            pruneCache(keepFile = cacheFile)
-            cacheFile
+
+            if (streamCopied) {
+                try {
+                    cacheFile.copyTo(persistentBackup, overwrite = true)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                pruneCache(keepFile = cacheFile)
+                return@withContext cacheFile
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            null
         }
+
+        // Fallback Stage 1: Check if persistent internal backup copy exists
+        if (persistentBackup.exists() && persistentBackup.length() > 0) {
+            try {
+                persistentBackup.copyTo(cacheFile, overwrite = true)
+                return@withContext cacheFile
+            } catch (e: Exception) {
+                return@withContext persistentBackup
+            }
+        }
+
+        // Fallback Stage 2: Direct file path check
+        val rawPath = uri.path
+        if (!rawPath.isNullOrBlank()) {
+            val directFile = File(rawPath)
+            if (directFile.exists() && directFile.isFile && directFile.length() > 0) {
+                return@withContext directFile
+            }
+        }
+
+        null
     }
 
     /**
