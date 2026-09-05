@@ -59,7 +59,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -112,24 +118,13 @@ fun DocxViewerScreen(
     val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
 
     var searchExpanded by remember { mutableStateOf(false) }
-    val lazyListState = rememberLazyListState()
-
-    var activeIndexToEdit by remember { mutableStateOf(-1) }
-    var paragraphToEdit by remember { mutableStateOf<DocxParagraph?>(null) }
-
-    // Edit menu state
-    var showEditMenu by remember { mutableStateOf(false) }
-    var showFormatMenu by remember { mutableStateOf(false) }
+    var activeElementIndex by remember { mutableIntStateOf(0) }
+    var showInsertTableDialog by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
-    var pendingFormatBold by remember { mutableStateOf(false) }
-    var pendingFormatItalic by remember { mutableStateOf(false) }
-    var pendingFormatUnderline by remember { mutableStateOf(false) }
-    var pendingFormatStrike by remember { mutableStateOf(false) }
-    var pendingAlignment by remember { mutableStateOf<String?>(null) }
-    var pendingListType by remember { mutableStateOf<String?>(null) }
-    var pendingFontSize by remember { mutableStateOf(12f) }
-    var pendingTextColor by remember { mutableStateOf<String?>(null) }
-    var pendingHighlightColor by remember { mutableStateOf<String?>(null) }
+    var showFontSizeMenu by remember { mutableStateOf(false) }
+    var showColorMenu by remember { mutableStateOf(false) }
+    var showStyleMenu by remember { mutableStateOf(false) }
+    var showInsertMenu by remember { mutableStateOf(false) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -138,9 +133,7 @@ fun DocxViewerScreen(
                 coroutineScope.launch {
                     val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
-                        viewModel.insertImageIntoParagraph(activeIndexToEdit, cachedFile.absolutePath)
-                        paragraphToEdit = null
-                        activeIndexToEdit = -1
+                        viewModel.insertImage(activeElementIndex, cachedFile.absolutePath)
                         Toast.makeText(context, "Image inserted successfully!", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -304,27 +297,42 @@ fun DocxViewerScreen(
                             if (state is DocxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
 
-                                val docxText = remember(state) {
-                                    (state as? DocxLoadState.Success)?.document?.elements
-                                        ?.filterIsInstance<DocxBodyElement.Para>()
-                                        ?.joinToString("\n") { it.paragraph.runs.joinToString("") { r -> r.text } } ?: ""
-                                }
-
-                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = docxText)
-
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }
 
                                 if (isEditMode) {
+                                    val canUndo by viewModel.canUndo.collectAsState()
+                                    val canRedo by viewModel.canRedo.collectAsState()
+
+                                    IconButton(
+                                        onClick = { viewModel.undo() },
+                                        enabled = canUndo
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Undo,
+                                            contentDescription = "Undo",
+                                            tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.redo() },
+                                        enabled = canRedo
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Redo,
+                                            contentDescription = "Redo",
+                                            tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }
                                     IconButton(onClick = { viewModel.commitChanges() }) {
-                                        Icon(Icons.Default.Check, contentDescription = "Commit changes", tint = MaterialTheme.colorScheme.primary)
+                                        Icon(Icons.Default.Check, contentDescription = "Save changes", tint = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                                 IconButton(onClick = { isEditMode = !isEditMode }) {
                                     Icon(
                                         imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
-                                        contentDescription = "Toggle Edit Mode",
+                                        contentDescription = if (isEditMode) "Exit Edit Mode" else "Enter Edit Mode",
                                         tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -391,107 +399,410 @@ fun DocxViewerScreen(
                 }
             }
         },
-        floatingActionButton = {
-            if (isEditMode && state is DocxLoadState.Success) {
-                ExtendedFloatingActionButton(
-                    onClick = { showAppendDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "Append paragraph") },
-                    text = { Text("Append") },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        },
+        floatingActionButton = {},
         bottomBar = {
             if (state is DocxLoadState.Success) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Microsoft 365 Bottom Editing Ribbon Sheet (when in edit mode)
-                    AnimatedVisibility(
-                        visible = isEditMode,
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut()
+                val currentDoc = (state as DocxLoadState.Success).document
+                if (isEditMode) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 8.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .imePadding()
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 8.dp,
-                            shadowElevation = 8.dp,
-                            modifier = Modifier.fillMaxWidth()
+                        val canUndo by viewModel.canUndo.collectAsState()
+                        val canRedo by viewModel.canRedo.collectAsState()
+
+                        val activeElement = currentDoc.elements.getOrNull(activeElementIndex)
+                        val activePara = (activeElement as? DocxBodyElement.Para)?.paragraph
+                        val firstRun = activePara?.runs?.firstOrNull()
+
+                        val currentIsBold = activePara?.isHeading == true || (firstRun?.isBold == true)
+                        val currentIsItalic = firstRun?.isItalic == true
+                        val currentIsUnderline = firstRun?.isUnderline == true
+                        val currentIsStrike = firstRun?.isStrike == true
+                        val currentAlignment = activePara?.alignment ?: "LEFT"
+                        val currentBulletType = activePara?.bulletType
+                        val currentHeadingLevel = activePara?.headingLevel ?: 0
+                        val currentFontSize = firstRun?.fontSizePt ?: (if (activePara?.isHeading == true) 16f else 12f)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            // Undo & Redo
+                            IconButton(
+                                onClick = { viewModel.undo() },
+                                enabled = canUndo,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Undo,
+                                    contentDescription = "Undo",
+                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.redo() },
+                                enabled = canRedo,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Redo,
+                                    contentDescription = "Redo",
+                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // B, I, U, S styling toggles
+                            FormatRibbonToggleButton(
+                                label = "B",
+                                isSelected = currentIsBold,
+                                fontWeight = FontWeight.Bold,
+                                onClick = {
+                                    viewModel.applyParagraphFormatting(activeElementIndex, isBold = !currentIsBold)
+                                }
+                            )
+                            FormatRibbonToggleButton(
+                                label = "I",
+                                isSelected = currentIsItalic,
+                                fontStyle = FontStyle.Italic,
+                                onClick = {
+                                    viewModel.applyParagraphFormatting(activeElementIndex, isItalic = !currentIsItalic)
+                                }
+                            )
+                            FormatRibbonToggleButton(
+                                label = "U",
+                                isSelected = currentIsUnderline,
+                                textDecoration = TextDecoration.Underline,
+                                onClick = {
+                                    viewModel.applyParagraphFormatting(activeElementIndex, isUnderline = !currentIsUnderline)
+                                }
+                            )
+                            FormatRibbonToggleButton(
+                                label = "S",
+                                isSelected = currentIsStrike,
+                                textDecoration = TextDecoration.LineThrough,
+                                onClick = {
+                                    viewModel.applyParagraphFormatting(activeElementIndex, isStrike = !currentIsStrike)
+                                }
+                            )
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Font Size Stepper
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        val newSize = (currentFontSize - 1f).coerceAtLeast(8f)
+                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
+                                    },
+                                    modifier = Modifier.size(28.dp)
                                 ) {
-                                    val canUndo by viewModel.canUndo.collectAsState()
-                                    val canRedo by viewModel.canRedo.collectAsState()
-
-                                    IconButton(
-                                        onClick = { viewModel.undo() },
-                                        enabled = canUndo,
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(Icons.Default.Undo, contentDescription = "Undo", tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
-                                    }
-
-                                    IconButton(
-                                        onClick = { viewModel.redo() },
-                                        enabled = canRedo,
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(Icons.Default.Redo, contentDescription = "Redo", tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
-                                    }
-
-                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                                    FilterChip(
-                                        selected = pendingFormatBold,
-                                        onClick = { pendingFormatBold = !pendingFormatBold },
-                                        label = { Text("B", fontWeight = FontWeight.Bold) }
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease Font Size", modifier = Modifier.size(16.dp))
+                                }
+                                Box {
+                                    Text(
+                                        text = "${currentFontSize.toInt()} pt",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable { showFontSizeMenu = true }
+                                            .padding(horizontal = 6.dp)
                                     )
-                                    FilterChip(
-                                        selected = pendingFormatItalic,
-                                        onClick = { pendingFormatItalic = !pendingFormatItalic },
-                                        label = { Text("I", fontStyle = FontStyle.Italic) }
-                                    )
-                                    FilterChip(
-                                        selected = pendingFormatUnderline,
-                                        onClick = { pendingFormatUnderline = !pendingFormatUnderline },
-                                        label = { Text("U", textDecoration = TextDecoration.Underline) }
-                                    )
-
-                                    IconButton(onClick = { showFormatMenu = true }, modifier = Modifier.size(36.dp)) {
-                                        Icon(Icons.Default.FormatSize, contentDescription = "Font Style")
-                                    }
-                                    IconButton(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.size(36.dp)) {
-                                        Icon(Icons.Default.Image, contentDescription = "Insert Image")
-                                    }
-                                    IconButton(onClick = { showLinkDialog = true }, modifier = Modifier.size(36.dp)) {
-                                        Icon(Icons.Default.Link, contentDescription = "Insert Link")
-                                    }
-                                    IconButton(onClick = { showAppendDialog = true }, modifier = Modifier.size(36.dp)) {
-                                        Icon(Icons.Default.Add, contentDescription = "Append Paragraph")
-                                    }
-
-                                    VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                                    Button(
-                                        onClick = { viewModel.commitChanges() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(8.dp)
+                                    DropdownMenu(
+                                        expanded = showFontSizeMenu,
+                                        onDismissRequest = { showFontSizeMenu = false }
                                     ) {
-                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Save Changes", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        listOf(9f, 10f, 11f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f).forEach { size ->
+                                            DropdownMenuItem(
+                                                text = { Text("${size.toInt()} pt", fontWeight = if (size == currentFontSize) FontWeight.Bold else FontWeight.Normal) },
+                                                onClick = {
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = size)
+                                                    showFontSizeMenu = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val newSize = (currentFontSize + 1f).coerceAtMost(72f)
+                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase Font Size", modifier = Modifier.size(16.dp))
+                                }
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Alignment Controls
+                            IconButton(
+                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "LEFT") },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatAlignLeft,
+                                    contentDescription = "Align Left",
+                                    tint = if (currentAlignment == "LEFT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "CENTER") },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatAlignCenter,
+                                    contentDescription = "Align Center",
+                                    tint = if (currentAlignment == "CENTER") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "RIGHT") },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatAlignRight,
+                                    contentDescription = "Align Right",
+                                    tint = if (currentAlignment == "RIGHT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "JUSTIFY") },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatAlignJustify,
+                                    contentDescription = "Justify",
+                                    tint = if (currentAlignment == "JUSTIFY") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Bullet & Number Lists
+                            IconButton(
+                                onClick = {
+                                    val next = if (currentBulletType == "bullet") "NONE" else "bullet"
+                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatListBulleted,
+                                    contentDescription = "Bullet List",
+                                    tint = if (currentBulletType == "bullet") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val next = if (currentBulletType == "number") "NONE" else "number"
+                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FormatListNumbered,
+                                    contentDescription = "Numbered List",
+                                    tint = if (currentBulletType == "number") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Style / Heading Menu
+                            Box {
+                                OutlinedButton(
+                                    onClick = { showStyleMenu = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = when (currentHeadingLevel) {
+                                            1 -> "Heading 1"
+                                            2 -> "Heading 2"
+                                            3 -> "Heading 3"
+                                            else -> "Normal"
+                                        },
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showStyleMenu,
+                                    onDismissRequest = { showStyleMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Normal Text") },
+                                        onClick = {
+                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 0, fontSizePt = 12f)
+                                            showStyleMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Heading 1", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                                        onClick = {
+                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 1, fontSizePt = 20f, isBold = true)
+                                            showStyleMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Heading 2", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                                        onClick = {
+                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 2, fontSizePt = 16f, isBold = true)
+                                            showStyleMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Heading 3", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
+                                        onClick = {
+                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 3, fontSizePt = 14f, isBold = true)
+                                            showStyleMenu = false
+                                        }
+                                    )
+                                }
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Text Color Swatches
+                            Box {
+                                IconButton(onClick = { showColorMenu = true }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.FormatColorText, contentDescription = "Text Color")
+                                }
+                                DropdownMenu(
+                                    expanded = showColorMenu,
+                                    onDismissRequest = { showColorMenu = false }
+                                ) {
+                                    listOf(
+                                        "Default" to "CLEAR",
+                                        "Black" to "#000000",
+                                        "Red" to "#EF4444",
+                                        "Blue" to "#3B82F6",
+                                        "Green" to "#10B981",
+                                        "Orange" to "#F59E0B",
+                                        "Purple" to "#8B5CF6"
+                                    ).forEach { (name, hex) ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(16.dp)
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(if (hex == "CLEAR") Color.Gray else Color(android.graphics.Color.parseColor(hex)))
+                                                    )
+                                                    Text(name)
+                                                }
+                                            },
+                                            onClick = {
+                                                viewModel.applyParagraphFormatting(activeElementIndex, colorHex = hex)
+                                                showColorMenu = false
+                                            }
+                                        )
                                     }
                                 }
                             }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Insert Menu (+)
+                            Box {
+                                IconButton(onClick = { showInsertMenu = true }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.AddCircleOutline, contentDescription = "Insert Elements", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                DropdownMenu(
+                                    expanded = showInsertMenu,
+                                    onDismissRequest = { showInsertMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Paragraph Below") },
+                                        leadingIcon = { Icon(Icons.Default.FormatAlignLeft, contentDescription = null) },
+                                        onClick = {
+                                            val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = true)
+                                            if (newIdx != -1) activeElementIndex = newIdx
+                                            showInsertMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Paragraph Above") },
+                                        leadingIcon = { Icon(Icons.Default.FormatAlignLeft, contentDescription = null) },
+                                        onClick = {
+                                            val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = false)
+                                            if (newIdx != -1) activeElementIndex = newIdx
+                                            showInsertMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Insert Image") },
+                                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                                        onClick = {
+                                            imagePickerLauncher.launch("image/*")
+                                            showInsertMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Insert Table") },
+                                        leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
+                                        onClick = {
+                                            showInsertTableDialog = true
+                                            showInsertMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Insert Link") },
+                                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                                        onClick = {
+                                            showLinkDialog = true
+                                            showInsertMenu = false
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Delete Paragraph
+                            IconButton(
+                                onClick = {
+                                    val next = viewModel.deleteParagraph(activeElementIndex)
+                                    activeElementIndex = next
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete Paragraph", tint = MaterialTheme.colorScheme.error)
+                            }
+
+                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                            // Save Changes Button
+                            Button(
+                                onClick = { viewModel.commitChanges() },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
-
-                    // Main Viewer Dock Bar
+                } else {
+                    // Normal Viewer Dock Bar
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp,
@@ -512,10 +823,10 @@ fun DocxViewerScreen(
                             }
 
                             ViewerActionColumnButton(
-                                icon = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                title = if (isEditMode) "Done" else "Edit"
+                                icon = Icons.Default.Edit,
+                                title = "Edit"
                             ) {
-                                isEditMode = !isEditMode
+                                isEditMode = true
                             }
 
                             ViewerActionColumnButton(
@@ -577,44 +888,86 @@ fun DocxViewerScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Compose interactive editor stream (when in Edit Mode or fallback for legacy format)
-                        SelectionContainer {
-                            LazyColumn(
-                                state = lazyListState,
+                        // Document Sheet Container (when in Edit Mode or fallback for legacy format)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        ) {
+                            Card(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surface),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
+                                    .padding(horizontal = if (isEditMode) 8.dp else 0.dp, vertical = if (isEditMode) 8.dp else 0.dp),
+                                shape = if (isEditMode) RoundedCornerShape(8.dp) else RoundedCornerShape(0.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = if (isEditMode) 2.dp else 0.dp)
                             ) {
-                                itemsIndexed(document.elements) { index, element ->
-                                    when (element) {
-                                        is DocxBodyElement.Para -> {
-                                            val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
-                                            val clickableModifier = if (isEditMode) {
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        activeIndexToEdit = index
-                                                        paragraphToEdit = element.paragraph
-                                                    }
-                                                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                                    .padding(6.dp)
-                                            } else Modifier
-                                            Box(modifier = clickableModifier) {
-                                                DocxParagraphItem(
-                                                    paragraph = element.paragraph,
-                                                    isHighlighted = isHighlighted,
-                                                    searchQuery = searchQuery,
-                                                    isPrintLayout = false
-                                                )
+                                LazyColumn(
+                                    state = lazyListState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)
+                                ) {
+                                    itemsIndexed(
+                                        items = document.elements,
+                                        key = { _, element -> element.elementId }
+                                    ) { index, element ->
+                                        when (element) {
+                                            is DocxBodyElement.Para -> {
+                                                if (isEditMode) {
+                                                    DocxInPlaceParagraphEditor(
+                                                        index = index,
+                                                        paragraph = element.paragraph,
+                                                        isActive = activeElementIndex == index,
+                                                        onFocus = { activeElementIndex = index },
+                                                        onTextChange = { newText ->
+                                                            viewModel.updateParagraphText(index, newText)
+                                                        },
+                                                        onEnterPressed = { remainingText ->
+                                                            val newIdx = viewModel.insertParagraph(index, remainingText, after = true)
+                                                            if (newIdx != -1) activeElementIndex = newIdx
+                                                        },
+                                                        onDeleteImage = {
+                                                            val filtered = element.paragraph.runs.filter { it.imageUrl == null }
+                                                            viewModel.updateParagraphText(index, filtered.joinToString("") { it.text })
+                                                        }
+                                                    )
+                                                } else {
+                                                    val isHighlighted = searchResults.getOrNull(currentMatchIndex)?.pageIndex == index
+                                                    DocxParagraphItem(
+                                                        paragraph = element.paragraph,
+                                                        isHighlighted = isHighlighted,
+                                                        searchQuery = searchQuery,
+                                                        isPrintLayout = false
+                                                    )
+                                                }
                                             }
-                                        }
-                                        is DocxBodyElement.Table -> {
-                                            DocxTableItem(
-                                                table = element,
-                                                searchQuery = searchQuery,
-                                                isPrintLayout = false
-                                            )
+                                            is DocxBodyElement.Table -> {
+                                                if (isEditMode) {
+                                                    DocxEditableTableItem(
+                                                        tableIndex = index,
+                                                        table = element,
+                                                        isEditMode = true,
+                                                        onCellTextChange = { rIdx, cIdx, text ->
+                                                            viewModel.updateTableCellText(index, rIdx, cIdx, text)
+                                                        },
+                                                        onAddRow = {
+                                                            viewModel.insertTableRow(index, element.rows.size - 1)
+                                                        },
+                                                        onDeleteRow = {
+                                                            viewModel.deleteTableRow(index, element.rows.size - 1)
+                                                        },
+                                                        onDeleteTable = {
+                                                            viewModel.deleteBodyElement(index)
+                                                        }
+                                                    )
+                                                } else {
+                                                    DocxTableItem(
+                                                        table = element,
+                                                        searchQuery = searchQuery,
+                                                        isPrintLayout = false
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -656,35 +1009,84 @@ fun DocxViewerScreen(
         }
     }
 
-    if (showAppendDialog) {
-        var newParagraphText by remember { mutableStateOf("") }
+    if (showInsertTableDialog) {
+        var rowsText by remember { mutableStateOf("2") }
+        var colsText by remember { mutableStateOf("2") }
         AlertDialog(
-            onDismissRequest = { showAppendDialog = false },
-            title = { Text("Append New Paragraph") },
+            onDismissRequest = { showInsertTableDialog = false },
+            title = { Text("Insert Table", fontWeight = FontWeight.Bold) },
             text = {
-                OutlinedTextField(
-                    value = newParagraphText,
-                    onValueChange = { newParagraphText = it },
-                    label = { Text("Paragraph Text") },
-                    placeholder = { Text("Type paragraph content here...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 5
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = rowsText,
+                        onValueChange = { rowsText = it.filter { c -> c.isDigit() } },
+                        label = { Text("Number of Rows") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = colsText,
+                        onValueChange = { colsText = it.filter { c -> c.isDigit() } },
+                        label = { Text("Number of Columns") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        if (newParagraphText.isNotBlank()) {
-                            viewModel.appendParagraph(newParagraphText)
-                        }
-                        showAppendDialog = false
-                    }
-                ) {
-                    Text("Append")
+                Button(onClick = {
+                    val r = rowsText.toIntOrNull()?.coerceIn(1, 20) ?: 2
+                    val c = colsText.toIntOrNull()?.coerceIn(1, 10) ?: 2
+                    viewModel.insertTable(activeElementIndex, r, c)
+                    showInsertTableDialog = false
+                }) {
+                    Text("Insert")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAppendDialog = false }) {
+                TextButton(onClick = { showInsertTableDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLinkDialog) {
+        var linkText by remember { mutableStateOf("") }
+        var linkUrl by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showLinkDialog = false },
+            title = { Text("Insert Link", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = linkText,
+                        onValueChange = { linkText = it },
+                        label = { Text("Link Text") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = linkUrl,
+                        onValueChange = { linkUrl = it },
+                        label = { Text("URL (e.g. https://...)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (linkText.isNotBlank()) {
+                        val formattedLink = if (linkUrl.isNotBlank()) "$linkText ($linkUrl)" else linkText
+                        viewModel.insertParagraph(activeElementIndex, formattedLink, after = true)
+                    }
+                    showLinkDialog = false
+                }) {
+                    Text("Insert")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLinkDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -705,194 +1107,6 @@ fun DocxViewerScreen(
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Text("Converting document offline...", style = MaterialTheme.typography.bodyMedium)
                 }
-            }
-        )
-    }
-
-    if (paragraphToEdit != null && activeIndexToEdit >= 0) {
-        val paragraph = paragraphToEdit!!
-        var textValue by remember(paragraph) { mutableStateOf(paragraph.runs.joinToString("") { it.text }) }
-        var commentValue by remember(paragraph) { mutableStateOf(paragraph.comment ?: "") }
-        var isBold by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isBold ?: false) }
-        var isItalic by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isItalic ?: false) }
-        var isUnderline by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.isUnderline ?: false) }
-        var textColorHex by remember(paragraph) { mutableStateOf(paragraph.runs.firstOrNull()?.color) }
-
-        AlertDialog(
-            onDismissRequest = { 
-                paragraphToEdit = null
-                activeIndexToEdit = -1
-            },
-            title = { Text("Edit Paragraph Content & Format", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Paragraph Text Field
-                    OutlinedTextField(
-                        value = textValue,
-                        onValueChange = { textValue = it },
-                        label = { Text("Paragraph Text") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 6
-                    )
-
-                    // Text Formatting Options Row
-                    Text("Typography Style:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        FilterChip(
-                            selected = isBold,
-                            onClick = { isBold = !isBold },
-                            label = { Text("Bold") },
-                            leadingIcon = if (isBold) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
-                        )
-                        FilterChip(
-                            selected = isItalic,
-                            onClick = { isItalic = !isItalic },
-                            label = { Text("Italic") },
-                            leadingIcon = if (isItalic) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
-                        )
-                        FilterChip(
-                            selected = isUnderline,
-                            onClick = { isUnderline = !isUnderline },
-                            label = { Text("Underline") },
-                            leadingIcon = if (isUnderline) { { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null
-                        )
-                    }
-
-                    // Text Color Swatches Row
-                    Text("Text Color Preset:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        listOf(null to "Default", "EF4444" to "Red", "3B82F6" to "Blue", "10B981" to "Green", "F59E0B" to "Orange").forEach { (hex, name) ->
-                            val isSelected = (textColorHex?.lowercase()?.replace("#", "") == hex?.lowercase())
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (hex == null) MaterialTheme.colorScheme.surfaceVariant else Color(android.graphics.Color.parseColor("#$hex")))
-                                    .border(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { textColorHex = hex }
-                                    .padding(4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (hex == null) {
-                                    Text("A", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                } else if (isSelected) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // Annotation / Comment Field
-                    OutlinedTextField(
-                        value = commentValue,
-                        onValueChange = { commentValue = it },
-                        label = { Text("Add Comment Annotation Note") },
-                        placeholder = { Text("Type an offline review note...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    // Image Insertion Launcher Button
-                    Button(
-                        onClick = {
-                            imagePickerLauncher.launch("image/*")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Insert Picture Run")
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateParagraph(
-                            index = activeIndexToEdit,
-                            newText = textValue,
-                            isBold = isBold,
-                            isItalic = isItalic,
-                            isUnderline = isUnderline,
-                            colorHex = textColorHex,
-                            comment = commentValue
-                        )
-                        paragraphToEdit = null
-                        activeIndexToEdit = -1
-                    }
-                ) {
-                    Text("Apply & Save")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        paragraphToEdit = null
-                        activeIndexToEdit = -1
-                    }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Format Menu Popup
-    FormatMenuPopup(
-        expanded = showFormatMenu,
-        onDismiss = { showFormatMenu = false },
-        isBold = pendingFormatBold,
-        isItalic = pendingFormatItalic,
-        isUnderline = pendingFormatUnderline,
-        onBoldToggle = { pendingFormatBold = !pendingFormatBold },
-        onItalicToggle = { pendingFormatItalic = !pendingFormatItalic },
-        onUnderlineToggle = { pendingFormatUnderline = !pendingFormatUnderline },
-        onColorChange = { pendingTextColor = it },
-        onBgColorChange = { pendingHighlightColor = it },
-        onFontSizeChange = { pendingFontSize = it },
-        onAlignChange = { pendingAlignment = it }
-    )
-
-    // Link Dialog
-    if (showLinkDialog) {
-        var linkText by remember { mutableStateOf("") }
-        var linkUrl by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showLinkDialog = false },
-            title = { Text("Insert Link") },
-            text = {
-                Column {
-                    OutlinedTextField(value = linkText, onValueChange = { linkText = it }, label = { Text("Link Text") }, modifier = Modifier.fillMaxWidth())
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(value = linkUrl, onValueChange = { linkUrl = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (linkText.isNotBlank() && linkUrl.isNotBlank()) {
-                        viewModel.appendParagraph("$linkText ($linkUrl)")
-                        Toast.makeText(context, "Link inserted as new paragraph", Toast.LENGTH_SHORT).show()
-                    }
-                    showLinkDialog = false
-                }) { Text("Insert") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLinkDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -926,68 +1140,294 @@ private fun mapFontFamily(name: String?): FontFamily {
 }
 
 @Composable
-fun DocxParagraphEditorItem(
+fun FormatRibbonToggleButton(
+    label: String,
+    isSelected: Boolean,
+    fontWeight: FontWeight = FontWeight.Normal,
+    fontStyle: FontStyle = FontStyle.Normal,
+    textDecoration: TextDecoration = TextDecoration.None,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(36.dp)
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                RoundedCornerShape(6.dp)
+            )
+    ) {
+        Text(
+            text = label,
+            fontSize = 15.sp,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
+            textDecoration = textDecoration,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+fun DocxInPlaceParagraphEditor(
     index: Int,
     paragraph: DocxParagraph,
-    isHighlighted: Boolean = false,
-    onTextChange: (String) -> Unit
+    isActive: Boolean,
+    onFocus: () -> Unit,
+    onTextChange: (String) -> Unit,
+    onEnterPressed: (String) -> Unit,
+    onDeleteImage: () -> Unit
 ) {
-    var textState by remember(paragraph) { 
-        mutableStateOf(paragraph.runs.joinToString("") { it.text }) 
+    var rawText by remember(paragraph.id, paragraph.runs.map { it.text }) {
+        mutableStateOf(paragraph.runs.joinToString("") { it.text })
     }
 
-    val backgroundColor = if (isHighlighted) Color.Yellow.copy(alpha = 0.1f) else Color.Transparent
+    // Determine typography from paragraph properties or first run
+    val firstRun = paragraph.runs.firstOrNull()
+    val isBold = firstRun?.isBold == true || paragraph.isHeading
+    val isItalic = firstRun?.isItalic == true
+    val isUnderline = firstRun?.isUnderline == true
+    val isStrike = firstRun?.isStrike == true
+    val fontSize = (firstRun?.fontSizePt ?: if (paragraph.isHeading) 18f else 14f).sp
+    val fontFamily = mapFontFamily(firstRun?.fontFamily)
+    val parsedColor = parseHexColor(firstRun?.color) ?: MaterialTheme.colorScheme.onSurface
 
-    val textStyle = if (paragraph.isHeading) {
-        MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary
-        )
-    } else {
-        MaterialTheme.typography.bodyLarge.copy(
-            color = MaterialTheme.colorScheme.onSurface
-        )
+    val textAlign = when (paragraph.alignment) {
+        "CENTER" -> TextAlign.Center
+        "RIGHT" -> TextAlign.Right
+        "JUSTIFY" -> TextAlign.Justify
+        else -> TextAlign.Left
+    }
+
+    val textDecoration = when {
+        isUnderline && isStrike -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+        isUnderline -> TextDecoration.Underline
+        isStrike -> TextDecoration.LineThrough
+        else -> TextDecoration.None
+    }
+
+    val bulletPrefix = when (paragraph.bulletType) {
+        "bullet" -> "• "
+        "number" -> "${index + 1}. "
+        else -> null
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor)
+            .padding(vertical = 4.dp)
+            .background(
+                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.04f) else Color.Transparent,
+                RoundedCornerShape(4.dp)
+            )
+            .border(
+                width = if (isActive) 1.dp else 0.dp,
+                color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        TextField(
-            value = textState,
-            onValueChange = {
-                textState = it
-                onTextChange(it)
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            textStyle = textStyle,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            singleLine = false
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            if (bulletPrefix != null) {
+                Text(
+                    text = bulletPrefix,
+                    fontSize = fontSize,
+                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 4.dp, top = 2.dp)
+                )
+            }
 
-        // Render embedded images in editor mode too
+            BasicTextField(
+                value = rawText,
+                onValueChange = { newText ->
+                    if (newText.contains("\n")) {
+                        val parts = newText.split("\n", limit = 2)
+                        val beforeEnter = parts[0]
+                        val afterEnter = if (parts.size > 1) parts[1] else ""
+                        rawText = beforeEnter
+                        onTextChange(beforeEnter)
+                        onEnterPressed(afterEnter)
+                    } else {
+                        rawText = newText
+                        onTextChange(newText)
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            onFocus()
+                        }
+                    },
+                textStyle = TextStyle(
+                    fontFamily = fontFamily,
+                    fontSize = fontSize,
+                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                    textDecoration = textDecoration,
+                    textAlign = textAlign,
+                    color = parsedColor
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    keyboardType = KeyboardType.Text
+                ),
+                singleLine = false
+            )
+        }
+
+        // Display any embedded image with a quick-action delete button in edit mode
         paragraph.runs.forEach { run ->
             if (run.imageUrl != null) {
-                AsyncImage(
-                    model = run.imageUrl,
-                    contentDescription = "Embedded Image",
+                Box(
                     modifier = Modifier
                         .fillMaxWidth(0.9f)
-                        .padding(vertical = 8.dp)
                         .align(Alignment.CenterHorizontally)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                )
+                        .padding(vertical = 8.dp)
+                ) {
+                    AsyncImage(
+                        model = run.imageUrl,
+                        contentDescription = "Embedded Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                    IconButton(
+                        onClick = onDeleteImage,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(28.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Remove Image",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DocxEditableTableItem(
+    tableIndex: Int,
+    table: DocxBodyElement.Table,
+    isEditMode: Boolean,
+    onCellTextChange: (rowIndex: Int, colIndex: Int, text: String) -> Unit,
+    onAddRow: () -> Unit,
+    onDeleteRow: () -> Unit,
+    onDeleteTable: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (isEditMode) {
+                // Table header actions
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text("Table (${table.rows.size} rows)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onAddRow, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Row", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        if (table.rows.size > 1) {
+                            IconButton(onClick = onDeleteRow, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Remove, contentDescription = "Delete Last Row", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        IconButton(onClick = onDeleteTable, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Table", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+
+            // Render table grid
+            table.rows.forEachIndexed { rIdx, row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawBehind {
+                            drawLine(
+                                color = Color.LightGray.copy(alpha = 0.5f),
+                                start = Offset(0f, size.height),
+                                end = Offset(size.width, size.height),
+                                strokeWidth = 0.5.dp.toPx()
+                            )
+                        },
+                    verticalAlignment = Alignment.Top
+                ) {
+                    row.cells.forEachIndexed { cIdx, cell ->
+                        var cellText by remember(cell.id) {
+                            mutableStateOf(cell.paragraphs.joinToString("\n") { it.runs.joinToString("") { r -> r.text } })
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (cIdx < row.cells.size - 1)
+                                        Modifier.drawBehind {
+                                            drawLine(
+                                                color = Color.LightGray.copy(alpha = 0.5f),
+                                                start = Offset(size.width, 0f),
+                                                end = Offset(size.width, size.height),
+                                                strokeWidth = 0.5.dp.toPx()
+                                            )
+                                        }
+                                    else Modifier
+                                )
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            BasicTextField(
+                                value = cellText,
+                                onValueChange = { newText ->
+                                    cellText = newText
+                                    onCellTextChange(rIdx, cIdx, newText)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = TextStyle(
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (rIdx == 0) FontWeight.Bold else FontWeight.Normal
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                singleLine = false
+                            )
+                        }
+                    }
+                }
             }
         }
     }

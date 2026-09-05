@@ -90,19 +90,30 @@ data class DocxParagraph(
     val tabStops: List<DocxTabStop> = emptyList(),
     val isKeepNext: Boolean = false,
     val isKeepLines: Boolean = false,
-    val isPageBreakBefore: Boolean = false
+    val isPageBreakBefore: Boolean = false,
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val bulletType: String? = null // null, "bullet", "number"
 ) {
     // Backward compatibility helpers for UI dp calculations
     val indentStartDp: Int get() = (indentStartPt * (160f / 72f)).toInt()
     val firstLineIndentDp: Int get() = (firstLineIndentPt * (160f / 72f)).toInt()
+
+    fun fullText(): String = runs.joinToString("") { it.text }
 }
 
-data class DocxTableCell(val paragraphs: List<DocxParagraph>)
-data class DocxTableRow(val cells: List<DocxTableCell>)
+data class DocxTableCell(
+    val paragraphs: List<DocxParagraph>,
+    val id: String = java.util.UUID.randomUUID().toString()
+)
+data class DocxTableRow(
+    val cells: List<DocxTableCell>,
+    val id: String = java.util.UUID.randomUUID().toString()
+)
 
 sealed class DocxBodyElement {
-    data class Para(val paragraph: DocxParagraph) : DocxBodyElement()
-    data class Table(val rows: List<DocxTableRow>) : DocxBodyElement()
+    abstract val elementId: String
+    data class Para(val paragraph: DocxParagraph, override val elementId: String = paragraph.id) : DocxBodyElement()
+    data class Table(val rows: List<DocxTableRow>, override val elementId: String = java.util.UUID.randomUUID().toString()) : DocxBodyElement()
 }
 
 data class DocxDocument(
@@ -164,26 +175,29 @@ class DocxViewerViewModel @Inject constructor(
         _canRedo.value = false
     }
 
+    fun captureUndoSnapshot() {
+        val current = (_loadState.value as? DocxLoadState.Success)?.document ?: return
+        pushUndoState(current)
+    }
+
     fun undo() {
         if (undoStack.isEmpty()) return
-        val current = (_loadState.value as? DocxLoadState.Success)?.document ?: return
-        redoStack.push(current)
+        val currentSuccess = _loadState.value as? DocxLoadState.Success ?: return
+        redoStack.push(currentSuccess.document)
         val previous = undoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
-        val name = activeFilePath?.let { File(it).name } ?: "Document"
-        _loadState.value = DocxLoadState.Success(previous, name)
+        _loadState.value = currentSuccess.copy(document = previous)
     }
 
     fun redo() {
         if (redoStack.isEmpty()) return
-        val current = (_loadState.value as? DocxLoadState.Success)?.document ?: return
-        undoStack.push(current)
+        val currentSuccess = _loadState.value as? DocxLoadState.Success ?: return
+        undoStack.push(currentSuccess.document)
         val next = redoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
-        val name = activeFilePath?.let { File(it).name } ?: "Document"
-        _loadState.value = DocxLoadState.Success(next, name)
+        _loadState.value = currentSuccess.copy(document = next)
     }
 
     /**
@@ -658,7 +672,296 @@ class DocxViewerViewModel @Inject constructor(
         )
     }
     /**
-     * Replaces the text and formatting of the paragraph at index.
+     * Updates the text of the paragraph at index in the document stream in-memory.
+     */
+    fun updateParagraphText(index: Int, newText: String) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        if (index !in elements.indices) return
+        val paraElement = elements[index] as? DocxBodyElement.Para ?: return
+        val oldPara = paraElement.paragraph
+
+        val newRuns = if (oldPara.runs.isEmpty()) {
+            listOf(DocxRun(text = newText, isBold = oldPara.isHeading, isItalic = false, isUnderline = false, isStrike = false))
+        } else if (oldPara.runs.size == 1) {
+            listOf(oldPara.runs[0].copy(text = newText))
+        } else {
+            val baseRun = oldPara.runs[0]
+            listOf(baseRun.copy(text = newText))
+        }
+
+        val newPara = oldPara.copy(runs = newRuns)
+        elements[index] = DocxBodyElement.Para(newPara)
+        val newDoc = current.document.copy(elements = elements)
+        _loadState.value = current.copy(document = newDoc)
+    }
+
+    /**
+     * Applies typography, color, size, alignment, and bullet formatting to paragraph.
+     */
+    fun applyParagraphFormatting(
+        index: Int,
+        isBold: Boolean? = null,
+        isItalic: Boolean? = null,
+        isUnderline: Boolean? = null,
+        isStrike: Boolean? = null,
+        colorHex: String? = null,
+        fontSizePt: Float? = null,
+        alignment: String? = null,
+        headingLevel: Int? = null,
+        bulletType: String? = null
+    ) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        if (index !in elements.indices) return
+        val paraElement = elements[index] as? DocxBodyElement.Para ?: return
+        val oldPara = paraElement.paragraph
+
+        pushUndoState(current.document)
+
+        val updatedRuns = if (oldPara.runs.isEmpty()) {
+            listOf(
+                DocxRun(
+                    text = "",
+                    isBold = isBold ?: false,
+                    isItalic = isItalic ?: false,
+                    isUnderline = isUnderline ?: false,
+                    isStrike = isStrike ?: false,
+                    color = if (colorHex == "CLEAR") null else colorHex,
+                    fontSizePt = fontSizePt
+                )
+            )
+        } else {
+            oldPara.runs.map { run ->
+                run.copy(
+                    isBold = isBold ?: run.isBold,
+                    isItalic = isItalic ?: run.isItalic,
+                    isUnderline = isUnderline ?: run.isUnderline,
+                    isStrike = isStrike ?: run.isStrike,
+                    color = if (colorHex == "CLEAR") null else (colorHex ?: run.color),
+                    fontSizePt = fontSizePt ?: run.fontSizePt
+                )
+            }
+        }
+
+        val newHeadingLevel = headingLevel ?: oldPara.headingLevel
+        val newPara = oldPara.copy(
+            runs = updatedRuns,
+            alignment = alignment ?: oldPara.alignment,
+            headingLevel = newHeadingLevel,
+            isHeading = newHeadingLevel > 0,
+            bulletType = if (bulletType == "NONE") null else (bulletType ?: oldPara.bulletType)
+        )
+
+        elements[index] = DocxBodyElement.Para(newPara)
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Inserts a new paragraph either after or before the specified index.
+     * Returns the index of the newly inserted element.
+     */
+    fun insertParagraph(index: Int, text: String = "", after: Boolean = true, headingLevel: Int = 0): Int {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return -1
+        val elements = current.document.elements.toMutableList()
+        pushUndoState(current.document)
+
+        val insertIndex = if (elements.isEmpty()) {
+            0
+        } else if (after) {
+            (index + 1).coerceIn(0, elements.size)
+        } else {
+            index.coerceIn(0, elements.size)
+        }
+
+        val newPara = DocxParagraph(
+            runs = listOf(
+                DocxRun(
+                    text = text,
+                    isBold = headingLevel > 0,
+                    isItalic = false,
+                    isUnderline = false,
+                    isStrike = false
+                )
+            ),
+            alignment = "LEFT",
+            headingLevel = headingLevel,
+            isHeading = headingLevel > 0
+        )
+
+        elements.add(insertIndex, DocxBodyElement.Para(newPara))
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+        return insertIndex
+    }
+
+    /**
+     * Deletes the paragraph at index. Returns the index that should now be active.
+     */
+    fun deleteParagraph(index: Int): Int {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return -1
+        val elements = current.document.elements.toMutableList()
+        if (index !in elements.indices) return -1
+
+        if (elements.size <= 1) {
+            // Keep at least one empty paragraph
+            val para = (elements[0] as? DocxBodyElement.Para)?.paragraph
+            if (para != null) {
+                elements[0] = DocxBodyElement.Para(
+                    para.copy(runs = listOf(DocxRun(text = "", isBold = false, isItalic = false, isUnderline = false, isStrike = false)))
+                )
+                _loadState.value = current.copy(document = current.document.copy(elements = elements))
+            }
+            return 0
+        }
+
+        pushUndoState(current.document)
+        elements.removeAt(index)
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+        return (index - 1).coerceAtLeast(0)
+    }
+
+    /**
+     * Inserts an image into the document flow.
+     */
+    fun insertImage(index: Int, imagePath: String) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        pushUndoState(current.document)
+
+        val imgRun = DocxRun(
+            text = "",
+            isBold = false,
+            isItalic = false,
+            isUnderline = false,
+            isStrike = false,
+            imageUrl = imagePath,
+            widthEmu = 2743200L,
+            heightEmu = 1828800L
+        )
+
+        val newPara = DocxParagraph(
+            runs = listOf(imgRun),
+            alignment = "CENTER",
+            headingLevel = 0,
+            isHeading = false
+        )
+
+        val insertIndex = if (index in elements.indices) index + 1 else elements.size
+        elements.add(insertIndex, DocxBodyElement.Para(newPara))
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Inserts a table with given rows and columns.
+     */
+    fun insertTable(index: Int, rows: Int = 2, cols: Int = 2) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        pushUndoState(current.document)
+
+        val tableRows = (0 until rows.coerceAtLeast(1)).map {
+            val cells = (0 until cols.coerceAtLeast(1)).map {
+                DocxTableCell(
+                    paragraphs = listOf(
+                        DocxParagraph(
+                            runs = listOf(DocxRun(text = "", isBold = false, isItalic = false, isUnderline = false, isStrike = false)),
+                            alignment = "LEFT",
+                            headingLevel = 0,
+                            isHeading = false
+                        )
+                    )
+                )
+            }
+            DocxTableRow(cells)
+        }
+
+        val insertIndex = if (index in elements.indices) index + 1 else elements.size
+        elements.add(insertIndex, DocxBodyElement.Table(tableRows))
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Updates text of a specific cell in a table.
+     */
+    fun updateTableCellText(tableIndex: Int, rowIndex: Int, colIndex: Int, text: String) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        val tableElement = elements.getOrNull(tableIndex) as? DocxBodyElement.Table ?: return
+        val rows = tableElement.rows.toMutableList()
+        val row = rows.getOrNull(rowIndex) ?: return
+        val cells = row.cells.toMutableList()
+        val cell = cells.getOrNull(colIndex) ?: return
+
+        val newPara = DocxParagraph(
+            runs = listOf(DocxRun(text = text, isBold = false, isItalic = false, isUnderline = false, isStrike = false)),
+            alignment = "LEFT",
+            headingLevel = 0,
+            isHeading = false
+        )
+        cells[colIndex] = cell.copy(paragraphs = listOf(newPara))
+        rows[rowIndex] = row.copy(cells = cells)
+        elements[tableIndex] = DocxBodyElement.Table(rows, tableElement.elementId)
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Adds a row to a table.
+     */
+    fun insertTableRow(tableIndex: Int, atRowIndex: Int) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        val tableElement = elements.getOrNull(tableIndex) as? DocxBodyElement.Table ?: return
+        val rows = tableElement.rows.toMutableList()
+        val colCount = rows.firstOrNull()?.cells?.size ?: 2
+
+        pushUndoState(current.document)
+        val newCells = (0 until colCount).map {
+            DocxTableCell(
+                paragraphs = listOf(
+                    DocxParagraph(
+                        runs = listOf(DocxRun(text = "", isBold = false, isItalic = false, isUnderline = false, isStrike = false)),
+                        alignment = "LEFT",
+                        headingLevel = 0,
+                        isHeading = false
+                    )
+                )
+            )
+        }
+        val insertPos = (atRowIndex + 1).coerceIn(0, rows.size)
+        rows.add(insertPos, DocxTableRow(newCells))
+        elements[tableIndex] = DocxBodyElement.Table(rows, tableElement.elementId)
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Deletes a row from a table, or deletes the whole table if only 1 row remains.
+     */
+    fun deleteTableRow(tableIndex: Int, atRowIndex: Int) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        val tableElement = elements.getOrNull(tableIndex) as? DocxBodyElement.Table ?: return
+        val rows = tableElement.rows.toMutableList()
+        if (rows.size <= 1) {
+            pushUndoState(current.document)
+            elements.removeAt(tableIndex)
+            _loadState.value = current.copy(document = current.document.copy(elements = elements))
+            return
+        }
+        pushUndoState(current.document)
+        rows.removeAt(atRowIndex.coerceIn(0, rows.size - 1))
+        elements[tableIndex] = DocxBodyElement.Table(rows, tableElement.elementId)
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Deletes any body element at index.
+     */
+    fun deleteBodyElement(index: Int): Int {
+        return deleteParagraph(index)
+    }
+
+    /**
+     * Backward-compatible updateParagraph.
      */
     fun updateParagraph(
         index: Int,
@@ -669,117 +972,128 @@ class DocxViewerViewModel @Inject constructor(
         colorHex: String? = null,
         comment: String? = null
     ) {
-        if (activeLegacyDocument != null) {
-            viewModelScope.launch {
-                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
-            }
-            return
-        }
-        val doc = activeDocument ?: return
-        val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
-        if (index < 0 || index >= elements.size) return
-        if (elements[index] !is DocxBodyElement.Para) return
-        val paraIndex = elements.take(index).count { it is DocxBodyElement.Para }
-        val paragraphs = doc.paragraphs
-        if (paraIndex in paragraphs.indices) {
-            val p = paragraphs[paraIndex]
-            val runCount = p.runs.size
-            for (i in runCount - 1 downTo 0) {
-                try { p.removeRun(i) } catch (e: Exception) { }
-            }
-            val run = p.createRun()
-            run.setText(newText)
-            run.isBold = isBold
-            run.isItalic = isItalic
-            run.underline = if (isUnderline) org.apache.poi.xwpf.usermodel.UnderlinePatterns.SINGLE
-                            else org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
-            if (!colorHex.isNullOrBlank()) {
-                run.setColor(colorHex.replace("#", ""))
-            }
-
-            val filePath = activeFilePath
-            if (filePath != null) {
-                val commentsMap = loadParagraphComments(filePath).toMutableMap()
-                if (comment.isNullOrBlank()) commentsMap.remove(paraIndex) else commentsMap[paraIndex] = comment
-                saveParagraphComments(filePath, commentsMap)
-            }
-
-            val currentDoc = (_loadState.value as? DocxLoadState.Success)?.document
-            if (currentDoc != null) {
-                pushUndoState(currentDoc)
-            }
-
-            val parsedDoc = parseDocument(doc)
-            _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
-        }
+        updateParagraphText(index, newText)
+        applyParagraphFormatting(
+            index = index,
+            isBold = isBold,
+            isItalic = isItalic,
+            isUnderline = isUnderline,
+            colorHex = colorHex
+        )
     }
 
     fun insertImageIntoParagraph(index: Int, imagePath: String) {
-        if (activeLegacyDocument != null) {
-            viewModelScope.launch {
-                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
-            }
-            return
-        }
-        val doc = activeDocument ?: return
-        val elements = (loadState.value as? DocxLoadState.Success)?.document?.elements ?: return
-        if (index < 0 || index >= elements.size) return
-        if (elements[index] !is DocxBodyElement.Para) return
-        val paraIndex = elements.take(index).count { it is DocxBodyElement.Para }
-        val paragraphs = doc.paragraphs
-        if (paraIndex in paragraphs.indices) {
-            val p = paragraphs[paraIndex]
-            val run = p.createRun()
-            var fis: java.io.FileInputStream? = null
-            try {
-                val imgFile = File(imagePath)
-                if (imgFile.exists() && imgFile.isFile) {
-                    fis = java.io.FileInputStream(imgFile)
-                    run.addPicture(
-                        fis,
-                        org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG,
-                        imgFile.name,
-                        org.apache.poi.util.Units.toEMU(300.0),
-                        org.apache.poi.util.Units.toEMU(200.0)
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                try { fis?.close() } catch(e: Exception) {}
-            }
-
-            val parsedDoc = parseDocument(doc)
-            _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
-        }
+        insertImage(index, imagePath)
     }
 
     /**
      * Appends a new paragraph to the document.
      */
     fun appendParagraph(text: String) {
-        if (activeLegacyDocument != null) {
-            viewModelScope.launch {
-                _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
-            }
-            return
-        }
-        val doc = activeDocument ?: return
-        val newP = doc.createParagraph()
-        newP.createRun().setText(text)
-
-        val currentDoc = (_loadState.value as? DocxLoadState.Success)?.document
-        if (currentDoc != null) {
-            pushUndoState(currentDoc)
-        }
-
-        // Re-parse and update screen state
-        val parsedDoc = parseDocument(doc)
-        _loadState.value = DocxLoadState.Success(parsedDoc, File(activeFilePath!!).name)
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        insertParagraph(index = current.document.elements.size - 1, text = text, after = true)
     }
 
     /**
-     * Commits all in-memory changes back to the offline storage path.
+     * Synchronizes the in-memory DocxDocument back into an Apache POI XWPFDocument.
+     */
+    private fun syncDocumentToPoi(docxDoc: DocxDocument, poiDoc: XWPFDocument) {
+        // Clear existing body elements safely
+        while (poiDoc.bodyElements.isNotEmpty()) {
+            try {
+                poiDoc.removeBodyElement(0)
+            } catch (_: Exception) {
+                break
+            }
+        }
+
+        for (element in docxDoc.elements) {
+            when (element) {
+                is DocxBodyElement.Para -> {
+                    val p = poiDoc.createParagraph()
+                    p.alignment = when (element.paragraph.alignment) {
+                        "CENTER" -> org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                        "RIGHT" -> org.apache.poi.xwpf.usermodel.ParagraphAlignment.RIGHT
+                        "JUSTIFY" -> org.apache.poi.xwpf.usermodel.ParagraphAlignment.BOTH
+                        else -> org.apache.poi.xwpf.usermodel.ParagraphAlignment.LEFT
+                    }
+                    if (element.paragraph.headingLevel in 1..6) {
+                        p.style = "Heading${element.paragraph.headingLevel}"
+                    }
+                    if (element.paragraph.spacingBeforePt > 0f) {
+                        p.spacingBefore = (element.paragraph.spacingBeforePt * 20).toInt()
+                    }
+                    if (element.paragraph.spacingAfterPt > 0f) {
+                        p.spacingAfter = (element.paragraph.spacingAfterPt * 20).toInt()
+                    }
+
+                    val runs = element.paragraph.runs
+                    if (runs.isEmpty()) {
+                        p.createRun().setText("")
+                    } else {
+                        for (run in runs) {
+                            val r = p.createRun()
+                            if (run.text.isNotEmpty()) {
+                                r.setText(run.text)
+                            }
+                            r.isBold = run.isBold
+                            r.isItalic = run.isItalic
+                            r.underline = if (run.isUnderline) {
+                                org.apache.poi.xwpf.usermodel.UnderlinePatterns.SINGLE
+                            } else {
+                                org.apache.poi.xwpf.usermodel.UnderlinePatterns.NONE
+                            }
+                            r.isStrikeThrough = run.isStrike
+                            if (!run.color.isNullOrBlank() && run.color != "auto") {
+                                r.setColor(run.color.replace("#", ""))
+                            }
+                            if (run.fontSizePt != null && run.fontSizePt > 0) {
+                                r.fontSize = run.fontSizePt.toInt()
+                            }
+                            if (!run.fontFamily.isNullOrBlank()) {
+                                r.fontFamily = run.fontFamily
+                            }
+                            if (run.imageUrl != null) {
+                                val imgFile = File(run.imageUrl)
+                                if (imgFile.exists() && imgFile.isFile) {
+                                    try {
+                                        val fis = FileInputStream(imgFile)
+                                        val picType = if (imgFile.extension.equals("png", ignoreCase = true)) {
+                                            org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG
+                                        } else {
+                                            org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_JPEG
+                                        }
+                                        val w = (run.widthEmu ?: org.apache.poi.util.Units.toEMU(300.0)).toInt()
+                                        val h = (run.heightEmu ?: org.apache.poi.util.Units.toEMU(200.0)).toInt()
+                                        r.addPicture(fis, picType, imgFile.name, w, h)
+                                        fis.close()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                is DocxBodyElement.Table -> {
+                    val numRows = element.rows.size.coerceAtLeast(1)
+                    val numCols = (element.rows.firstOrNull()?.cells?.size ?: 1).coerceAtLeast(1)
+                    val table = poiDoc.createTable(numRows, numCols)
+                    element.rows.forEachIndexed { rIdx, row ->
+                        val poiRow = if (rIdx < table.rows.size) table.getRow(rIdx) else table.createRow()
+                        row.cells.forEachIndexed { cIdx, cell ->
+                            val poiCell = if (cIdx < poiRow.tableCells.size) poiRow.getCell(cIdx) else poiRow.createCell()
+                            val text = cell.paragraphs.joinToString("\n") { it.runs.joinToString("") { r -> r.text } }
+                            poiCell.setText(text)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Commits all in-memory changes back to the offline storage path and refreshes docxBase64 for View Mode.
      */
     fun commitChanges() {
         viewModelScope.launch {
@@ -787,19 +1101,26 @@ class DocxViewerViewModel @Inject constructor(
                 _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
                 return@launch
             }
-            val doc = activeDocument
-            val filePath = activeFilePath
-            if (doc == null || filePath == null) {
+            val currentSuccess = _loadState.value as? DocxLoadState.Success ?: run {
                 _saveStatus.emit("No active document loaded.")
+                return@launch
+            }
+            val filePath = activeFilePath ?: run {
+                _saveStatus.emit("No active document file path.")
                 return@launch
             }
 
             withContext(Dispatchers.IO) {
                 var fileOutputStream: java.io.FileOutputStream? = null
                 try {
+                    val doc = activeDocument ?: XWPFDocument()
+                    syncDocumentToPoi(currentSuccess.document, doc)
+                    activeDocument = doc
+
                     val f = File(filePath)
                     fileOutputStream = java.io.FileOutputStream(f)
                     doc.write(fileOutputStream)
+                    fileOutputStream.flush()
 
                     recentFileRepository.insertRecentFile(
                         RecentFile(
@@ -811,6 +1132,11 @@ class DocxViewerViewModel @Inject constructor(
                             isOperation = true
                         )
                     )
+
+                    // Re-encode Base64 so WebView instantly reflects edits when switching to View Mode
+                    val rawBytes = f.readBytes()
+                    val newBase64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                    _loadState.value = currentSuccess.copy(docxBase64 = newBase64)
 
                     _saveStatus.emit("Word document changes committed successfully!")
                 } catch (e: Exception) {
