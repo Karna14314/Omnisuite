@@ -160,6 +160,46 @@
             color: #d93025;
             font-size: 14px;
         }
+
+        /* ═══════════════════════════════════════════════
+           PRINT MEDIA STYLES (PDF Generation & Web Printing)
+           ═══════════════════════════════════════════════ */
+        @media print {
+            html, body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            #loading, #error {
+                display: none !important;
+            }
+            #container {
+                padding: 0 !important;
+                margin: 0 !important;
+                display: block !important;
+                width: 100% !important;
+            }
+            .docx-wrapper {
+                padding: 0 !important;
+                margin: 0 !important;
+                display: block !important;
+                background: white !important;
+            }
+            .docx-wrapper > section.docx {
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                margin: 0 auto !important;
+                page-break-after: always !important;
+                break-after: page !important;
+            }
+            .docx-wrapper > section.docx:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            @page {
+                margin: 0;
+            }
+        }
     </style>
 </head>
 <body class="print-layout">
@@ -256,12 +296,18 @@
                     document.getElementById('error').style.display = 'block';
                     document.getElementById('error').textContent = 'Render error: ' + err.message;
                     console.error('docx-preview render error:', err);
+                    if (window.AndroidBridge && window.AndroidBridge.onRenderError) {
+                        window.AndroidBridge.onRenderError(err.message || 'Render error');
+                    }
                 });
             } catch (e) {
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
                 document.getElementById('error').textContent = 'Error: ' + e.message;
                 console.error('renderDocxBase64 error:', e);
+                if (window.AndroidBridge && window.AndroidBridge.onRenderError) {
+                    window.AndroidBridge.onRenderError(e.message || 'Render error');
+                }
             }
         }
 

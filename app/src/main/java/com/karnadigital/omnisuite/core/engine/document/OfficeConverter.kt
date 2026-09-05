@@ -5,6 +5,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.ParcelFileDescriptor
+import android.print.PrintAdapterHelper
+import android.print.PrintAttributes
+import android.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -44,9 +54,144 @@ class OfficeConverter @Inject constructor(
 ) {
 
     /**
-     * Converts a DOCX Word file paragraph-by-paragraph to an A4 PDF with dynamic line-wrapping and pagination.
+     * Converts a DOCX Word file to PDF using high-fidelity WebView printing in Print Layout mode.
+     * Falls back to POI parsing if WebView rendering fails or for legacy .doc files.
      */
-    suspend fun convertDocxToPdf(docxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
+    suspend fun convertDocxToPdf(docxFile: File, pdfFile: File) {
+        if (docxFile.name.endsWith(".doc", ignoreCase = true)) {
+            convertLegacyDocToPdf(docxFile, pdfFile)
+            return
+        }
+        try {
+            convertDocxToPdfViaWebView(docxFile, pdfFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            convertLegacyDocToPdf(docxFile, pdfFile)
+        }
+    }
+
+    /**
+     * Converts a DOCX file to PDF using headless WebView rendering matching DocxViewerScreen's Print Layout.
+     */
+    suspend fun convertDocxToPdfViaWebView(docxFile: File, pdfFile: File) {
+        val rawBytes = withContext(Dispatchers.IO) { docxFile.readBytes() }
+        val base64Data = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                var webView: WebView? = null
+                var isCompleted = false
+
+                fun completeWithException(e: Throwable) {
+                    if (!isCompleted) {
+                        isCompleted = true
+                        try { webView?.destroy() } catch (_: Exception) {}
+                        if (continuation.isActive) {
+                            continuation.resumeWithException(e)
+                        }
+                    }
+                }
+
+                fun completeSuccess() {
+                    if (!isCompleted) {
+                        isCompleted = true
+                        try { webView?.destroy() } catch (_: Exception) {}
+                        if (continuation.isActive) {
+                            continuation.resume(Unit)
+                        }
+                    }
+                }
+
+                try {
+                    val instance = WebView(context).apply {
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            allowFileAccess = true
+                            allowContentAccess = true
+                        }
+                    }
+                    webView = instance
+
+                    val androidBridge = object {
+                        @JavascriptInterface
+                        fun onRenderComplete(pageCount: Int) {
+                            instance.post {
+                                if (isCompleted) return@post
+                                try {
+                                    val printAdapter = instance.createPrintDocumentAdapter("DocxPrint")
+                                    val printAttributes = PrintAttributes.Builder()
+                                        .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                                        .setResolution(PrintAttributes.Resolution("pdf", "pdf", 300, 300))
+                                        .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                                        .build()
+
+                                    val pfd = ParcelFileDescriptor.open(
+                                        pdfFile,
+                                        ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE
+                                    )
+
+                                    PrintAdapterHelper.print(printAdapter, printAttributes, pfd) { success, error ->
+                                        try { pfd.close() } catch (_: Exception) {}
+                                        if (success) {
+                                            completeSuccess()
+                                        } else {
+                                            completeWithException(Exception("Print failure: ${error ?: "Unknown print error"}"))
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    completeWithException(e)
+                                }
+                            }
+                        }
+
+                        @JavascriptInterface
+                        fun onRenderError(error: String) {
+                            instance.post {
+                                completeWithException(Exception("JS render error: $error"))
+                            }
+                        }
+                    }
+
+                    instance.addJavascriptInterface(androidBridge, "AndroidBridge")
+
+                    instance.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            view?.evaluateJavascript("renderDocxBase64('$base64Data', true)", null)
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            errorCode: Int,
+                            description: String?,
+                            failingUrl: String?
+                        ) {
+                            super.onReceivedError(view, errorCode, description, failingUrl)
+                            instance.post {
+                                completeWithException(Exception("WebView load error: $description"))
+                            }
+                        }
+                    }
+
+                    continuation.invokeOnCancellation {
+                        instance.post {
+                            try { instance.destroy() } catch (_: Exception) {}
+                        }
+                    }
+
+                    instance.loadUrl("file:///android_asset/docx_viewer/viewer.html")
+                } catch (e: Exception) {
+                    completeWithException(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Converts a DOCX Word file paragraph-by-paragraph to an A4 PDF using POI fallback.
+     */
+    suspend fun convertLegacyDocToPdf(docxFile: File, pdfFile: File) = withContext(Dispatchers.IO) {
         // Enforce PDFBox resource loading setup
         PDFBoxResourceLoader.init(context)
 
