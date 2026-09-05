@@ -224,6 +224,7 @@ private fun getAllTools(
         ToolItem("📝", "PDF to Word", "Convert PDF to Word offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "PDF"),
         ToolItem("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }, "PDF"),
         ToolItem("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToExcel) }, "PDF"),
+        ToolItem("🖨️", "Print & Imposition Studio", "N-Up, Booklets, Bleeds & Registration", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }, "PDF"),
         ToolItem("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }, "PDF"),
         ToolItem("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }, "PDF"),
         ToolItem("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "PDF"),
@@ -277,6 +278,7 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }) }
         item { ToolListRow("📝", "PDF to Word", "Convert PDF to Word offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }) }
         item { ToolListRow("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }) }
+        item { ToolListRow("🖨️", "Print & Imposition Studio", "N-Up, Booklets, Bleeds & Registration", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }) }
         item { ToolListRow("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToExcel) }) }
         item { ToolListRow("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }) }
         item { ToolListRow("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }) }
