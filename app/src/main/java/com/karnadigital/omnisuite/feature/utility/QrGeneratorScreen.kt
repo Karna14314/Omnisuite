@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -330,53 +331,52 @@ fun QrGeneratorScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (activeTabState == 0) { // --- QR DECK ---
-                        Text(
-                            text = "Select QR Payload Type",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        QrCategoryBlock(
-                            title = "Personal & Social",
-                            types = QrType.values().filter { it.category == QrCategory.PERSONAL },
-                            selectedType = selectedQrType,
-                            onSelect = { selectedQrType = it }
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        QrCategoryBlock(
-                            title = "Web & Store Links",
-                            types = QrType.values().filter { it.category == QrCategory.WEBLINKS },
-                            selectedType = selectedQrType,
-                            onSelect = { selectedQrType = it }
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                QrCategoryBlock(
-                                    title = "Network Access",
-                                    types = QrType.values().filter { it.category == QrCategory.NETWORK },
-                                    selectedType = selectedQrType,
-                                    onSelect = { selectedQrType = it }
-                                )
-                            }
-                            Box(modifier = Modifier.weight(1f)) {
-                                QrCategoryBlock(
-                                    title = "Location Coordinates",
-                                    types = QrType.values().filter { it.category == QrCategory.LOCATION },
-                                    selectedType = selectedQrType,
-                                    onSelect = { selectedQrType = it }
+                            Text(
+                                text = "Select QR Payload Type",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = selectedQrType.displayName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            QrType.values().forEach { type ->
+                                val isSelected = selectedQrType == type
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedQrType = type },
+                                    label = {
+                                        Text(
+                                            text = "${type.icon} ${type.displayName}",
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // QR Input Form
                         Card(
@@ -924,7 +924,7 @@ fun QrGeneratorScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Live preview container
                     val format = if (activeTabState == 0) BarcodeFormat.QR_CODE else selectedBarcodeFormat
@@ -978,7 +978,7 @@ fun QrGeneratorScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Action buttons
                     if (qrBitmap != null) {

@@ -324,13 +324,6 @@ fun PptxViewerScreen(
                                     )
                                 }
 
-                                val slideText = remember(state, pagerState.currentPage) {
-                                    val s = (state as? PptxLoadState.Success)?.presentation?.slides?.getOrNull(pagerState.currentPage)
-                                    s?.let { "${it.title.primaryText}\n${it.textShapes.joinToString("\n") { shape -> shape.primaryText }}\n${it.speakerNotes ?: ""}" } ?: ""
-                                }
-
-                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = slideText)
-
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }

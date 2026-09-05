@@ -299,12 +299,6 @@ fun XlsxViewerScreen(
                             if (state is XlsxLoadState.Success) {
                                 var showMenu by remember { mutableStateOf(false) }
 
-                                val xlsxText = remember(state, activeSheetIndex) {
-                                    (state as? XlsxLoadState.Success)?.workbook?.sheets?.getOrNull(activeSheetIndex)?.rows?.flatten()?.joinToString(" ") { it.text } ?: ""
-                                }
-
-                                com.karnadigital.omnisuite.feature.utility.ReadAloudButton(text = xlsxText)
-
                                 IconButton(onClick = { searchExpanded = true }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search")
                                 }
@@ -383,100 +377,7 @@ fun XlsxViewerScreen(
                 }
             }
         },
-        bottomBar = {
-            if (state is XlsxLoadState.Success) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // M365 Spreadsheet Editing Ribbon Bar
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = 8.dp,
-                        shadowElevation = 8.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = { if (selectedCell != null) showBottomSheet = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "Edit Cell",
-                                    tint = if (selectedCell != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                )
-                            }
-
-                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('bold')", null) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.FormatBold, contentDescription = "Bold")
-                            }
-                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('italic')", null) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
-                            }
-                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('underline')", null) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                            IconButton(onClick = { showFormatMenu = true }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.FormatColorText, contentDescription = "Color")
-                            }
-
-                            IconButton(onClick = { webViewRef?.evaluateJavascript("document.execCommand('removeFormat')", null) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.FormatClear, contentDescription = "Clear Format")
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                            Button(
-                                onClick = { viewModel.commitChanges() },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Save Sheet", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Main Dock Action Bar
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceAround,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ViewerActionColumnButton(
-                                icon = Icons.Default.Search,
-                                title = "Find"
-                            ) {
-                                searchExpanded = true
-                            }
-
-                            ViewerActionColumnButton(
-                                icon = Icons.Default.Share,
-                                title = "Share"
-                            ) {
-                                onToolAction(ViewerTool.Share)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        bottomBar = {}
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -556,9 +457,15 @@ fun XlsxViewerScreen(
                                     onCellSelected = { sheetIdx, r, c, text, formula ->
                                         activeSheetIndex = sheetIdx
                                         selectedCell = CellCoords(r, c)
-                                        selectedRow = r
+                                        val sheetObj = currentState.workbook.sheets.getOrNull(sheetIdx)
+                                        val cellObj = sheetObj?.rows?.getOrNull(r)?.getOrNull(c)
+                                        selectedCellData = cellObj ?: com.karnadigital.omnisuite.feature.viewer.CellData(
+                                            text = text,
+                                            formulaString = formula.ifBlank { null }
+                                        )
                                         formulaBarValue = if (formula.isNotBlank()) formula else text
-                                        bottomSheetValue = text
+                                        bottomSheetValue = if (formula.isNotBlank()) formula else text
+                                        showBottomSheet = true
                                     },
                                     onCellEdited = { sheetIdx, r, c, newValue ->
                                         viewModel.updateCell(
@@ -579,23 +486,6 @@ fun XlsxViewerScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxWidth()
-                                )
-                            }
-
-                            // Selected Row Statistics Bar
-                            val rSel = selectedRow
-                            if (activeSheet != null && rSel != null) {
-                                val rowCells = activeSheet.rows.getOrNull(rSel)
-                                val numericValues = remember(rowCells) {
-                                    rowCells?.mapNotNull { cell ->
-                                        val clean = cell.text.replace(Regex("[$,\\s]"), "")
-                                        clean.toDoubleOrNull()
-                                    } ?: emptyList()
-                                }
-                                RowStatisticsBar(
-                                    selectedRow = rSel,
-                                    numericValues = numericValues,
-                                    onClose = { selectedRow = null }
                                 )
                             }
 
@@ -687,22 +577,23 @@ fun XlsxViewerScreen(
         val cellData = selectedCellData
         val cellName = "${getColHeaderString(cell.colIndex)}${cell.rowIndex + 1}"
         
-        var cellTextValue by remember(cellData) { mutableStateOf(cellData?.formulaString ?: cellData?.text ?: "") }
-        var isBold by remember(cellData) { mutableStateOf(cellData?.isBold ?: false) }
-        var isItalic by remember(cellData) { mutableStateOf(cellData?.isItalic ?: false) }
-        var isUnderline by remember(cellData) { mutableStateOf(cellData?.isUnderline ?: false) }
-        var activeColorHex by remember(cellData) { mutableStateOf(cellData?.colorHex) }
-        var textColorHex by remember(cellData) { mutableStateOf(cellData?.textColorHex) }
-        var commentValue by remember(cellData) { mutableStateOf(cellData?.comment ?: "") }
-        var hyperlinkValue by remember(cellData) { mutableStateOf(cellData?.hyperlinkUrl ?: "") }
+        val initialText = cellData?.formulaString ?: cellData?.text ?: bottomSheetValue
+        var cellTextValue by remember(cell.rowIndex, cell.colIndex, cellData, bottomSheetValue) { mutableStateOf(initialText) }
+        var isBold by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.isBold ?: false) }
+        var isItalic by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.isItalic ?: false) }
+        var isUnderline by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.isUnderline ?: false) }
+        var activeColorHex by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.colorHex) }
+        var textColorHex by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.textColorHex) }
+        var commentValue by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.comment ?: "") }
+        var hyperlinkValue by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf(cellData?.hyperlinkUrl ?: "") }
 
         val activeSheet = (state as? XlsxLoadState.Success)?.workbook?.sheets?.getOrNull(activeSheetIndex)
         val currentColWidth = activeSheet?.columnWidthsDp?.getOrNull(cell.colIndex) ?: 120f
         val currentRowHeight = activeSheet?.rowHeightsDp?.getOrNull(cell.rowIndex) ?: 24f
 
-        var colWidthInput by remember(cell) { mutableStateOf(currentColWidth) }
-        var rowHeightInput by remember(cell) { mutableStateOf(currentRowHeight) }
-        var selectedDataFormat by remember(cellData) { mutableStateOf<String?>(null) }
+        var colWidthInput by remember(cell.rowIndex, cell.colIndex) { mutableStateOf(currentColWidth) }
+        var rowHeightInput by remember(cell.rowIndex, cell.colIndex) { mutableStateOf(currentRowHeight) }
+        var selectedDataFormat by remember(cell.rowIndex, cell.colIndex, cellData) { mutableStateOf<String?>(null) }
         
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
@@ -922,6 +813,11 @@ fun XlsxViewerScreen(
                             if (hyperlinkValue != (cellData?.hyperlinkUrl ?: "")) {
                                 viewModel.setCellHyperlink(activeSheetIndex, cell.rowIndex, cell.colIndex, hyperlinkValue)
                             }
+                            val escaped = cellTextValue.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ").replace("\r", "")
+                            webViewRef?.evaluateJavascript(
+                                "updateCellFromAndroid(${cell.rowIndex}, ${cell.colIndex}, '$escaped')",
+                                null
+                            )
                             showBottomSheet = false
                         },
                         modifier = Modifier.weight(1f)

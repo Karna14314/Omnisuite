@@ -212,6 +212,7 @@ class DocxViewerViewModel @Inject constructor(
                 var fileInputStream: FileInputStream? = null
                 var doc: XWPFDocument? = null
                 var legacyDoc: org.apache.poi.hwpf.HWPFDocument? = null
+                var base64ForWebView: String? = null
                 try {
                     val file = File(filePath)
                     if (!file.exists() || !file.isFile) {
@@ -221,7 +222,7 @@ class DocxViewerViewModel @Inject constructor(
 
                     // Read raw bytes for WebView rendering (DOCX files only)
                     val rawBytes = file.readBytes()
-                    val base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true)) {
+                    base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true)) {
                         Base64.encodeToString(rawBytes, Base64.NO_WRAP)
                     } else null
 
@@ -253,19 +254,27 @@ class DocxViewerViewModel @Inject constructor(
                         )
                     }
 
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                } catch (t: Throwable) {
+                    t.printStackTrace()
                     try {
                         doc?.close()
-                    } catch (ex: Exception) {
+                    } catch (ex: Throwable) {
                         ex.printStackTrace()
                     }
                     try {
                         legacyDoc?.close()
-                    } catch (ex: Exception) {
+                    } catch (ex: Throwable) {
                         ex.printStackTrace()
                     }
-                    _loadState.value = DocxLoadState.Error("Apache POI word parser failure: ${e.localizedMessage}")
+                    if (base64ForWebView != null) {
+                        _loadState.value = DocxLoadState.Success(
+                            document = DocxDocument(emptyList()),
+                            fileName = File(filePath).name,
+                            docxBase64 = base64ForWebView
+                        )
+                    } else {
+                        _loadState.value = DocxLoadState.Error("Word document parser failure: ${t.localizedMessage}")
+                    }
                 } finally {
                     try {
                         fileInputStream?.close()
@@ -501,26 +510,34 @@ class DocxViewerViewModel @Inject constructor(
             var imageUrl: String? = null
             var emuWidth: Long? = null
             var emuHeight: Long? = null
-            val pictures = run.embeddedPictures
-            if (pictures.isNotEmpty()) {
-                try {
+            try {
+                val pictures = run.embeddedPictures
+                if (pictures != null && pictures.isNotEmpty()) {
                     val pic = pictures[0]
-                    val picData = pic.pictureData.data
-                    val ext = pic.pictureData.suggestFileExtension() ?: "png"
-                    try {
-                        val ctPic = pic.javaClass.getMethod("getCTPic").invoke(pic)
-                        val spPr = ctPic.javaClass.getMethod("getSpPr").invoke(ctPic)
-                        val xfrm = spPr.javaClass.getMethod("getXfrm").invoke(spPr)
-                        val extVal = xfrm.javaClass.getMethod("getExt").invoke(xfrm)
-                        emuWidth = (extVal.javaClass.getMethod("getCx").invoke(extVal) as Number).toLong()
-                        emuHeight = (extVal.javaClass.getMethod("getCy").invoke(extVal) as Number).toLong()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    val picData = pic.pictureData?.data
+                    if (picData != null) {
+                        val ext = pic.pictureData?.suggestFileExtension() ?: "png"
+                        try {
+                            val ctPic = pic.javaClass.getMethod("getCTPic").invoke(pic)
+                            val spPr = ctPic?.javaClass?.getMethod("getSpPr")?.invoke(ctPic)
+                            val xfrm = spPr?.javaClass?.getMethod("getXfrm")?.invoke(spPr)
+                            val extVal = xfrm?.javaClass?.getMethod("getExt")?.invoke(xfrm)
+                            if (extVal != null) {
+                                emuWidth = (extVal.javaClass.getMethod("getCx").invoke(extVal) as? Number)?.toLong()
+                                emuHeight = (extVal.javaClass.getMethod("getCy").invoke(extVal) as? Number)?.toLong()
+                            }
+                        } catch (_: Throwable) {
+                            // Reflection dimensions optional
+                        }
+                        val tempPicFile = File(context.cacheDir, "docx_img_${pic.hashCode()}.$ext")
+                        if (!tempPicFile.exists()) {
+                            tempPicFile.writeBytes(picData)
+                        }
+                        imageUrl = tempPicFile.absolutePath
                     }
-                    val tempPicFile = File(context.cacheDir, "docx_img_${System.currentTimeMillis()}_${pic.hashCode()}.$ext")
-                    tempPicFile.writeBytes(picData)
-                    imageUrl = tempPicFile.absolutePath
-                } catch (e: Exception) { e.printStackTrace() }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
             }
 
             runs.add(DocxRun(

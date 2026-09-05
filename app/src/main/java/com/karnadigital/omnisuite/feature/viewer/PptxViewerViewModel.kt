@@ -1706,26 +1706,30 @@ class PptxViewerViewModel @Inject constructor(
                     val slides = parseAllSlides(ppt)
                     android.util.Log.d("PptxViewModel", "Parsed slides: ${slides.size}")
 
-                    // Render slides to bitmaps for reliable display
-                    val bitmaps = try {
-                        android.util.Log.d("PptxViewModel", "Rendering bitmaps...")
-                        val result = officeConverter.renderPptxToBitmaps(file)
-                        android.util.Log.d("PptxViewModel", "Rendered ${result.size} bitmaps")
-                        result
-                    } catch (e: Throwable) {
-                        android.util.Log.e("PptxViewModel", "Bitmap rendering failed: ${e.message}")
-                        emptyList()
-                    }
-
                     activePresentation = ppt
                     activeFilePath = filePath
 
+                    // Emit Success immediately so presentation opens without waiting for all bitmaps to render
                     _loadState.value = PptxLoadState.Success(
                         presentation = PptxPresentation(slides),
                         fileName = file.name,
-                        slideBitmaps = bitmaps
+                        slideBitmaps = emptyList()
                     )
-                    android.util.Log.d("PptxViewModel", "State updated to Success with ${bitmaps.size} bitmaps")
+
+                    // Render slides to bitmaps progressively in background
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            android.util.Log.d("PptxViewModel", "Rendering bitmaps in background...")
+                            val result = officeConverter.renderPptxToBitmaps(file)
+                            android.util.Log.d("PptxViewModel", "Rendered ${result.size} bitmaps")
+                            val cur = _loadState.value
+                            if (cur is PptxLoadState.Success) {
+                                _loadState.value = cur.copy(slideBitmaps = result)
+                            }
+                        } catch (e: Throwable) {
+                            android.util.Log.e("PptxViewModel", "Bitmap background rendering failed: ${e.message}")
+                        }
+                    }
 
                 } catch (e: Throwable) {
                     e.printStackTrace()

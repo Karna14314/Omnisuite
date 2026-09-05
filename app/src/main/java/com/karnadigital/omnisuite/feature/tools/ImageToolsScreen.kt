@@ -48,10 +48,11 @@ import kotlinx.coroutines.withContext
  * Premium, rich-aesthetic local offline image compression and editing dashboard.
  */
 enum class PhotoEditorCategory(val title: String) {
-    TRANSFORM("Transform"),
+    RESIZE("Dimensions"),
+    COMPRESS("Compress"),
+    TRANSFORM("Crop/Rotate"),
     ADJUST("Adjust"),
     FILTERS("Filters"),
-    COMPRESS("Compress"),
     TOOLS("Tools")
 }
 
@@ -79,7 +80,7 @@ fun ImageToolsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var activeCategory by remember(initialTab) {
-        mutableStateOf(PhotoEditorCategory.entries.getOrElse(initialTab) { PhotoEditorCategory.TRANSFORM })
+        mutableStateOf(PhotoEditorCategory.entries.getOrElse(initialTab) { PhotoEditorCategory.RESIZE })
     }
     var activeAdjustParam by remember { mutableStateOf(AdjustmentParam.BRIGHTNESS) }
     var isHoldingCompare by remember { mutableStateOf(false) }
@@ -94,14 +95,7 @@ fun ImageToolsScreen(
         uri?.let { viewModel.loadSelectedImage(it) }
     }
 
-    val stitchPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
-            viewModel.selectStitchImages(uris)
-            activeLabTool = "stitch"
-        }
-    }
+
 
     val docExtractLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -251,6 +245,33 @@ fun ImageToolsScreen(
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
                             when (activeCategory) {
+                                PhotoEditorCategory.RESIZE -> {
+                                    ResizeDimensionsShelf(
+                                        originalWidth = uiState.originalWidth,
+                                        originalHeight = uiState.originalHeight,
+                                        targetWidth = uiState.targetWidthPx,
+                                        targetHeight = uiState.targetHeightPx,
+                                        keepAspectRatio = uiState.keepAspectRatio,
+                                        onDimensionsChange = { w, h -> viewModel.updateTargetDimensions(w, h) },
+                                        onKeepAspectChange = { viewModel.updateKeepAspectRatio(it) },
+                                        onPresetSelect = { w, h -> viewModel.applyDimensionPreset(w, h) }
+                                    )
+                                }
+                                PhotoEditorCategory.COMPRESS -> {
+                                    CompressResizeShelf(
+                                        quality = uiState.compressionQuality,
+                                        scale = uiState.resizeScale,
+                                        format = uiState.outputFormat,
+                                        originalSize = uiState.originalSize,
+                                        compressMode = uiState.compressMode,
+                                        targetSizeKbText = uiState.targetSizeKbText,
+                                        onQualityChange = { viewModel.updateQuality(it) },
+                                        onScaleChange = { viewModel.updateScale(it) },
+                                        onFormatChange = { viewModel.updateFormat(it) },
+                                        onCompressModeChange = { viewModel.updateCompressMode(it) },
+                                        onTargetSizeKbTextChange = { viewModel.updateTargetSizeKbText(it) }
+                                    )
+                                }
                                 PhotoEditorCategory.TRANSFORM -> {
                                     TransformShelf(
                                         rotation = uiState.rotationDegrees,
@@ -285,24 +306,8 @@ fun ImageToolsScreen(
                                         }
                                     )
                                 }
-                                PhotoEditorCategory.COMPRESS -> {
-                                    CompressResizeShelf(
-                                        quality = uiState.compressionQuality,
-                                        scale = uiState.resizeScale,
-                                        format = uiState.outputFormat,
-                                        originalSize = uiState.originalSize,
-                                        compressMode = uiState.compressMode,
-                                        targetSizeKbText = uiState.targetSizeKbText,
-                                        onQualityChange = { viewModel.updateQuality(it) },
-                                        onScaleChange = { viewModel.updateScale(it) },
-                                        onFormatChange = { viewModel.updateFormat(it) },
-                                        onCompressModeChange = { viewModel.updateCompressMode(it) },
-                                        onTargetSizeKbTextChange = { viewModel.updateTargetSizeKbText(it) }
-                                    )
-                                }
                                 PhotoEditorCategory.TOOLS -> {
                                     ToolsShelf(
-                                        onOpenStitcher = { stitchPickerLauncher.launch("image/*") },
                                         onOpenIdCard = { activeLabTool = "id_card" },
                                         onOpenWatermark = { activeLabTool = "watermark" },
                                         onOpenExtractor = { docExtractLauncher.launch("*/*") }
@@ -315,12 +320,26 @@ fun ImageToolsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             EditorCategoryButton(
-                                title = "Crop & Rotate",
+                                title = "Resize",
+                                icon = Icons.Default.AspectRatio,
+                                isSelected = activeCategory == PhotoEditorCategory.RESIZE,
+                                onClick = { activeCategory = PhotoEditorCategory.RESIZE }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Compress",
+                                icon = Icons.Default.Compress,
+                                isSelected = activeCategory == PhotoEditorCategory.COMPRESS,
+                                onClick = { activeCategory = PhotoEditorCategory.COMPRESS }
+                            )
+
+                            EditorCategoryButton(
+                                title = "Crop/Rotate",
                                 icon = Icons.Default.Crop,
                                 isSelected = activeCategory == PhotoEditorCategory.TRANSFORM,
                                 onClick = { activeCategory = PhotoEditorCategory.TRANSFORM }
@@ -341,14 +360,7 @@ fun ImageToolsScreen(
                             )
 
                             EditorCategoryButton(
-                                title = "Compress",
-                                icon = Icons.Default.Compress,
-                                isSelected = activeCategory == PhotoEditorCategory.COMPRESS,
-                                onClick = { activeCategory = PhotoEditorCategory.COMPRESS }
-                            )
-
-                            EditorCategoryButton(
-                                title = "Lab Tools",
+                                title = "More",
                                 icon = Icons.Default.MoreHoriz,
                                 isSelected = activeCategory == PhotoEditorCategory.TOOLS,
                                 onClick = { activeCategory = PhotoEditorCategory.TOOLS }
@@ -369,7 +381,6 @@ fun ImageToolsScreen(
                 // Empty / Welcome State
                 ImageLabWelcomeContent(
                     onPickImage = { imagePickerLauncher.launch("image/*") },
-                    onOpenStitcher = { stitchPickerLauncher.launch("image/*") },
                     onOpenIdCard = { activeLabTool = "id_card" },
                     onOpenWatermark = { imagePickerLauncher.launch("image/*") },
                     onOpenExtractor = { docExtractLauncher.launch("*/*") }
@@ -494,21 +505,7 @@ fun ImageToolsScreen(
                 )
             }
         }
-        "stitch" -> {
-            ModalBottomSheet(
-                onDismissRequest = { activeLabTool = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-            ) {
-                StitchSheetContent(
-                    selectedUris = uiState.selectedStitchUris,
-                    onPickMore = { stitchPickerLauncher.launch("image/*") },
-                    onStitch = { viewModel.stitchImages() },
-                    isSuccess = uiState.isSuccess,
-                    successName = uiState.successName,
-                    onExport = { exportLauncher.launch(uiState.successName ?: "stitched_image.jpg") }
-                )
-            }
-        }
+
         "watermark" -> {
             ModalBottomSheet(
                 onDismissRequest = { activeLabTool = null },
@@ -566,6 +563,129 @@ fun ImageToolsScreen(
 // -------------------------------------------------------------
 // CONTEXTUAL TOOL SHELVES
 // -------------------------------------------------------------
+
+@Composable
+fun ResizeDimensionsShelf(
+    originalWidth: Int,
+    originalHeight: Int,
+    targetWidth: Int,
+    targetHeight: Int,
+    keepAspectRatio: Boolean,
+    onDimensionsChange: (Int, Int) -> Unit,
+    onKeepAspectChange: (Boolean) -> Unit,
+    onPresetSelect: (Int, Int) -> Unit
+) {
+    var widthText by remember(targetWidth) { mutableStateOf(if (targetWidth > 0) targetWidth.toString() else "") }
+    var heightText by remember(targetHeight) { mutableStateOf(if (targetHeight > 0) targetHeight.toString() else "") }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = widthText,
+                onValueChange = { input ->
+                    val clean = input.filter { it.isDigit() }
+                    widthText = clean
+                    val newW = clean.toIntOrNull() ?: 0
+                    if (newW > 0) {
+                        val newH = if (keepAspectRatio && originalWidth > 0 && originalHeight > 0) {
+                            (newW * originalHeight.toFloat() / originalWidth).toInt()
+                        } else {
+                            heightText.toIntOrNull() ?: originalHeight
+                        }
+                        if (keepAspectRatio) {
+                            heightText = newH.toString()
+                        }
+                        onDimensionsChange(newW, newH)
+                    }
+                },
+                label = { Text("Width (px)", fontSize = 11.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+
+            IconButton(
+                onClick = { onKeepAspectChange(!keepAspectRatio) },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = if (keepAspectRatio) Icons.Default.Link else Icons.Default.LinkOff,
+                    contentDescription = "Lock aspect ratio",
+                    tint = if (keepAspectRatio) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            OutlinedTextField(
+                value = heightText,
+                onValueChange = { input ->
+                    val clean = input.filter { it.isDigit() }
+                    heightText = clean
+                    val newH = clean.toIntOrNull() ?: 0
+                    if (newH > 0) {
+                        val newW = if (keepAspectRatio && originalWidth > 0 && originalHeight > 0) {
+                            (newH * originalWidth.toFloat() / originalHeight).toInt()
+                        } else {
+                            widthText.toIntOrNull() ?: originalWidth
+                        }
+                        if (keepAspectRatio) {
+                            widthText = newW.toString()
+                        }
+                        onDimensionsChange(newW, newH)
+                    }
+                },
+                label = { Text("Height (px)", fontSize = 11.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AssistChip(
+                onClick = { onPresetSelect(1920, 1080) },
+                label = { Text("1080p FHD") }
+            )
+            AssistChip(
+                onClick = { onPresetSelect(1280, 720) },
+                label = { Text("720p HD") }
+            )
+            if (originalWidth > 0 && originalHeight > 0) {
+                AssistChip(
+                    onClick = { onPresetSelect((originalWidth * 0.5f).toInt(), (originalHeight * 0.5f).toInt()) },
+                    label = { Text("50%") }
+                )
+                AssistChip(
+                    onClick = { onPresetSelect((originalWidth * 0.25f).toInt(), (originalHeight * 0.25f).toInt()) },
+                    label = { Text("25%") }
+                )
+            }
+            AssistChip(
+                onClick = { onPresetSelect(1080, 1080) },
+                label = { Text("1:1 Square") }
+            )
+            AssistChip(
+                onClick = { onPresetSelect(600, 600) },
+                label = { Text("Passport 2x2") }
+            )
+            if (originalWidth > 0 && originalHeight > 0) {
+                AssistChip(
+                    onClick = { onPresetSelect(originalWidth, originalHeight) },
+                    label = { Text("Reset (${originalWidth}×${originalHeight})") }
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun TransformShelf(
@@ -857,7 +977,6 @@ fun CompressResizeShelf(
 
 @Composable
 fun ToolsShelf(
-    onOpenStitcher: () -> Unit,
     onOpenIdCard: () -> Unit,
     onOpenWatermark: () -> Unit,
     onOpenExtractor: () -> Unit
@@ -868,11 +987,6 @@ fun ToolsShelf(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        AssistChip(
-            onClick = onOpenStitcher,
-            label = { Text("Long Stitch") },
-            leadingIcon = { Icon(Icons.Default.BurstMode, contentDescription = null, modifier = Modifier.size(16.dp)) }
-        )
         AssistChip(
             onClick = onOpenIdCard,
             label = { Text("ID Card A4") },
@@ -928,7 +1042,6 @@ fun EditorCategoryButton(
 @Composable
 fun ImageLabWelcomeContent(
     onPickImage: () -> Unit,
-    onOpenStitcher: () -> Unit,
     onOpenIdCard: () -> Unit,
     onOpenWatermark: () -> Unit,
     onOpenExtractor: () -> Unit
@@ -970,13 +1083,13 @@ fun ImageLabWelcomeContent(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Select Photo to Edit",
+                    text = "Select Photo to Edit / Resize",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Crop, adjust colors, apply filters, compress, and convert offline.",
+                    text = "Resize dimensions, compress KB, crop, adjust colors, and convert offline.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -999,18 +1112,18 @@ fun ImageLabWelcomeContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             LabToolGridCard(
-                title = "Long Stitcher",
-                desc = "Combine vertical screenshots",
-                emoji = "📜",
-                modifier = Modifier.weight(1f),
-                onClick = onOpenStitcher
-            )
-            LabToolGridCard(
                 title = "ID Card Maker",
-                desc = "Front & back on A4",
+                desc = "Front & back on A4 page",
                 emoji = "🪪",
                 modifier = Modifier.weight(1f),
                 onClick = onOpenIdCard
+            )
+            LabToolGridCard(
+                title = "Watermarker",
+                desc = "Custom text & stamp overlay",
+                emoji = "💧",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenWatermark
             )
         }
 
@@ -1021,19 +1134,13 @@ fun ImageLabWelcomeContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             LabToolGridCard(
-                title = "Watermarker",
-                desc = "Custom text overlay",
-                emoji = "💧",
-                modifier = Modifier.weight(1f),
-                onClick = onOpenWatermark
-            )
-            LabToolGridCard(
                 title = "Media Extractor",
-                desc = "Extract images from docs",
+                desc = "Extract embedded images from docs",
                 emoji = "📦",
                 modifier = Modifier.weight(1f),
                 onClick = onOpenExtractor
             )
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

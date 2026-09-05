@@ -4,10 +4,15 @@
 -dontpreverify
 -verbose
 
-# -- Apache POI Rules --
+# -- Apache POI & Log4j Rules --
 # Keep POI classes and their members
 -keep class org.apache.poi.** { *; }
 -keep interface org.apache.poi.** { *; }
+
+# Keep Log4j classes, factories, and reflection instantiations used by POI
+-keep class org.apache.logging.log4j.** { *; }
+-keep interface org.apache.logging.log4j.** { *; }
+-dontwarn org.apache.logging.log4j.**
 
 # Keep openxmlformats classes and members
 -keep class org.openxmlformats.schemas.** { *; }

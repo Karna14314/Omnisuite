@@ -42,7 +42,7 @@ fun AllToolsScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
-    val tabs = listOf("📋 PDF", "📝 Word", "📊 Excel", "🖼️ Slides", "🖼 Image", "📦 Archive")
+    val tabs = listOf("📋 PDF", "📝 Word", "📊 Excel", "🖼️ Slides", "📸 Image", "📦 Archive", "🧬 QR & Scan", "⚡ Utilities")
 
     val activeIndicatorColor = when (selectedTabState) {
         0 -> OmniColors.PdfRed
@@ -51,6 +51,8 @@ fun AllToolsScreen(
         3 -> Color(0xFFF59E0B)
         4 -> OmniColors.ImgPurple
         5 -> OmniColors.ArcCyan
+        6 -> Color(0xFF8B5CF6)
+        7 -> Color(0xFF10B981)
         else -> OmniColors.Accent
     }
 
@@ -190,7 +192,9 @@ fun AllToolsScreen(
                         2 -> ExcelToolsList(onSelectFileForType, onEvent)
                         3 -> SlidesToolsList(onSelectFileForType, onEvent)
                         4 -> ImageToolsList(onEvent)
-                        5 -> ArchiveQrToolsList(onEvent, onSelectFileForType)
+                        5 -> ArchiveToolsList(onEvent, onSelectFileForType)
+                        6 -> QrScanToolsList(onEvent)
+                        7 -> UtilityToolsList(onEvent)
                     }
                 }
             }
@@ -228,31 +232,71 @@ private fun getAllTools(
         ToolItem("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }, "PDF"),
         ToolItem("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }, "PDF"),
         ToolItem("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "PDF"),
-        ToolItem("🧩", "Block Editor", "Edit PDF block-by-block", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBlockEditor) }, "PDF"),
+        ToolItem("🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFlatten) }, "PDF"),
+        ToolItem("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToXlsToPdf) }, "PDF"),
+        ToolItem("🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }, "PDF"),
+        ToolItem("<html>", "HTML to PDF", "Compile custom HTML text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }, "PDF"),
+        ToolItem("🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }, "PDF"),
+        ToolItem("🔀", "Reorder Pages", "Drag and drop to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }, "PDF"),
+        ToolItem("🖼️", "Extract Images", "Extract embedded images from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }, "PDF"),
+        ToolItem("📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }, "PDF"),
+        ToolItem("📝", "PDF to TXT", "Extract text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }, "PDF"),
+        ToolItem("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }, "PDF"),
+        ToolItem("📐", "Resize Pages", "Change PDF page size", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }, "PDF"),
+        ToolItem("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }, "PDF"),
+        ToolItem("✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }, "PDF"),
+        ToolItem("⬛", "Redact PDF", "Permanently blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }, "PDF"),
+        ToolItem("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }, "PDF"),
+        ToolItem("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }, "PDF"),
+        ToolItem("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }, "PDF"),
+        ToolItem("🔖", "Bookmarks", "Manage PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }, "PDF"),
 
         // Word Tools
         ToolItem("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
         ToolItem("📄", "Text Editor", "Read and edit local TXT files", Color(0xFF6B7280), { onSelectFileForType("text") }, "Word"),
         ToolItem("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
+        ToolItem("📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }, "Word"),
+        ToolItem("✍️", "Markdown to PDF", "Format markdown text to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }, "Word"),
 
         // Excel Tools
         ToolItem("📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }, "Excel"),
         ToolItem("📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }, "Excel"),
+        ToolItem("📤", "CSV to Excel", "Import CSV records to Excel workbook", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToXlsx) }, "Excel"),
+        ToolItem("📥", "Excel to CSV", "Export workbook sheet cells to CSV", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsxToCsv) }, "Excel"),
 
         // Slides Tools
         ToolItem("🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }, "Slides"),
+        ToolItem("📄", "PPTX to TXT", "Extract presentation slides text to TXT", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptxToTxt) }, "Slides"),
 
         // Image Tools
-        ToolItem("🗜️", "Compress Image", "Target KB for jobs", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }, "Image"),
-        ToolItem("📐", "Resize Dimensions", "Exact WxH in px, cm, inch", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }, "Image"),
-        ToolItem("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
+        ToolItem("📐", "Resize Dimensions", "Exact WxH in px, aspect lock, presets", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }, "Image"),
+        ToolItem("🗜️", "Compress Image", "Target KB for jobs & govt forms", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
+        ToolItem("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(2)) }, "Image"),
+        ToolItem("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
+        ToolItem("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }, "Image"),
+        ToolItem("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }, "Image"),
+        ToolItem("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }, "Image"),
 
-        // Archive/Security Tools
+        // Archive & Security Tools
         ToolItem("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToZipMaker) }, "Archive"),
         ToolItem("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }, "Archive"),
+        ToolItem("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }, "Archive"),
         ToolItem("🔐", "Password ZIP", "Create password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }, "Archive"),
+        ToolItem("🔓", "Extract Password ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }, "Archive"),
         ToolItem("🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }, "Archive"),
-        ToolItem("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }, "Archive")
+        ToolItem("🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }, "Archive"),
+
+        // QR & Barcode Tools
+        ToolItem("📷", "QR & Barcode Scanner", "Live camera viewfinder scanner", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToBarcodeScanner) }, "QR & Scan"),
+        ToolItem("🧬", "QR Generator", "Compile WiFi/vCard QR codes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }, "QR & Scan"),
+        ToolItem("📊", "Barcode Builder", "Generate EAN/UPC barcodes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }, "QR & Scan"),
+
+        // Document Utilities & Tools (in PDF & Docs)
+        ToolItem("⚡", "Batch Toolkit", "Optimize multiple document actions", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToBatchTools) }, "PDF"),
+        ToolItem("🔊", "Read Aloud", "Text-to-speech for documents (offline)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToReadAloud) }, "PDF"),
+
+        // Utilities
+        ToolItem("📏", "Unit Converter", "Length, weight, temperature", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToUnitConverter) }, "Utilities")
     )
 }
 
@@ -292,7 +336,6 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }) }
         item { ToolListRow("📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }) }
         item { ToolListRow("📝", "PDF to TXT", "Extract text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }) }
-        item { ToolListRow("🖼️", "Images to PDF+", "Compile images with layout options", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdfLayout) }) }
         item { ToolListRow("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }) }
         item { ToolListRow("📐", "Resize Pages", "Change PDF page size (A3/A4/A5/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }) }
         item { ToolListRow("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }) }
@@ -301,14 +344,9 @@ fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
         item { ToolListRow("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }) }
         item { ToolListRow("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }) }
         item { ToolListRow("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }) }
-        item { ToolListRow("🔖", "Edit Bookmarks", "Add bookmarks to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }) }
-        item { ToolListRow("🖼️", "Extract Images (Selective)", "Choose specific images to extract", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSelectiveImageExtract) }) }
-        item { ToolListRow("🖼️", "Extract All Pages as Images", "Render every page as PNG", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfAllPagesToImage) }) }
-        item { ToolListRow("📖", "Read Bookmarks", "View PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarkReader) }) }
-        item { ToolListRow("📄", "PDF to Word (Enhanced)", "Better formatting preservation", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWordEnhanced) }) }
-        item { ToolListRow("📝", "MD to PDF (Enhanced)", "Full GFM support", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdfEnhanced) }) }
-        item { ToolListRow("🔢", "Word Count (Advanced)", "Reading time, chars, lines", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }) }
-        item { ToolListRow("🧩", "Block Editor (Experimental)", "Edit PDF block-by-block like LightPDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBlockEditor) }) }
+        item { ToolListRow("🔖", "Bookmarks", "Add and view PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }) }
+        item { ToolListRow("⚡", "Batch Toolkit", "Optimize & process multiple files in batch", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToBatchTools) }) }
+        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech for documents (offline)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToReadAloud) }) }
     }
 }
 
@@ -365,18 +403,18 @@ fun ImageToolsList(onEvent: (NavigationEvent) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        item { ToolListRow("🗜️", "Compress Image", "Target KB for job & govt applications", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
-        item { ToolListRow("📐", "Resize Dimensions", "Exact WxH in px, cm, inch, mm", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }) }
-        item { ToolListRow("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(4)) }) }
-        item { ToolListRow("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
-        item { ToolListRow("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation, tones", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
+        item { ToolListRow("📐", "Resize Dimensions", "Exact WxH in px, aspect lock, presets", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }) }
+        item { ToolListRow("🗜️", "Compress Image", "Target KB for job & govt applications", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
+        item { ToolListRow("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(2)) }) }
+        item { ToolListRow("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
+        item { ToolListRow("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation, tones", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
         item { ToolListRow("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }) }
         item { ToolListRow("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
     }
 }
 
 @Composable
-fun ArchiveQrToolsList(
+fun ArchiveToolsList(
     onEvent: (NavigationEvent) -> Unit,
     onSelectFileForType: (String) -> Unit
 ) {
@@ -391,17 +429,29 @@ fun ArchiveQrToolsList(
         item { ToolListRow("🔓", "Extract Password ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }) }
         item { ToolListRow("🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }) }
         item { ToolListRow("🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }) }
-        item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard QR codes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
-        item { ToolListRow("📷", "QR Scanner", "Live viewfinder decoding", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
-        item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
-        item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToBatchTools) }) }
-        item { ToolListRow("🔢", "File Checksum", "Calculate MD5/SHA-256 hash", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileChecksum) }) }
-        item { ToolListRow("⚖️", "Text Compare", "Compare two texts with diff", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTextCompare) }) }
-        item { ToolListRow("📏", "Unit Converter", "Length, weight, temperature", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToUnitConverter) }) }
-        item { ToolListRow("🎨", "Color Picker", "Pick colors from images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToColorPicker) }) }
-        item { ToolListRow("🖼️", "Collage Maker", "Photo collage with layouts", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToCollageMaker) }) }
-        item { ToolListRow("😄", "Meme Maker", "Add top/bottom text to images", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToMemeMaker) }) }
-        item { ToolListRow("📐", "Exact Resize", "Resize to exact dimensions", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToExactResize) }) }
-        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech (offline)", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToReadAloud) }) }
+    }
+}
+
+@Composable
+fun QrScanToolsList(onEvent: (NavigationEvent) -> Unit) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("📷", "QR & Barcode Scanner", "Live offline viewfinder decoding", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
+        item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard/URL QR codes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
+        item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
+    }
+}
+
+@Composable
+fun UtilityToolsList(onEvent: (NavigationEvent) -> Unit) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToBatchTools) }) }
+        item { ToolListRow("📏", "Unit Converter", "Length, weight, temperature", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToUnitConverter) }) }
+        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech (offline)", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToReadAloud) }) }
     }
 }

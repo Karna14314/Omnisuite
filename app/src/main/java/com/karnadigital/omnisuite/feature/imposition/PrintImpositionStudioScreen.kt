@@ -5,19 +5,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +30,23 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.karnadigital.omnisuite.core.engine.imposition.*
 import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import com.karnadigital.omnisuite.ui.theme.OmniColors
+
+data class ImpositionModeMeta(
+    val mode: ImpositionToolMode,
+    val icon: String,
+    val title: String,
+    val description: String
+)
+
+val impositionModes = listOf(
+    ImpositionModeMeta(ImpositionToolMode.BOOKLET, "📖", "Booklet (Saddle Stitch)", "Dual-sided folded booklet layout for booklet printing"),
+    ImpositionModeMeta(ImpositionToolMode.N_UP, "🔲", "N-Up Grid Layout", "Multi-page grid on a single sheet (2-up, 4-up, 8-up)"),
+    ImpositionModeMeta(ImpositionToolMode.CARDS, "🃏", "Cards & Flashcards", "Business cards, flashcards, and repetitive sheet layouts"),
+    ImpositionModeMeta(ImpositionToolMode.CROP_RESIZE, "✂️", "Crop & Resize Margins", "Adjust page margins, trim boundaries, and page fit"),
+    ImpositionModeMeta(ImpositionToolMode.BLEED_GENERATOR, "🩸", "Bleed Generator", "Add professional printer bleed zones and edge margins"),
+    ImpositionModeMeta(ImpositionToolMode.REGISTRATION_MARKS, "🎯", "Registration & Crop Marks", "Trim marks, center alignment lines, and color calibration targets"),
+    ImpositionModeMeta(ImpositionToolMode.ZINE, "📰", "Zine Generator", "Folded 8-page mini-zines and cut-stack publications")
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,16 +66,10 @@ fun PrintImpositionStudioScreen(
         }
     }
 
-    var selectedTabIdx by remember { mutableIntStateOf(0) }
-    val modes = listOf(
-        ImpositionToolMode.BOOKLET,
-        ImpositionToolMode.N_UP,
-        ImpositionToolMode.CARDS,
-        ImpositionToolMode.CROP_RESIZE,
-        ImpositionToolMode.BLEED_GENERATOR,
-        ImpositionToolMode.REGISTRATION_MARKS,
-        ImpositionToolMode.ZINE
-    )
+    var isModeMenuExpanded by remember { mutableStateOf(false) }
+    var isPaperPresetMenuExpanded by remember { mutableStateOf(false) }
+
+    val currentModeMeta = impositionModes.firstOrNull { it.mode == uiState.config.mode } ?: impositionModes[0]
 
     Scaffold(
         topBar = {
@@ -66,11 +80,11 @@ fun PrintImpositionStudioScreen(
                             text = "Print & Imposition Studio",
                             fontWeight = FontWeight.Bold,
                             color = OmniColors.TextPrimary,
-                            fontSize = 18.sp
+                            fontSize = 17.sp
                         )
                         if (uiState.fileName.isNotEmpty()) {
                             Text(
-                                text = "${uiState.fileName} (${uiState.pageCount} pages)",
+                                text = "${uiState.fileName} • ${uiState.pageCount} pages",
                                 color = OmniColors.TextMuted,
                                 fontSize = 12.sp
                             )
@@ -83,29 +97,65 @@ fun PrintImpositionStudioScreen(
                     }
                 },
                 actions = {
-                    Button(
+                    FilledTonalButton(
                         onClick = { pdfPickerLauncher.launch("application/pdf") },
-                        colors = ButtonDefaults.buttonColors(containerColor = OmniColors.Surface2),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = null, tint = OmniColors.TextPrimary, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Open PDF", color = OmniColors.TextPrimary, fontSize = 12.sp)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = { viewModel.exportImposedPdf() },
-                        enabled = uiState.fileUri != null && !uiState.isExporting,
-                        colors = ButtonDefaults.buttonColors(containerColor = OmniColors.PdfRed),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Export PDF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Open PDF", fontSize = 12.sp)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = OmniColors.Bg)
             )
+        },
+        bottomBar = {
+            Surface(
+                color = OmniColors.Surface,
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { viewModel.exportImposedPdf() },
+                        enabled = uiState.fileUri != null && !uiState.isExporting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = OmniColors.PdfRed,
+                            disabledContainerColor = OmniColors.PdfRed.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (uiState.isExporting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text("Exporting Imposed PDF...", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (uiState.fileUri != null) "Export Imposed PDF (${uiState.calculatedSheets.size} Sheets)"
+                                else "Select a PDF to Export",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
         },
         containerColor = OmniColors.Bg
     ) { innerPadding ->
@@ -113,226 +163,147 @@ fun PrintImpositionStudioScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Horizontal Tool Tabs Bar
-            ScrollableTabRow(
-                selectedTabIndex = selectedTabIdx,
-                containerColor = OmniColors.Surface,
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIdx]),
-                        color = OmniColors.PdfRed
-                    )
-                }
-            ) {
-                modes.forEachIndexed { idx, toolMode ->
-                    Tab(
-                        selected = selectedTabIdx == idx,
-                        onClick = {
-                            selectedTabIdx = idx
-                            viewModel.updateConfig { it.copy(mode = toolMode) }
-                        },
-                        text = {
-                            Text(
-                                text = toolMode.displayName,
-                                fontWeight = if (selectedTabIdx == idx) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 13.sp,
-                                color = if (selectedTabIdx == idx) OmniColors.PdfRed else OmniColors.TextMuted
-                            )
-                        }
-                    )
-                }
-            }
-
-            Row(
+            // 1. Unified Mode Selector Dropdown Card
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxWidth()
+                    .clickable { isModeMenuExpanded = true },
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = OmniColors.Surface),
+                border = CardDefaults.outlinedCardBorder()
             ) {
-                // Left Panel: Interactive Control Panel
-                Card(
-                    modifier = Modifier
-                        .weight(0.45f)
-                        .fillMaxHeight(),
-                    colors = CardDefaults.cardColors(containerColor = OmniColors.Surface),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(12.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${modes[selectedTabIdx].displayName} Controls",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = OmniColors.TextPrimary
-                        )
-
-                        // Paper Size Selector
-                        Text("Paper Size", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = OmniColors.TextMuted)
-                        val currentPreset = uiState.config.targetPaperSize.preset
-                        var presetExpanded by remember { mutableStateOf(false) }
-
-                        Box {
-                            OutlinedButton(
-                                onClick = { presetExpanded = true },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(currentPreset.displayName, fontSize = 12.sp)
-                            }
-                            DropdownMenu(
-                                expanded = presetExpanded,
-                                onDismissRequest = { presetExpanded = false }
-                            ) {
-                                PaperPreset.entries.forEach { preset ->
-                                    DropdownMenuItem(
-                                        text = { Text(preset.displayName, fontSize = 12.sp) },
-                                        onClick = {
-                                            presetExpanded = false
-                                            viewModel.updateConfig { cfg ->
-                                                cfg.copy(targetPaperSize = cfg.targetPaperSize.copy(preset = preset))
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Sheet Orientation Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(OmniColors.PdfRedBg),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Landscape Orientation", fontSize = 12.sp, color = OmniColors.TextPrimary)
-                            Switch(
-                                checked = uiState.config.isLandscape,
-                                onCheckedChange = { isLand ->
-                                    viewModel.updateConfig { it.copy(isLandscape = isLand) }
-                                }
+                            Text(currentModeMeta.icon, fontSize = 22.sp)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Imposition Mode",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OmniColors.TextMuted
+                            )
+                            Text(
+                                text = currentModeMeta.title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OmniColors.TextPrimary
+                            )
+                            Text(
+                                text = currentModeMeta.description,
+                                fontSize = 11.sp,
+                                color = OmniColors.TextMuted,
+                                maxLines = 1
                             )
                         }
+                        Icon(
+                            Icons.Default.ArrowDropDown,
+                            contentDescription = "Select Mode",
+                            tint = OmniColors.TextPrimary
+                        )
+                    }
 
-                        Divider(color = OmniColors.Border)
-
-                        // Mode-Specific Controls Panel
-                        when (modes[selectedTabIdx]) {
-                            ImpositionToolMode.N_UP, ImpositionToolMode.CARDS -> {
-                                Text("Grid Layout (Cols x Rows)", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = uiState.config.gridCols.toString(),
-                                        onValueChange = { val c = it.toIntOrNull() ?: 1; viewModel.updateConfig { cfg -> cfg.copy(gridCols = c) } },
-                                        label = { Text("Cols", fontSize = 10.sp) },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true
-                                    )
-                                    OutlinedTextField(
-                                        value = uiState.config.gridRows.toString(),
-                                        onValueChange = { val r = it.toIntOrNull() ?: 1; viewModel.updateConfig { cfg -> cfg.copy(gridRows = r) } },
-                                        label = { Text("Rows", fontSize = 10.sp) },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true
-                                    )
-                                }
-                            }
-
-                            ImpositionToolMode.BOOKLET -> {
-                                Text("Binding Direction", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                BindingDirection.entries.forEach { dir ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        RadioButton(
-                                            selected = uiState.config.bindingDirection == dir,
-                                            onClick = { viewModel.updateConfig { it.copy(bindingDirection = dir) } }
-                                        )
-                                        Column {
-                                            Text(dir.displayName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                            Text(dir.description, fontSize = 10.sp, color = OmniColors.TextMuted)
-                                        }
+                    DropdownMenu(
+                        expanded = isModeMenuExpanded,
+                        onDismissRequest = { isModeMenuExpanded = false },
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    ) {
+                        impositionModes.forEach { meta ->
+                            val isSelected = meta.mode == uiState.config.mode
+                            DropdownMenuItem(
+                                leadingIcon = { Text(meta.icon, fontSize = 18.sp) },
+                                text = {
+                                    Column {
+                                        Text(meta.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                                        Text(meta.description, fontSize = 11.sp, color = OmniColors.TextMuted)
                                     }
-                                }
-                            }
-
-                            ImpositionToolMode.CROP_RESIZE -> {
-                                Text("Fit Mode", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                FitMode.entries.forEach { fit ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(
-                                            selected = uiState.config.fitMode == fit,
-                                            onClick = { viewModel.updateConfig { it.copy(fitMode = fit) } }
-                                        )
-                                        Text(fit.displayName, fontSize = 12.sp)
+                                },
+                                trailingIcon = {
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "Selected", tint = OmniColors.PdfRed)
                                     }
+                                },
+                                onClick = {
+                                    isModeMenuExpanded = false
+                                    viewModel.updateConfig { it.copy(mode = meta.mode) }
                                 }
-                            }
-
-                            ImpositionToolMode.BLEED_GENERATOR, ImpositionToolMode.REGISTRATION_MARKS -> {
-                                Text("Bleed & Print Marks", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                OutlinedTextField(
-                                    value = uiState.config.bleedMm.toString(),
-                                    onValueChange = { val b = it.toFloatOrNull() ?: 3f; viewModel.updateConfig { cfg -> cfg.copy(bleedMm = b) } },
-                                    label = { Text("Bleed (mm)", fontSize = 10.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = uiState.config.showCropMarks,
-                                        onCheckedChange = { show -> viewModel.updateConfig { it.copy(showCropMarks = show) } }
-                                    )
-                                    Text("Show Crop Marks", fontSize = 12.sp)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = uiState.config.showRegistrationTargets,
-                                        onCheckedChange = { show -> viewModel.updateConfig { it.copy(showRegistrationTargets = show) } }
-                                    )
-                                    Text("Show Registration Crosshairs", fontSize = 12.sp)
-                                }
-                            }
-
-                            ImpositionToolMode.ZINE -> {
-                                Text("Zine Type", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                ZineType.entries.forEach { zine ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(
-                                            selected = uiState.config.zineType == zine,
-                                            onClick = { viewModel.updateConfig { it.copy(zineType = zine) } }
-                                        )
-                                        Text(zine.displayName, fontSize = 12.sp)
-                                    }
-                                }
-                            }
+                            )
                         }
                     }
                 }
+            }
 
-                // Right Panel: Interactive Live Preview Viewport
-                Box(
-                    modifier = Modifier
-                        .weight(0.55f)
-                        .fillMaxHeight()
-                ) {
-                    InteractivePreviewEngine(
-                        fileUri = uiState.fileUri,
-                        sheetLayouts = uiState.calculatedSheets,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            // 2. Interactive Live Preview Viewport (Full width, responsive)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (uiState.fileUri != null) {
+                        InteractivePreviewEngine(
+                            fileUri = uiState.fileUri,
+                            sheetLayouts = uiState.calculatedSheets,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("📄", fontSize = 42.sp)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "No PDF Selected",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Open a PDF to see live imposition layout sheets & print guides",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.LightGray,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { pdfPickerLauncher.launch("application/pdf") },
+                                colors = ButtonDefaults.buttonColors(containerColor = OmniColors.PdfRed)
+                            ) {
+                                Icon(Icons.Default.FileOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Choose PDF File", color = Color.White)
+                            }
+                        }
+                    }
 
                     if (uiState.isExporting) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.8f)),
+                            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.85f)),
                             modifier = Modifier.align(Alignment.Center)
                         ) {
                             Column(
@@ -347,14 +318,266 @@ fun PrintImpositionStudioScreen(
                     }
                 }
             }
+
+            // 3. Imposition Controls Card (Full-width, cleanly arranged)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = OmniColors.Surface),
+                border = CardDefaults.outlinedCardBorder()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "⚙️ ${currentModeMeta.title} Configuration",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = OmniColors.TextPrimary
+                    )
+
+                    // Target Paper Size Selection
+                    Column {
+                        Text(
+                            text = "Target Sheet Paper Size",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = OmniColors.TextMuted
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { isPaperPresetMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        uiState.config.targetPaperSize.preset.displayName,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = OmniColors.TextPrimary
+                                    )
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = OmniColors.TextPrimary)
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = isPaperPresetMenuExpanded,
+                                onDismissRequest = { isPaperPresetMenuExpanded = false },
+                                modifier = Modifier.fillMaxWidth(0.85f)
+                            ) {
+                                PaperPreset.entries.forEach { preset ->
+                                    DropdownMenuItem(
+                                        text = { Text(preset.displayName) },
+                                        trailingIcon = {
+                                            if (uiState.config.targetPaperSize.preset == preset) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = OmniColors.PdfRed)
+                                            }
+                                        },
+                                        onClick = {
+                                            isPaperPresetMenuExpanded = false
+                                            viewModel.updateConfig { cfg ->
+                                                cfg.copy(targetPaperSize = cfg.targetPaperSize.copy(preset = preset))
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Landscape Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(OmniColors.Surface2)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Landscape Orientation", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            Text(
+                                if (uiState.config.isLandscape) "Horizontal sheet alignment" else "Vertical sheet alignment",
+                                fontSize = 11.sp,
+                                color = OmniColors.TextMuted
+                            )
+                        }
+                        Switch(
+                            checked = uiState.config.isLandscape,
+                            onCheckedChange = { isLand ->
+                                viewModel.updateConfig { it.copy(isLandscape = isLand) }
+                            }
+                        )
+                    }
+
+                    HorizontalDivider(color = OmniColors.Border)
+
+                    // Mode-specific configuration parameters
+                    when (uiState.config.mode) {
+                        ImpositionToolMode.BOOKLET -> {
+                            Text("Binding Direction", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            BindingDirection.entries.forEach { dir ->
+                                val isSelected = uiState.config.bindingDirection == dir
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.updateConfig { it.copy(bindingDirection = dir) } }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.updateConfig { it.copy(bindingDirection = dir) } }
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Column {
+                                        Text(dir.displayName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = OmniColors.TextPrimary)
+                                        Text(dir.description, fontSize = 11.sp, color = OmniColors.TextMuted)
+                                    }
+                                }
+                            }
+                        }
+
+                        ImpositionToolMode.N_UP, ImpositionToolMode.CARDS -> {
+                            Text("Grid Columns & Rows", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = uiState.config.gridCols.toString(),
+                                    onValueChange = {
+                                        val c = it.toIntOrNull() ?: 1
+                                        viewModel.updateConfig { cfg -> cfg.copy(gridCols = maxOf(1, c)) }
+                                    },
+                                    label = { Text("Columns") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                OutlinedTextField(
+                                    value = uiState.config.gridRows.toString(),
+                                    onValueChange = {
+                                        val r = it.toIntOrNull() ?: 1
+                                        viewModel.updateConfig { cfg -> cfg.copy(gridRows = maxOf(1, r)) }
+                                    },
+                                    label = { Text("Rows") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
+                            Text(
+                                "Total: ${uiState.config.gridCols * uiState.config.gridRows} pages per sheet",
+                                fontSize = 11.sp,
+                                color = OmniColors.TextMuted
+                            )
+                        }
+
+                        ImpositionToolMode.CROP_RESIZE -> {
+                            Text("Page Fit Mode", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            FitMode.entries.forEach { fit ->
+                                val isSelected = uiState.config.fitMode == fit
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.updateConfig { it.copy(fitMode = fit) } }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.updateConfig { it.copy(fitMode = fit) } }
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(fit.displayName, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = OmniColors.TextPrimary)
+                                }
+                            }
+                        }
+
+                        ImpositionToolMode.BLEED_GENERATOR, ImpositionToolMode.REGISTRATION_MARKS -> {
+                            Text("Bleed & Mark Boundaries", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            OutlinedTextField(
+                                value = uiState.config.bleedMm.toString(),
+                                onValueChange = {
+                                    val b = it.toFloatOrNull() ?: 3f
+                                    viewModel.updateConfig { cfg -> cfg.copy(bleedMm = b) }
+                                },
+                                label = { Text("Bleed Margin (mm)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = uiState.config.showCropMarks,
+                                    onCheckedChange = { show -> viewModel.updateConfig { it.copy(showCropMarks = show) } }
+                                )
+                                Text("Show Printer Crop Marks (Corner Trim Guides)", fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = uiState.config.showRegistrationTargets,
+                                    onCheckedChange = { show -> viewModel.updateConfig { it.copy(showRegistrationTargets = show) } }
+                                )
+                                Text("Show Registration Crosshairs & Targets", fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            }
+                        }
+
+                        ImpositionToolMode.ZINE -> {
+                            Text("Zine Publication Type", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = OmniColors.TextPrimary)
+                            ZineType.entries.forEach { zine ->
+                                val isSelected = uiState.config.zineType == zine
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.updateConfig { it.copy(zineType = zine) } }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.updateConfig { it.copy(zineType = zine) } }
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Column {
+                                        Text(zine.displayName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = OmniColors.TextPrimary)
+                                        Text(zine.description, fontSize = 11.sp, color = OmniColors.TextMuted)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 
-    // Error Snackbar / Alert Banner
+    // Error Alert Dialog
     if (uiState.errorMessage != null) {
         AlertDialog(
             onDismissRequest = { viewModel.clearExportResult() },
-            title = { Text("Error", fontWeight = FontWeight.Bold) },
+            title = { Text("Export Issue", fontWeight = FontWeight.Bold) },
             text = { Text(uiState.errorMessage ?: "An unexpected error occurred.") },
             confirmButton = {
                 TextButton(onClick = { viewModel.clearExportResult() }) {
@@ -379,3 +602,4 @@ fun PrintImpositionStudioScreen(
         )
     }
 }
+

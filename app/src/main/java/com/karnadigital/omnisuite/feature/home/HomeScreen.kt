@@ -322,12 +322,12 @@ fun HomeScreen(
                                 onClick = { onSelectFileForType("slides") }
                             )
                             HomeGridToolCard(
-                                title = "📸 Images",
+                                title = "📸 Image Tools",
                                 bgColor = OmniColors.ImgPurpleBg,
                                 borderColor = OmniColors.ImgPurple.copy(alpha = 0.4f),
                                 textColor = OmniColors.ImgPurple,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onSelectFileForType("image") }
+                                onClick = { onEvent(NavigationEvent.NavigateToImageTools) }
                             )
                             HomeGridToolCard(
                                 title = "📦 ZIP",
@@ -341,43 +341,36 @@ fun HomeScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Print & Imposition Studio Launcher Banner
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = OmniColors.PdfRedBg),
-                            border = BorderStroke(1.dp, OmniColors.PdfRed.copy(alpha = 0.4f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("🖨️", fontSize = 24.sp)
-                                Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Print & Imposition Studio",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = OmniColors.PdfRed
-                                    )
-                                    Text(
-                                        text = "Booklet Saddle Stitch, N-Up, Crop, Bleeds & Marks",
-                                        fontSize = 11.sp,
-                                        color = OmniColors.TextMuted
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = null,
-                                    tint = OmniColors.PdfRed
-                                )
-                            }
+                            HomeGridToolCard(
+                                title = "📷 QR Scanner",
+                                bgColor = OmniColors.ArcCyanBg,
+                                borderColor = OmniColors.ArcCyan.copy(alpha = 0.4f),
+                                textColor = OmniColors.ArcCyan,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onEvent(NavigationEvent.NavigateToBarcodeScanner) }
+                            )
+                            HomeGridToolCard(
+                                title = "🧬 QR Studio",
+                                bgColor = Color(0x1F8B5CF6),
+                                borderColor = Color(0xFF8B5CF6).copy(alpha = 0.4f),
+                                textColor = Color(0xFF8B5CF6),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onEvent(NavigationEvent.NavigateToQrGenerator) }
+                            )
+                            HomeGridToolCard(
+                                title = "🖨️ Print Studio",
+                                bgColor = OmniColors.PdfRedBg,
+                                borderColor = OmniColors.PdfRed.copy(alpha = 0.4f),
+                                textColor = OmniColors.PdfRed,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }
+                            )
                         }
+
 
                         // Recent Files Header with Universal History button
                         Row(

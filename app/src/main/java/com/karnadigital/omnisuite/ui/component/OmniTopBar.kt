@@ -34,7 +34,7 @@ fun OmniTopBar(
                 Image(
                     painter = painterResource(id = R.drawable.ic_launcher_foreground),
                     contentDescription = "OmniSuite Logo",
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(48.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(

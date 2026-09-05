@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontFamily
 import android.graphics.BitmapFactory
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import coil.compose.AsyncImage
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -977,25 +978,16 @@ fun DocxParagraphEditorItem(
         // Render embedded images in editor mode too
         paragraph.runs.forEach { run ->
             if (run.imageUrl != null) {
-                val bitmap = remember(run.imageUrl) {
-                    try {
-                        BitmapFactory.decodeFile(run.imageUrl)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Embedded Image",
-                        modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .padding(vertical = 8.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                    )
-                }
+                AsyncImage(
+                    model = run.imageUrl,
+                    contentDescription = "Embedded Image",
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .padding(vertical = 8.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
             }
         }
     }
@@ -1261,21 +1253,16 @@ fun DocxParagraphItem(
         // Render embedded images with proper sizing
         paragraph.runs.forEach { run ->
             if (run.imageUrl != null) {
-                val bitmap = remember(run.imageUrl) {
-                    try { BitmapFactory.decodeFile(run.imageUrl) } catch (e: Exception) { null }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Embedded Image",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .wrapContentHeight()
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
-                    )
-                }
+                AsyncImage(
+                    model = run.imageUrl,
+                    contentDescription = "Embedded Image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                )
             }
         }
 

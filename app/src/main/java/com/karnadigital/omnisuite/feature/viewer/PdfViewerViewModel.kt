@@ -145,53 +145,63 @@ class PdfViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    // Query aspect ratios of all pages quickly to set sizing dimensions upfront
-                    for (i in 0 until pageCount) {
-                        try {
-                            val page = renderer.openPage(i)
-                            pageRatios[i] = page.width.toFloat() / page.height.toFloat()
-                            page.close()
-                        } catch (e: Exception) {
-                            // Default fallback if a single page metadata fails
-                            pageRatios[i] = 0.707f // A4 ratio
-                        }
-                    }
-
-                    // Aspect ratios collected, ready to render
-                    // Load existing text annotations/comments using PDFBox
-                    try {
-                        PDDocument.load(renderFile).use { doc ->
-                            val annotationsMap = mutableMapOf<Int, List<TextNoteData>>()
-                            for (i in 0 until doc.numberOfPages) {
-                                val pg = doc.getPage(i)
-                                val pageWidth = pg.mediaBox.width
-                                val pageHeight = pg.mediaBox.height
-                                val noteList = pg.annotations
-                                    ?.filterIsInstance<PDAnnotationText>()
-                                    ?.map { ann ->
-                                        val rect = ann.rectangle
-                                        val normX = rect.lowerLeftX / pageWidth
-                                        val normY = 1f - (rect.upperRightY / pageHeight)
-                                        TextNoteData(
-                                            text = ann.contents ?: "",
-                                            x = normX,
-                                            y = normY
-                                        )
-                                    } ?: emptyList()
-                                if (noteList.isNotEmpty()) {
-                                    annotationsMap[i] = noteList
-                                }
-                            }
-                            _loadedAnnotations.value = annotationsMap
-                        }
+                    // Graceful progressive loading: inspect page 0 immediately so page 1 displays instantly
+                    val firstPageRatio = try {
+                        val page0 = renderer.openPage(0)
+                        val ratio = page0.width.toFloat() / page0.height.toFloat()
+                        page0.close()
+                        ratio
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        0.707f // A4 standard ratio
+                    }
+                    for (i in 0 until pageCount) {
+                        pageRatios[i] = firstPageRatio
                     }
 
+                    // Emit Success immediately so viewer appears without blocking
                     _loadState.value = PdfLoadState.Success(
                         pageCount = pageCount,
                         fileName = file.name
                     )
+
+                    // Progressively read exact subsequent page ratios and annotations in background
+                    viewModelScope.launch(Dispatchers.IO) {
+                        for (i in 1 until pageCount) {
+                            try {
+                                val page = renderer.openPage(i)
+                                pageRatios[i] = page.width.toFloat() / page.height.toFloat()
+                                page.close()
+                            } catch (_: Exception) {}
+                        }
+
+                        // Background load existing annotations using PDFBox
+                        try {
+                            PDDocument.load(renderFile).use { doc ->
+                                val annotationsMap = mutableMapOf<Int, List<TextNoteData>>()
+                                for (i in 0 until doc.numberOfPages) {
+                                    val pg = doc.getPage(i)
+                                    val pageWidth = pg.mediaBox.width
+                                    val pageHeight = pg.mediaBox.height
+                                    val noteList = pg.annotations
+                                        ?.filterIsInstance<PDAnnotationText>()
+                                        ?.map { ann ->
+                                            val rect = ann.rectangle
+                                            val normX = rect.lowerLeftX / pageWidth
+                                            val normY = 1f - (rect.upperRightY / pageHeight)
+                                            TextNoteData(
+                                                text = ann.contents ?: "",
+                                                x = normX,
+                                                y = normY
+                                            )
+                                        } ?: emptyList()
+                                    if (noteList.isNotEmpty()) {
+                                        annotationsMap[i] = noteList
+                                    }
+                                }
+                                _loadedAnnotations.value = annotationsMap
+                            }
+                        } catch (_: Throwable) {}
+                    }
 
                 } catch (e: Exception) {
                     e.printStackTrace()

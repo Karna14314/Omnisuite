@@ -71,7 +71,7 @@ fun BarcodeScannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Barcode Scanner", fontWeight = FontWeight.Bold) },
+                title = { Text("QR & Barcode Scanner", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")

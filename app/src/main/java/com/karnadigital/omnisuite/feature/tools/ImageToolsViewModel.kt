@@ -53,6 +53,11 @@ data class ImageToolsUiState(
     // Compression Dual Mode
     val compressMode: String = "QUALITY", // "QUALITY" vs "TARGET_SIZE"
     val targetSizeKbText: String = "200",
+
+    // Exact Dimension Resizing
+    val targetWidthPx: Int = 0,
+    val targetHeightPx: Int = 0,
+    val keepAspectRatio: Boolean = true,
     
     // Premium Image Lab Extensions States
     val selectedStitchUris: List<Uri> = emptyList(),
@@ -223,6 +228,8 @@ class ImageToolsViewModel @Inject constructor(
                                     selectedUri = uri,
                                     originalWidth = decoded.width,
                                     originalHeight = decoded.height,
+                                    targetWidthPx = decoded.width,
+                                    targetHeightPx = decoded.height,
                                     originalSize = fileSize,
                                     brightness = 0f,
                                     contrast = 1.0f,
@@ -282,6 +289,26 @@ class ImageToolsViewModel @Inject constructor(
     fun updateTargetSizeKbText(text: String) {
         _uiState.value = _uiState.value.copy(
             targetSizeKbText = text,
+            isSuccess = false
+        )
+    }
+
+    fun updateTargetDimensions(width: Int, height: Int) {
+        _uiState.value = _uiState.value.copy(
+            targetWidthPx = width.coerceAtLeast(1),
+            targetHeightPx = height.coerceAtLeast(1),
+            isSuccess = false
+        )
+    }
+
+    fun updateKeepAspectRatio(keep: Boolean) {
+        _uiState.value = _uiState.value.copy(keepAspectRatio = keep)
+    }
+
+    fun applyDimensionPreset(targetW: Int, targetH: Int) {
+        _uiState.value = _uiState.value.copy(
+            targetWidthPx = targetW.coerceAtLeast(1),
+            targetHeightPx = targetH.coerceAtLeast(1),
             isSuccess = false
         )
     }
@@ -397,7 +424,15 @@ class ImageToolsViewModel @Inject constructor(
                     var processed = ImageUtils.rotate(bitmap, currentState.rotationDegrees)
 
                     // 2. Resize Bitmap
-                    if (currentState.resizeScale != 1.0f) {
+                    val tw = currentState.targetWidthPx
+                    val th = currentState.targetHeightPx
+                    if (tw > 0 && th > 0 && (tw != processed.width || th != processed.height)) {
+                        val finalScaled = Bitmap.createScaledBitmap(processed, tw, th, true)
+                        if (finalScaled != processed && processed != bitmap) {
+                            processed.recycle()
+                        }
+                        processed = finalScaled
+                    } else if (currentState.resizeScale != 1.0f) {
                         val finalScaled = ImageUtils.resize(processed, currentState.resizeScale)
                         if (finalScaled != processed && processed != bitmap) {
                             processed.recycle()
