@@ -62,9 +62,13 @@ class UriCacheUtils @Inject constructor(
      */
     fun getPersistentBackupFile(uri: Uri, suggestedName: String? = null): File {
         val recentDir = File(context.filesDir, "recent_files").apply { if (!exists()) mkdirs() }
+        val hash = Math.abs(uri.toString().hashCode())
+        val existing = recentDir.listFiles()?.firstOrNull { it.name.startsWith("${hash}_") && it.length() > 0 }
+        if (existing != null) {
+            return existing
+        }
         val name = suggestedName ?: getFileName(uri) ?: "recent_${uri.hashCode()}"
         val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-        val hash = Math.abs(uri.toString().hashCode())
         return File(recentDir, "${hash}_$safeName")
     }
 
@@ -98,9 +102,14 @@ class UriCacheUtils @Inject constructor(
             }
         }
 
-        val fileName = getFileName(uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
+        val persistentBackup = getPersistentBackupFile(uri, null)
+        val hash = Math.abs(uri.toString().hashCode())
+        val fileName = if (persistentBackup.exists() && persistentBackup.length() > 0) {
+            persistentBackup.name.substringAfter("${hash}_")
+        } else {
+            getFileName(uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
+        }
         val cacheFile = File(context.cacheDir, fileName)
-        val persistentBackup = getPersistentBackupFile(uri, fileName)
 
         var streamCopied = false
         try {
@@ -123,12 +132,16 @@ class UriCacheUtils @Inject constructor(
                 pfd.close()
                 streamCopied = cacheFile.exists() && cacheFile.length() > 0
             } else {
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    FileOutputStream(cacheFile).use { outputStream ->
-                        inputStream.copyTo(outputStream)
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        FileOutputStream(cacheFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
                     }
+                    streamCopied = cacheFile.exists() && cacheFile.length() > 0
+                } catch (e: Exception) {
+                    // Ignore stream exception when permission expired, fallback will take over
                 }
-                streamCopied = cacheFile.exists() && cacheFile.length() > 0
             }
 
             if (streamCopied) {

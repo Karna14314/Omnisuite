@@ -98,7 +98,13 @@ fun ViewerDispatcherScreen(
                     val fileName = getFileNameFromUri(context, parsedUri) ?: cachedFile.name
                     val fileSize = cachedFile.length()
                     val mimeType = getMimeTypeFromFileType(fileType)
-                    viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
+                    val persistentBackup = uriCacheUtils.getPersistentBackupFile(parsedUri)
+                    val uriToSave = if (fileUri.startsWith("content://") && persistentBackup.exists() && persistentBackup.length() > 0) {
+                        persistentBackup.absolutePath
+                    } else {
+                        fileUri
+                    }
+                    viewModel.addRecentFile(uriToSave, fileName, mimeType, fileSize)
                 } else {
                     state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                 }
@@ -112,7 +118,7 @@ fun ViewerDispatcherScreen(
                         val fileName = directFile.name
                         val fileSize = directFile.length()
                         val mimeType = getMimeTypeFromFileType(fileType)
-                        viewModel.addRecentFile(fileUri, fileName, mimeType, fileSize)
+                        viewModel.addRecentFile(directFile.absolutePath, fileName, mimeType, fileSize)
                     } else {
                         state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                     }

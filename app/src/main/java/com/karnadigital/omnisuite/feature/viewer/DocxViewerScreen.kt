@@ -111,6 +111,7 @@ fun DocxViewerScreen(
     val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
     val officeConverter = coreEntryPoint(context).officeConverter()
     val coroutineScope = rememberCoroutineScope()
+    val lazyListState = rememberLazyListState()
     var isExporting by remember { mutableStateOf(false) }
 
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -325,7 +326,10 @@ fun DocxViewerScreen(
                                             tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                         )
                                     }
-                                    IconButton(onClick = { viewModel.commitChanges() }) {
+                                    IconButton(onClick = {
+                                        viewModel.commitChanges()
+                                        isEditMode = false
+                                    }) {
                                         Icon(Icons.Default.Check, contentDescription = "Save changes", tint = MaterialTheme.colorScheme.primary)
                                     }
                                 }
@@ -791,7 +795,10 @@ fun DocxViewerScreen(
 
                             // Save Changes Button
                             Button(
-                                onClick = { viewModel.commitChanges() },
+                                onClick = {
+                                    viewModel.commitChanges()
+                                    isEditMode = false
+                                },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
@@ -1178,8 +1185,15 @@ fun DocxInPlaceParagraphEditor(
     onEnterPressed: (String) -> Unit,
     onDeleteImage: () -> Unit
 ) {
-    var rawText by remember(paragraph.id, paragraph.runs.map { it.text }) {
-        mutableStateOf(paragraph.runs.joinToString("") { it.text })
+    val currentParagraphText = paragraph.runs.joinToString("") { it.text }
+    var rawText by remember(paragraph.id, currentParagraphText) {
+        mutableStateOf(currentParagraphText)
+    }
+
+    LaunchedEffect(currentParagraphText) {
+        if (rawText != currentParagraphText) {
+            rawText = currentParagraphText
+        }
     }
 
     // Determine typography from paragraph properties or first run
@@ -1389,8 +1403,15 @@ fun DocxEditableTableItem(
                     verticalAlignment = Alignment.Top
                 ) {
                     row.cells.forEachIndexed { cIdx, cell ->
-                        var cellText by remember(cell.id) {
-                            mutableStateOf(cell.paragraphs.joinToString("\n") { it.runs.joinToString("") { r -> r.text } })
+                        val currentText = cell.paragraphs.joinToString("\n") { it.runs.joinToString("") { r -> r.text } }
+                        var cellText by remember(cell.id, currentText) {
+                            mutableStateOf(currentText)
+                        }
+
+                        LaunchedEffect(currentText) {
+                            if (cellText != currentText) {
+                                cellText = currentText
+                            }
                         }
 
                         Box(

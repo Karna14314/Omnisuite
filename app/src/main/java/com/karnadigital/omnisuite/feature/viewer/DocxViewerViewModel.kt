@@ -161,6 +161,11 @@ class DocxViewerViewModel @Inject constructor(
     private val undoStack = java.util.ArrayDeque<DocxDocument>()
     private val redoStack = java.util.ArrayDeque<DocxDocument>()
 
+    private var lastTextEditTime = 0L
+    private var lastEditedIndex = -1
+    private var lastTableCellEditTime = 0L
+    private var lastEditedTableCell = ""
+
     private val _canUndo = MutableStateFlow(false)
     val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
 
@@ -187,6 +192,8 @@ class DocxViewerViewModel @Inject constructor(
         val previous = undoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
+        lastTextEditTime = 0L
+        lastTableCellEditTime = 0L
         _loadState.value = currentSuccess.copy(document = previous)
     }
 
@@ -197,6 +204,8 @@ class DocxViewerViewModel @Inject constructor(
         val next = redoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
+        lastTextEditTime = 0L
+        lastTableCellEditTime = 0L
         _loadState.value = currentSuccess.copy(document = next)
     }
 
@@ -504,7 +513,7 @@ class DocxViewerViewModel @Inject constructor(
                 code == 0x25AA || code == 0x25AB -> "▪"
                 code == 0x25BA || code == 0x25B6 -> "▶"
                 code == 0x25CA || code == 0x25C6 -> "◆"
-                ch == '' -> "•"
+                ch == '\u2022' -> "•"
                 else -> ch.toString()
             }
             sb.append(mapped)
@@ -779,6 +788,13 @@ class DocxViewerViewModel @Inject constructor(
         val paraElement = elements[index] as? DocxBodyElement.Para ?: return
         val oldPara = paraElement.paragraph
 
+        val now = System.currentTimeMillis()
+        if (now - lastTextEditTime > 1500L || lastEditedIndex != index) {
+            pushUndoState(current.document)
+        }
+        lastTextEditTime = now
+        lastEditedIndex = index
+
         val newRuns = if (oldPara.runs.isEmpty()) {
             listOf(DocxRun(text = newText, isBold = oldPara.isHeading, isItalic = false, isUnderline = false, isStrike = false))
         } else if (oldPara.runs.size == 1) {
@@ -989,6 +1005,14 @@ class DocxViewerViewModel @Inject constructor(
         val row = rows.getOrNull(rowIndex) ?: return
         val cells = row.cells.toMutableList()
         val cell = cells.getOrNull(colIndex) ?: return
+
+        val now = System.currentTimeMillis()
+        val cellKey = "$tableIndex-$rowIndex-$colIndex"
+        if (now - lastTableCellEditTime > 1500L || lastEditedTableCell != cellKey) {
+            pushUndoState(current.document)
+        }
+        lastTableCellEditTime = now
+        lastEditedTableCell = cellKey
 
         val newPara = DocxParagraph(
             runs = listOf(DocxRun(text = text, isBold = false, isItalic = false, isUnderline = false, isStrike = false)),
