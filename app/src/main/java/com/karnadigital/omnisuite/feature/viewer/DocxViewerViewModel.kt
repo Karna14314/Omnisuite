@@ -768,7 +768,7 @@ class DocxViewerViewModel @Inject constructor(
             bulletType = parsedBulletType
         )
     }
-    }
+
     /**
      * Updates the text of the paragraph at index in the document stream in-memory.
      */
