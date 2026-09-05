@@ -476,6 +476,42 @@ class DocxViewerViewModel @Inject constructor(
         return DocxDocument(elements = elements, pageGeometry = geometry)
     }
 
+    private fun sanitizeBulletText(input: String): String {
+        if (input.isEmpty()) return input
+        val sb = StringBuilder(input.length)
+        for (i in input.indices) {
+            val ch = input[i]
+            val code = ch.code
+            val mapped = when {
+                // Common Wingdings / Symbol / Private-Use Word bullets (0xF000..0xF0FF)
+                code in 0xF000..0xF0FF -> {
+                    when (code) {
+                        0xF0B7 -> "•" // Standard bullet
+                        0xF0A7 -> "▪" // Small square bullet
+                        0xF0D8 -> "➢" // Arrow bullet
+                        0xF0FC -> "✓" // Checkmark
+                        0xF0E0 -> "✉" // Envelope
+                        0xF071 -> "◆" // Diamond
+                        0xF076 -> "❖" // Star diamond
+                        0xF0A8 -> "◻" // White square
+                        0xF0A4 -> "★" // Star
+                        0xF06E -> "■" // Black square
+                        0xF075 -> "✦" // Four point star
+                        else -> "•"
+                    }
+                }
+                code in 0x2022..0x2024 -> "•"
+                code == 0x25AA || code == 0x25AB -> "▪"
+                code == 0x25BA || code == 0x25B6 -> "▶"
+                code == 0x25CA || code == 0x25C6 -> "◆"
+                ch == '' -> "•"
+                else -> ch.toString()
+            }
+            sb.append(mapped)
+        }
+        return sb.toString()
+    }
+
     private fun parseParagraph(
         paragraph: org.apache.poi.xwpf.usermodel.XWPFParagraph,
         comment: String?
@@ -506,6 +542,7 @@ class DocxViewerViewModel @Inject constructor(
             }
 
             var text = run.text() ?: run.getText(0) ?: ""
+            text = sanitizeBulletText(text)
             if (hasTab && !text.contains("\t")) {
                 text = "\t$text"
             }
@@ -591,6 +628,9 @@ class DocxViewerViewModel @Inject constructor(
         var isKeepLines = false
         var isPageBreakBefore = false
         val tabStops = mutableListOf<DocxTabStop>()
+        var parsedBulletType: String? = null
+        var rawIndentLeftTwips: Long = 0L
+        var rawFirstLineTwips: Long = 0L
 
         try {
             val ctp = paragraph.ctp
@@ -621,6 +661,37 @@ class DocxViewerViewModel @Inject constructor(
                     }
                 }
 
+                // Check w:numPr for bullet / numbering lists
+                val numPr = pPr.numPr
+                if (numPr != null) {
+                    val numId = extractNumber(numPr.numId?.`val`)
+                    if (numId != null && numId > 0) {
+                        // POI numFmt check
+                        val fmt = try { paragraph.numFmt } catch (_: Throwable) { null }
+                        parsedBulletType = if (fmt != null && fmt.lowercase().contains("bullet")) {
+                            "bullet"
+                        } else if (fmt != null) {
+                            "number"
+                        } else {
+                            "bullet"
+                        }
+                    }
+                }
+
+                // Check indentation from XML pPr.ind
+                val ind = pPr.ind
+                if (ind != null) {
+                    val left = extractNumber(ind.left) ?: extractNumber(ind.start)
+                    if (left != null) rawIndentLeftTwips = left
+                    val firstLine = extractNumber(ind.firstLine)
+                    val hanging = extractNumber(ind.hanging)
+                    if (firstLine != null) {
+                        rawFirstLineTwips = firstLine
+                    } else if (hanging != null) {
+                        rawFirstLineTwips = -hanging
+                    }
+                }
+
                 val ctTabs = pPr.tabs
                 if (ctTabs != null) {
                     for (tab in ctTabs.tabList) {
@@ -640,6 +711,26 @@ class DocxViewerViewModel @Inject constructor(
             // Ignore XML inspection errors
         }
 
+        // Check high-level POI numbering if XML didn't catch it
+        if (parsedBulletType == null) {
+            try {
+                if (paragraph.numID != null) {
+                    val fmt = paragraph.numFmt
+                    parsedBulletType = if (fmt != null && fmt.lowercase().contains("bullet")) "bullet" else "number"
+                }
+            } catch (_: Throwable) {
+                // Ignore POI numbering errors
+            }
+        }
+
+        // If paragraph text begins with a bullet character, mark bulletType
+        val fullRunText = runs.joinToString("") { it.text }.trimStart()
+        if (parsedBulletType == null) {
+            if (fullRunText.startsWith("•") || fullRunText.startsWith("▪") || fullRunText.startsWith("➢") || fullRunText.startsWith("◆")) {
+                parsedBulletType = "bullet"
+            }
+        }
+
         // Fallbacks from POI high-level getters if XML was absent
         if (spacingBeforePt == 0f && paragraph.spacingBefore > 0) {
             spacingBeforePt = paragraph.spacingBefore / 20f
@@ -648,10 +739,15 @@ class DocxViewerViewModel @Inject constructor(
             spacingAfterPt = paragraph.spacingAfter / 20f
         }
 
-        val rawIndentLeft = paragraph.indentationLeft.coerceAtLeast(0)
-        val rawFirstLine = paragraph.indentationFirstLine.coerceAtLeast(0)
-        val indentStartPt = rawIndentLeft / 20f
-        val firstLineIndentPt = rawFirstLine / 20f
+        if (rawIndentLeftTwips == 0L && paragraph.indentationLeft > 0) {
+            rawIndentLeftTwips = paragraph.indentationLeft.toLong()
+        }
+        if (rawFirstLineTwips == 0L && paragraph.indentationFirstLine != 0) {
+            rawFirstLineTwips = paragraph.indentationFirstLine.toLong()
+        }
+
+        val indentStartPt = (rawIndentLeftTwips / 20f).coerceAtLeast(0f)
+        val firstLineIndentPt = rawFirstLineTwips / 20f
 
         return DocxParagraph(
             runs = runs,
@@ -668,8 +764,10 @@ class DocxViewerViewModel @Inject constructor(
             tabStops = tabStops,
             isKeepNext = isKeepNext,
             isKeepLines = isKeepLines,
-            isPageBreakBefore = isPageBreakBefore
+            isPageBreakBefore = isPageBreakBefore,
+            bulletType = parsedBulletType
         )
+    }
     }
     /**
      * Updates the text of the paragraph at index in the document stream in-memory.

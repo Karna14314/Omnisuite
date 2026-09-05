@@ -40,6 +40,18 @@
             box-shadow: 0 4px 14px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.1);
             margin-bottom: 24px;
             border-radius: 2px;
+            overflow: visible !important;
+            height: auto !important;
+        }
+        body.print-layout .docx-wrapper > section.docx table {
+            max-width: 100% !important;
+            word-wrap: break-word !important;
+            page-break-inside: auto !important;
+            break-inside: auto !important;
+        }
+        body.print-layout .docx-wrapper > section.docx tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
         }
 
         /* ═══════════════════════════════════════════════
@@ -238,7 +250,7 @@
                     renderEndnotes: true,
                     renderChanges: false,
                     renderComments: false,
-                    ignoreLastRenderedPageBreak: true,
+                    ignoreLastRenderedPageBreak: !breakPages,
                     trimXmlDeclaration: true,
                     useBase64URL: true,
                     experimental: true,

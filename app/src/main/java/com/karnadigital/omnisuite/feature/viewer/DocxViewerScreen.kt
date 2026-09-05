@@ -1435,6 +1435,7 @@ fun DocxEditableTableItem(
 
 @Composable
 fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String, isPrintLayout: Boolean = false) {
+    val tableScrollState = rememberScrollState()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1442,11 +1443,16 @@ fun DocxTableItem(table: DocxBodyElement.Table, searchQuery: String, isPrintLayo
         border = BorderStroke(0.5.dp, if (isPrintLayout) Color.LightGray else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = if (isPrintLayout) Color(0xFFFAFAFA) else MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(tableScrollState)
+        ) {
+            val maxCols = table.rows.maxOfOrNull { it.cells.size } ?: 1
             table.rows.forEach { row ->
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .then(if (maxCols > 3) Modifier.widthIn(min = (maxCols * 100).dp) else Modifier.fillMaxWidth())
                         .drawBehind {
                             drawLine(
                                 color = Color.LightGray.copy(alpha = 0.4f),
@@ -1661,32 +1667,86 @@ fun DocxParagraphItem(
                 buildAnnotatedStringForRuns(paragraph.runs, searchQuery, isPrintLayout)
             }
 
+            val hasBullet = paragraph.bulletType != null
+            val bulletSymbol = when (paragraph.bulletType) {
+                "bullet" -> "•"
+                "number" -> "•" // Or numbering indicator
+                else -> null
+            }
+
+            // If firstLineIndentPt is negative, it's a hanging indent; if positive, it's a first line indent
+            val baseIndent = paragraph.indentStartPt.coerceAtLeast(0f).dp
+            val firstLineIndent = paragraph.firstLineIndentPt.dp
+
             SelectionContainer {
                 var layoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-                Text(
-                    text = annotatedString,
-                    style = baseStyle,
-                    onTextLayout = { layoutResult = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = paragraph.indentStartPt.dp,
-                            end = 0.dp,
-                            bottom = verticalPadding
+
+                if (hasBullet && bulletSymbol != null) {
+                    // Bullet list item with hanging indentation (two-column row so wrapped lines do not fall below bullet)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = baseIndent,
+                                end = 0.dp,
+                                bottom = verticalPadding
+                            )
+                    ) {
+                        Text(
+                            text = bulletSymbol,
+                            style = baseStyle.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.padding(end = 8.dp)
                         )
-                        .pointerInput(annotatedString) {
-                            detectTapGestures { offset ->
-                                layoutResult?.let { layout ->
-                                    val position = layout.getOffsetForPosition(offset)
-                                    annotatedString.getStringAnnotations("URL", position, position)
-                                        .firstOrNull()?.let { annotation ->
-                                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
-                                            catch (e: Exception) { }
+                        Text(
+                            text = annotatedString,
+                            style = baseStyle,
+                            onTextLayout = { layoutResult = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .pointerInput(annotatedString) {
+                                    detectTapGestures { offset ->
+                                        layoutResult?.let { layout ->
+                                            val position = layout.getOffsetForPosition(offset)
+                                            annotatedString.getStringAnnotations("URL", position, position)
+                                                .firstOrNull()?.let { annotation ->
+                                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
+                                                    catch (e: Exception) { }
+                                                }
                                         }
+                                    }
+                                }
+                        )
+                    }
+                } else {
+                    val startPadding = (paragraph.indentStartPt + paragraph.firstLineIndentPt.coerceAtLeast(0f)).coerceAtLeast(0f).dp
+                    Text(
+                        text = annotatedString,
+                        style = baseStyle,
+                        onTextLayout = { layoutResult = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = startPadding,
+                                end = 0.dp,
+                                bottom = verticalPadding
+                            )
+                            .pointerInput(annotatedString) {
+                                detectTapGestures { offset ->
+                                    layoutResult?.let { layout ->
+                                        val position = layout.getOffsetForPosition(offset)
+                                        annotatedString.getStringAnnotations("URL", position, position)
+                                            .firstOrNull()?.let { annotation ->
+                                                try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))) }
+                                                catch (e: Exception) { }
+                                            }
+                                    }
                                 }
                             }
-                        }
-                )
+                    )
+                }
             }
         }
 
