@@ -122,6 +122,7 @@ fun Modifier.glassmorphic(): Modifier = this.then(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrGeneratorScreen(
+    initialTab: Int = 0,
     onBack: () -> Unit,
     onOpenFile: (String) -> Unit = {},
     viewModel: QrGeneratorViewModel = hiltViewModel()
@@ -137,7 +138,7 @@ fun QrGeneratorScreen(
     var resultMimeType by remember { mutableStateOf<String?>(null) }
     var resultFileSize by remember { mutableStateOf(0L) }
 
-    var activeTabState by remember { mutableStateOf(0) } // 0 = QR Code, 1 = Barcode Builder
+    var activeTabState by remember(initialTab) { mutableStateOf(initialTab) } // 0 = QR Code, 1 = Barcode Builder
 
     // Customization States
     var selectedGradientPreset by remember { mutableStateOf(gradientPresets[0]) }

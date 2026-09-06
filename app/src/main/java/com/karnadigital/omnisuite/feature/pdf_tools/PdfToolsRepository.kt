@@ -368,16 +368,6 @@ class PdfToolsRepository @Inject constructor(
         }
     }
 
-    suspend fun convertPdfToXlsx(uri: Uri): Result<Uri> = withContext(Dispatchers.IO) {
-        try {
-            val outputUri = reverseOfficeConverter.convertPdfToXlsx(uri)
-                ?: throw Exception("Failed to convert PDF to XLSX.")
-            Result.success(outputUri)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun fillPdfForm(uri: Uri, formData: Map<String, String>): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             val outputUri = reverseOfficeConverter.fillInteractiveForm(uri, formData)
@@ -1406,6 +1396,9 @@ class PdfToolsRepository @Inject constructor(
                     fileNameInZip = name
                     compressionMethod = net.lingala.zip4j.model.enums.CompressionMethod.DEFLATE
                     compressionLevel = net.lingala.zip4j.model.enums.CompressionLevel.NORMAL
+                    isEncryptFiles = true
+                    encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES
+                    aesKeyStrength = net.lingala.zip4j.model.enums.AesKeyStrength.KEY_STRENGTH_256
                 }
                 zipOutputStream.putNextEntry(parameters)
                 file.inputStream().use { it.copyTo(zipOutputStream) }
@@ -1745,19 +1738,22 @@ class PdfToolsRepository @Inject constructor(
             val fileHeaders = zipFile.fileHeaders
             for (header in fileHeaders) {
                 if (!header.isDirectory) {
-                    val outFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_${header.fileName.substringAfterLast('/')}")
-                    zipFile.extractFile(header, context.cacheDir.path, "extracted_${System.currentTimeMillis()}_${header.fileName.substringAfterLast('/')}")
+                    val baseFileName = header.fileName.substringAfterLast('/')
+                    val tempExtractedName = "extracted_${System.currentTimeMillis()}_${(0..9999).random()}_$baseFileName"
+                    val outFile = File(context.cacheDir, tempExtractedName)
+                    zipFile.extractFile(header, context.cacheDir.path, tempExtractedName)
                     if (outFile.exists()) {
                         val bytes = outFile.readBytes()
-                        val fileName = header.fileName.substringAfterLast('/')
-                        val savedUri = fileOutputManager.saveToDefault(bytes, fileName, "*/*", "Archive") ?: continue
+                        val ext = baseFileName.substringAfterLast('.', "").lowercase()
+                        val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+                        val savedUri = fileOutputManager.saveToDefault(bytes, baseFileName, mimeType, "Archive") ?: continue
                         savedUris.add(savedUri)
-                        registerRecentFile(savedUri, fileName, "*/*", outFile.length())
+                        registerRecentFile(savedUri, baseFileName, mimeType, outFile.length())
                         outFile.delete()
                     }
                 }
             }
-            if (savedUris.isEmpty()) throw Exception("No files extracted.")
+            if (savedUris.isEmpty()) throw Exception("No files could be extracted. Please check the password.")
             if (tempInputFile.exists()) tempInputFile.delete()
             Result.success(savedUris)
         } catch (e: Exception) { Result.failure(e) }

@@ -11,11 +11,8 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.xslf.usermodel.XMLSlideShow
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,16 +28,30 @@ class ReverseOfficeConverter @Inject constructor(
             val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
             val doc = PDDocument.load(inputStream)
             val stripper = PDFTextStripper()
-            val text = stripper.getText(doc)
-            doc.close()
-
             val docx = XWPFDocument()
-            val lines = text.split("\n")
-            for (line in lines) {
-                val p = docx.createParagraph()
-                val r = p.createRun()
-                r.setText(line.trim())
+
+            for (pageNum in 1..doc.numberOfPages) {
+                stripper.startPage = pageNum
+                stripper.endPage = pageNum
+                val pageText = stripper.getText(doc)
+                val paragraphs = pageText.split("\n\n")
+                for (para in paragraphs) {
+                    val trimmed = para.trim()
+                    if (trimmed.isNotEmpty()) {
+                        val p = docx.createParagraph()
+                        p.spacingAfter = 120 // 6pt
+                        val r = p.createRun()
+                        r.fontSize = 11
+                        r.fontFamily = "Calibri"
+                        r.setText(trimmed.replace("\n", " "))
+                    }
+                }
+                if (pageNum < doc.numberOfPages) {
+                    val p = docx.createParagraph()
+                    p.isPageBreak = true
+                }
             }
+            doc.close()
 
             val outStream = ByteArrayOutputStream()
             docx.write(outStream)
@@ -66,13 +77,53 @@ class ReverseOfficeConverter @Inject constructor(
             val renderer = PDFRenderer(doc)
             val pptx = XMLSlideShow()
 
+            var slideCxEmu = 9144000L
+            var slideCyEmu = 5143500L
+
+            if (doc.numberOfPages > 0) {
+                val firstPage = doc.getPage(0)
+                val widthPt = firstPage.mediaBox.width
+                val heightPt = firstPage.mediaBox.height
+                slideCxEmu = (widthPt * 12700L).toLong()
+                slideCyEmu = (heightPt * 12700L).toLong()
+
+                try {
+                    val ctPres = pptx.javaClass.getMethod("getCTPresentation").invoke(pptx)
+                    val sldSz = ctPres?.javaClass?.getMethod("getSldSz")?.invoke(ctPres)
+                        ?: ctPres?.javaClass?.getMethod("addNewSldSz")?.invoke(ctPres)
+                    if (sldSz != null) {
+                        sldSz.javaClass.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(sldSz, slideCxEmu)
+                        sldSz.javaClass.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(sldSz, slideCyEmu)
+                    }
+                } catch (_: Throwable) { }
+            }
+
             for (i in 0 until doc.numberOfPages) {
                 val bitmap = renderer.renderImageWithDPI(i, 150f)
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 val pictureData = pptx.addPicture(stream.toByteArray(), org.apache.poi.sl.usermodel.PictureData.PictureType.JPEG)
                 val slide = pptx.createSlide()
-                slide.createPicture(pictureData)
+                val pic = slide.createPicture(pictureData)
+
+                // Set full-bleed slide bounds in OpenXML EMUs
+                try {
+                    val xmlObj = pic.javaClass.getMethod("getXmlObject").invoke(pic)
+                    val spPr = xmlObj?.javaClass?.getMethod("getSpPr")?.invoke(xmlObj)
+                    val xfrm = spPr?.javaClass?.getMethod("getXfrm")?.invoke(spPr)
+                        ?: spPr?.javaClass?.getMethod("addNewXfrm")?.invoke(spPr)
+                    if (xfrm != null) {
+                        val off = xfrm.javaClass.getMethod("getOff")?.invoke(xfrm)
+                            ?: xfrm.javaClass.getMethod("addNewOff")?.invoke(xfrm)
+                        off?.javaClass?.getMethod("setX", Long::class.javaPrimitiveType)?.invoke(off, 0L)
+                        off?.javaClass?.getMethod("setY", Long::class.javaPrimitiveType)?.invoke(off, 0L)
+
+                        val ext = xfrm.javaClass.getMethod("getExt")?.invoke(xfrm)
+                            ?: xfrm.javaClass.getMethod("addNewExt")?.invoke(xfrm)
+                        ext?.javaClass?.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(ext, slideCxEmu)
+                        ext?.javaClass?.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(ext, slideCyEmu)
+                    }
+                } catch (_: Throwable) { }
             }
             doc.close()
 
@@ -85,45 +136,6 @@ class ReverseOfficeConverter @Inject constructor(
                 filename = "converted_${System.currentTimeMillis()}.pptx",
                 mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 subfolder = "PPTX"
-            )
-            outputFileUri
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    suspend fun convertPdfToXlsx(uri: Uri): Uri? = withContext(Dispatchers.IO) {
-        try {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            val doc = PDDocument.load(inputStream)
-            val stripper = PDFTextStripper()
-            val text = stripper.getText(doc)
-            doc.close()
-
-            val xlsx = XSSFWorkbook()
-            val sheet = xlsx.createSheet("Extracted Data")
-            val lines = text.split("\n")
-            var rowIdx = 0
-            for (line in lines) {
-                if (line.trim().isNotEmpty()) {
-                    val row = sheet.createRow(rowIdx++)
-                    val cells = line.trim().split(Regex("\\s{2,}")) // Split by large spaces
-                    for ((colIdx, cellText) in cells.withIndex()) {
-                        row.createCell(colIdx).setCellValue(cellText)
-                    }
-                }
-            }
-
-            val outStream = ByteArrayOutputStream()
-            xlsx.write(outStream)
-            xlsx.close()
-
-            val outputFileUri = fileOutputManager.saveToDefault(
-                bytes = outStream.toByteArray(),
-                filename = "converted_${System.currentTimeMillis()}.xlsx",
-                mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                subfolder = "XLSX"
             )
             outputFileUri
         } catch (e: Exception) {

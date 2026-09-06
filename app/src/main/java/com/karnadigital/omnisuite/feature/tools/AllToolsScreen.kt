@@ -1,27 +1,45 @@
 package com.karnadigital.omnisuite.feature.tools
 
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.karnadigital.omnisuite.core.util.ToolPreferences
 import com.karnadigital.omnisuite.feature.home.NavigationEvent
-import com.karnadigital.omnisuite.ui.component.ToolListRow
 import com.karnadigital.omnisuite.ui.theme.OmniColors
 
 data class ToolItem(
+    val id: String,
     val icon: String,
     val name: String,
     val description: String,
@@ -38,29 +56,27 @@ fun AllToolsScreen(
     onEvent: (NavigationEvent) -> Unit,
     onSelectFileForType: (String) -> Unit
 ) {
-    var selectedTabState by rememberSaveable { mutableStateOf(0) }
+    val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var selectedCategoryFilter by rememberSaveable { mutableStateOf("All") }
+    var showFavoritesSheet by remember { mutableStateOf(false) }
 
-    val tabs = listOf("📋 PDF", "📝 Word", "📊 Excel", "🖼️ Slides", "📸 Image", "📦 Archive", "🧬 QR & Scan", "⚡ Utilities")
+    val categories = listOf("All", "PDF", "Word", "Excel", "Slides", "Image", "Archive", "QR & Scan", "Utilities")
 
-    val activeIndicatorColor = when (selectedTabState) {
-        0 -> OmniColors.PdfRed
-        1 -> OmniColors.DocBlue
-        2 -> OmniColors.XlsGreen
-        3 -> Color(0xFFF59E0B)
-        4 -> OmniColors.ImgPurple
-        5 -> OmniColors.ArcCyan
-        6 -> Color(0xFF8B5CF6)
-        7 -> Color(0xFF10B981)
-        else -> OmniColors.Accent
+    // Flattened tools list with zero duplicates and complete coverage
+    val allTools = remember(onEvent, onSelectFileForType) {
+        getAllToolsList(onEvent, onSelectFileForType)
     }
 
-    // All tools flattened for search
-    val allTools = remember { getAllTools(onEvent, onSelectFileForType) }
+    val favoriteIds by ToolPreferences.favoriteToolIds
+    val favoriteTools = remember(allTools, favoriteIds) {
+        allTools.filter { it.id in favoriteIds }
+    }
 
-    val filteredTools = remember(searchQuery) {
-        if (searchQuery.isBlank()) emptyList()
+    // Filtered tools when searching
+    val isSearching = searchQuery.isNotBlank()
+    val searchResults = remember(searchQuery, allTools) {
+        if (!isSearching) emptyList()
         else allTools.filter {
             it.name.contains(searchQuery, ignoreCase = true) ||
             it.description.contains(searchQuery, ignoreCase = true) ||
@@ -83,23 +99,9 @@ fun AllToolsScreen(
                         IconButton(onClick = onBack) {
                             Icon(
                                 imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Navigate back",
+                                contentDescription = "Back",
                                 tint = OmniColors.TextPrimary
                             )
-                        }
-                    },
-                    actions = {
-                        if (isSearchActive) {
-                            IconButton(onClick = {
-                                isSearchActive = false
-                                searchQuery = ""
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close search")
-                            }
-                        } else {
-                            IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search tools")
-                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -116,85 +118,416 @@ fun AllToolsScreen(
                 .fillMaxSize()
                 .padding(if (isInline) PaddingValues(0.dp) else innerPadding)
         ) {
-            // Search bar
-            if (isSearchActive) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search tools...") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    singleLine = true
-                )
-            }
+            // 1. Search Bar
+            SearchBarSection(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onClear = { searchQuery = "" }
+            )
 
-            if (filteredTools.isNotEmpty()) {
-                // Search results
+            if (isSearching) {
+                // Search Results Grid
+                SearchResultsView(
+                    results = searchResults,
+                    favoriteIds = favoriteIds,
+                    onToggleFavorite = { tool ->
+                        ToolPreferences.toggleFavorite(tool.id)
+                        val msg = if (ToolPreferences.isFavorite(tool.id)) "Added to favorites" else "Removed from favorites"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                )
+            } else {
+                // Category Filter Chips
+                CategoryFilterBar(
+                    categories = categories,
+                    selectedCategory = selectedCategoryFilter,
+                    onSelectCategory = { selectedCategoryFilter = it }
+                )
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    item {
-                        Text(
-                            "Search Results (${filteredTools.size})",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
+                    // 2. Favorites Section (only shown when 'All' is selected or user hasn't filtered out)
+                    if (selectedCategoryFilter == "All") {
+                        item {
+                            FavoritesSection(
+                                favoriteTools = favoriteTools,
+                                onManageFavorites = { showFavoritesSheet = true },
+                                favoriteIds = favoriteIds,
+                                onToggleFavorite = { tool ->
+                                    ToolPreferences.toggleFavorite(tool.id)
+                                    val msg = if (ToolPreferences.isFavorite(tool.id)) "Added to favorites" else "Removed from favorites"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
                     }
-                    items(filteredTools) { tool ->
-                        ToolListRow(tool.icon, tool.name, tool.description, tool.color, tool.onClick)
+
+                    // 3. Sequential WPS-Style Categorized Tool Sections
+                    val displayedCategories = if (selectedCategoryFilter == "All") {
+                        listOf("PDF", "Word", "Excel", "Slides", "Image", "Archive", "QR & Scan", "Utilities")
+                    } else {
+                        listOf(selectedCategoryFilter)
+                    }
+
+                    displayedCategories.forEach { category ->
+                        val categoryTools = allTools.filter { it.category == category }
+                        if (categoryTools.isNotEmpty()) {
+                            item {
+                                CategoryToolSection(
+                                    category = category,
+                                    tools = categoryTools,
+                                    favoriteIds = favoriteIds,
+                                    onToggleFavorite = { tool ->
+                                        ToolPreferences.toggleFavorite(tool.id)
+                                        val msg = if (ToolPreferences.isFavorite(tool.id)) "Added to favorites" else "Removed from favorites"
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Favorites Management Modal Sheet
+    if (showFavoritesSheet) {
+        FavoritesManagementSheet(
+            allTools = allTools,
+            favoriteIds = favoriteIds,
+            onToggleFavorite = { toolId ->
+                ToolPreferences.toggleFavorite(toolId)
+            },
+            onDismiss = { showFavoritesSheet = false }
+        )
+    }
+}
+
+@Composable
+private fun SearchBarSection(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = {
+            Text(
+                text = "Search tools (e.g. merge, compress, watermark, ocr)...",
+                fontSize = 13.sp,
+                color = OmniColors.TextMuted
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = OmniColors.TextMuted,
+                modifier = Modifier.size(20.dp)
+            )
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClear) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear search",
+                        tint = OmniColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(14.dp),
+        singleLine = true,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    )
+}
+
+@Composable
+private fun CategoryFilterBar(
+    categories: List<String>,
+    selectedCategory: String,
+    onSelectCategory: (String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(categories) { category ->
+            val isSelected = selectedCategory == category
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelectCategory(category) },
+                label = {
+                    Text(
+                        text = category,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 13.sp
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSelected,
+                    borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                ),
+                shape = RoundedCornerShape(10.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FavoritesSection(
+    favoriteTools: List<ToolItem>,
+    onManageFavorites: () -> Unit,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (ToolItem) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header Row with Title and + Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Favorite Tools",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = OmniColors.TextPrimary
+                    )
+                    if (favoriteTools.isNotEmpty()) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "${favoriteTools.size}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Plus (+) Button to manage favorites
+                IconButton(
+                    onClick = onManageFavorites,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add or edit favorites",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (favoriteTools.isEmpty()) {
+                // Minimized empty state
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "No favorites yet. Tap '+' to pin your most used tools here.",
+                        fontSize = 12.sp,
+                        color = OmniColors.TextMuted,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = onManageFavorites,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Add", fontSize = 12.sp)
                     }
                 }
             } else {
-                // Normal tabbed view
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTabState,
-                    containerColor = OmniColors.Surface,
-                    contentColor = OmniColors.TextPrimary,
-                    edgePadding = 16.dp,
-                    indicator = { tabPositions ->
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabState]),
-                            color = activeIndicatorColor
-                        )
-                    }
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTabState == index,
-                            onClick = { selectedTabState = index },
-                            text = {
-                                Text(
-                                    text = title,
-                                    fontWeight = if (selectedTabState == index) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 14.sp,
-                                    color = if (selectedTabState == index) activeIndicatorColor else OmniColors.TextMuted
-                                )
-                            }
-                        )
-                    }
-                }
+                // 4-Column Grid for Favorites
+                WpsToolsGrid(
+                    tools = favoriteTools,
+                    favoriteIds = favoriteIds,
+                    onToggleFavorite = onToggleFavorite
+                )
+            }
+        }
+    }
+}
 
-                Spacer(modifier = Modifier.height(16.dp))
+@Composable
+private fun CategoryToolSection(
+    category: String,
+    tools: List<ToolItem>,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (ToolItem) -> Unit
+) {
+    val categoryHeader = when (category) {
+        "PDF" -> "PDF Tools"
+        "Word" -> "Word & Documents"
+        "Excel" -> "Spreadsheets & Excel"
+        "Slides" -> "Presentations & Slides"
+        "Image" -> "Image & Creative"
+        "Archive" -> "Archive & Security"
+        "QR & Scan" -> "Scan & Barcode"
+        "Utilities" -> "Utilities"
+        else -> category
+    }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp)
-                ) {
-                    when (selectedTabState) {
-                        0 -> PdfToolsList(onEvent)
-                        1 -> WordToolsList(onSelectFileForType, onEvent)
-                        2 -> ExcelToolsList(onSelectFileForType, onEvent)
-                        3 -> SlidesToolsList(onSelectFileForType, onEvent)
-                        4 -> ImageToolsList(onEvent)
-                        5 -> ArchiveToolsList(onEvent, onSelectFileForType)
-                        6 -> QrScanToolsList(onEvent)
-                        7 -> UtilityToolsList(onEvent)
+    val categoryColor = when (category) {
+        "PDF" -> OmniColors.PdfRed
+        "Word" -> OmniColors.DocBlue
+        "Excel" -> OmniColors.XlsGreen
+        "Slides" -> Color(0xFFF59E0B)
+        "Image" -> OmniColors.ImgPurple
+        "Archive" -> OmniColors.ArcCyan
+        "QR & Scan" -> Color(0xFF8B5CF6)
+        "Utilities" -> Color(0xFF10B981)
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        // Category Header with colored indicator
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp, 16.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(categoryColor)
+            )
+            Text(
+                text = categoryHeader,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = OmniColors.TextPrimary
+            )
+            Text(
+                text = "(${tools.size})",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = OmniColors.TextMuted
+            )
+        }
+
+        // WPS-Style 4-column Grid
+        WpsToolsGrid(
+            tools = tools,
+            favoriteIds = favoriteIds,
+            onToggleFavorite = onToggleFavorite
+        )
+    }
+}
+
+/**
+ * 4-column grid displaying tools in WPS Office mobile style.
+ * Computes row count dynamically for nested embedding inside LazyColumn.
+ */
+@Composable
+private fun WpsToolsGrid(
+    tools: List<ToolItem>,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (ToolItem) -> Unit
+) {
+    val columns = 4
+    val rows = (tools.size + columns - 1) / columns
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        for (rowIndex in 0 until rows) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                for (colIndex in 0 until columns) {
+                    val toolIndex = rowIndex * columns + colIndex
+                    if (toolIndex < tools.size) {
+                        val tool = tools[toolIndex]
+                        val isFav = tool.id in favoriteIds
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            WpsToolGridItem(
+                                tool = tool,
+                                isFavorite = isFav,
+                                onToggleFavorite = { onToggleFavorite(tool) }
+                            )
+                        }
+                    } else {
+                        // Empty placeholder to preserve column widths
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -203,255 +536,359 @@ fun AllToolsScreen(
 }
 
 /**
- * Returns a flat list of all tools for search functionality.
+ * Single WPS-style tool grid cell:
+ * - Rounded square card with category tint background
+ * - Emoji / symbol centered
+ * - Star badge if favorited
+ * - Tool title centered below with max 2 lines
+ * - Long-press to toggle favorite
  */
-private fun getAllTools(
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WpsToolGridItem(
+    tool: ToolItem,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(76.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = tool.onClick,
+                onLongClick = onToggleFavorite
+            )
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Icon Box
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(tool.color.copy(alpha = 0.12f))
+                .border(1.dp, tool.color.copy(alpha = 0.22f), RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = tool.icon,
+                fontSize = 24.sp
+            )
+
+            // Small favorite star indicator
+            if (isFavorite) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF59E0B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "Favorited",
+                        tint = Color.White,
+                        modifier = Modifier.size(9.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Tool Title
+        Text(
+            text = tool.name,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = OmniColors.TextPrimary,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun SearchResultsView(
+    results: List<ToolItem>,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (ToolItem) -> Unit
+) {
+    if (results.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SearchOff,
+                    contentDescription = null,
+                    tint = OmniColors.TextMuted,
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = "No tools match your search",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OmniColors.TextPrimary
+                )
+                Text(
+                    text = "Try searching by keyword like 'rotate', 'zip', 'excel', or 'pdf'",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OmniColors.TextMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(results) { tool ->
+                val isFav = tool.id in favoriteIds
+                WpsToolGridItem(
+                    tool = tool,
+                    isFavorite = isFav,
+                    onToggleFavorite = { onToggleFavorite(tool) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Bottom Sheet to manage favorite tools with quick search and checkmarks.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FavoritesManagementSheet(
+    allTools: List<ToolItem>,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query, allTools) {
+        if (query.isBlank()) allTools
+        else allTools.filter {
+            it.name.contains(query, ignoreCase = true) ||
+            it.category.contains(query, ignoreCase = true)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Manage Favorites",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "${favoriteIds.size} tools pinned",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OmniColors.TextMuted
+                    )
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Done", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Filter tools...", fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(filtered) { tool ->
+                    val isFav = tool.id in favoriteIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onToggleFavorite(tool.id) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(tool.color.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(tool.icon, fontSize = 18.sp)
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = tool.name,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = OmniColors.TextPrimary
+                            )
+                            Text(
+                                text = "${tool.category} • ${tool.description}",
+                                fontSize = 11.sp,
+                                color = OmniColors.TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Checkbox(
+                            checked = isFav,
+                            onCheckedChange = { onToggleFavorite(tool.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Returns the complete exhaustive catalog of all tools in OmniSuite.
+ * Each tool has a unique ID, icon, category, and action callback.
+ */
+private fun getAllToolsList(
     onEvent: (NavigationEvent) -> Unit,
     onSelectFileForType: (String) -> Unit
 ): List<ToolItem> {
     return listOf(
-        // PDF Tools
-        ToolItem("🥞", "Merge PDFs", "Combine multiple files", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMerge) }, "PDF"),
-        ToolItem("✂️", "Split PDF", "Extract page ranges", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplit) }, "PDF"),
-        ToolItem("🔒", "Encrypt PDF", "Lock with secure password", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfLock) }, "PDF"),
-        ToolItem("🔓", "Decrypt PDF", "Remove PDF password lock", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDecrypt) }, "PDF"),
-        ToolItem("🔄", "Rotate PDF Pages", "Rotate visual page layout", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRotate) }, "PDF"),
-        ToolItem("✂️", "Extract PDF Pages", "Select and extract pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtract) }, "PDF"),
-        ToolItem("🗑️", "Delete PDF Pages", "Remove pages from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDelete) }, "PDF"),
-        ToolItem("✍️", "Digital Sign", "Stamp digital signature", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSignaturePad) }, "PDF"),
-        ToolItem("💧", "Watermark", "Add security stamp overlay", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWatermark) }, "PDF"),
-        ToolItem("📕", "Images to PDF", "Compile multiple photos into PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdf) }, "PDF"),
-        ToolItem("📑", "Doc to PDF", "Transcode Word files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToDocToPdf) }, "PDF"),
-        ToolItem("🖼️", "Slides to PDF", "Transcode PPTX files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPptToPdf) }, "PDF"),
-        ToolItem("📷", "Scan to PDF", "Compile camera scans to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToScanToPdf) }, "PDF"),
-        ToolItem("🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }, "PDF"),
-        ToolItem("📝", "PDF to Word", "Convert PDF to Word offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "PDF"),
-        ToolItem("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }, "PDF"),
-        ToolItem("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToExcel) }, "PDF"),
-        ToolItem("🖨️", "Print & Imposition Studio", "N-Up, Booklets, Bleeds & Registration", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }, "PDF"),
-        ToolItem("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }, "PDF"),
-        ToolItem("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }, "PDF"),
-        ToolItem("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "PDF"),
-        ToolItem("🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFlatten) }, "PDF"),
-        ToolItem("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToXlsToPdf) }, "PDF"),
-        ToolItem("🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }, "PDF"),
-        ToolItem("<html>", "HTML to PDF", "Compile custom HTML text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }, "PDF"),
-        ToolItem("🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }, "PDF"),
-        ToolItem("🔀", "Reorder Pages", "Drag and drop to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }, "PDF"),
-        ToolItem("🖼️", "Extract Images", "Extract embedded images from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }, "PDF"),
-        ToolItem("📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }, "PDF"),
-        ToolItem("📝", "PDF to TXT", "Extract text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }, "PDF"),
-        ToolItem("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }, "PDF"),
-        ToolItem("📐", "Resize Pages", "Change PDF page size", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }, "PDF"),
-        ToolItem("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }, "PDF"),
-        ToolItem("✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }, "PDF"),
-        ToolItem("⬛", "Redact PDF", "Permanently blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }, "PDF"),
-        ToolItem("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }, "PDF"),
-        ToolItem("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }, "PDF"),
-        ToolItem("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }, "PDF"),
-        ToolItem("🔖", "Bookmarks", "Manage PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }, "PDF"),
+        // ================= PDF TOOLS =================
+        ToolItem("pdf_merge", "🥞", "Merge PDFs", "Combine multiple files", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMerge) }, "PDF"),
+        ToolItem("pdf_split", "✂️", "Split PDF", "Extract page ranges", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplit) }, "PDF"),
+        ToolItem("pdf_lock", "🔒", "Encrypt PDF", "Lock with secure password", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfLock) }, "PDF"),
+        ToolItem("pdf_decrypt", "🔓", "Decrypt PDF", "Remove PDF password lock", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDecrypt) }, "PDF"),
+        ToolItem("pdf_rotate", "🔄", "Rotate Pages", "Rotate individual/all pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRotate) }, "PDF"),
+        ToolItem("pdf_extract", "📑", "Extract Pages", "Select and extract pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtract) }, "PDF"),
+        ToolItem("pdf_delete", "🗑️", "Delete Pages", "Remove pages from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDelete) }, "PDF"),
+        ToolItem("pdf_reorder", "🔀", "Reorder Pages", "Drag to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }, "PDF"),
+        ToolItem("pdf_insert", "📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }, "PDF"),
+        ToolItem("pdf_replace", "🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }, "PDF"),
+        ToolItem("pdf_crop", "✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }, "PDF"),
+        ToolItem("pdf_resize", "📐", "Resize Pages", "Change PDF page size (A4/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }, "PDF"),
+        ToolItem("pdf_page_number", "🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }, "PDF"),
+        ToolItem("pdf_header_footer", "📋", "Header & Footer", "Add header and footer", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }, "PDF"),
+        ToolItem("watermark", "💧", "Watermark", "Add security stamp overlay", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWatermark) }, "PDF"),
+        ToolItem("pdf_signature", "✍️", "Digital Sign", "Stamp digital signature", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSignaturePad) }, "PDF"),
+        ToolItem("pdf_redact", "⬛", "Redact PDF", "Blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }, "PDF"),
+        ToolItem("pdf_compress", "🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }, "PDF"),
+        ToolItem("pdf_flatten", "🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFlatten) }, "PDF"),
+        ToolItem("pdf_compare", "⚖️", "Compare PDF", "Split-screen diff of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }, "PDF"),
+        ToolItem("pdf_form_filler", "✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }, "PDF"),
+        ToolItem("pdf_metadata", "✏️", "Edit Metadata", "Edit title, author, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }, "PDF"),
+        ToolItem("pdf_bookmarks", "🔖", "Bookmarks", "Manage PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }, "PDF"),
+        ToolItem("pdf_block_editor", "📝", "PDF Editor", "Direct text & block editing", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBlockEditor) }, "PDF"),
+        ToolItem("print_studio", "🖨️", "Print Studio", "N-Up, Booklets & Bleeds", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }, "PDF"),
+        ToolItem("doc_to_pdf", "📑", "Doc to PDF", "Transcode Word files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToDocToPdf) }, "PDF"),
+        ToolItem("ppt_to_pdf", "🖼️", "Slides to PDF", "Transcode PPTX files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPptToPdf) }, "PDF"),
+        ToolItem("xls_to_pdf", "📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToXlsToPdf) }, "PDF"),
+        ToolItem("images_to_pdf", "📕", "Images to PDF", "Compile photos into PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdf) }, "PDF"),
+        ToolItem("images_to_pdf_layout", "🖼️", "PDF Page Layout", "Custom collage & grid layout", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdfLayout) }, "PDF"),
+        ToolItem("scan_to_pdf", "📷", "Scan to PDF", "Compile camera scans to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToScanToPdf) }, "PDF"),
+        ToolItem("txt_to_pdf", "📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "PDF"),
+        ToolItem("csv_to_pdf", "📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }, "PDF"),
+        ToolItem("html_to_pdf", "<html>", "HTML to PDF", "Compile custom HTML to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }, "PDF"),
+        ToolItem("web_to_pdf", "🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }, "PDF"),
+        ToolItem("markdown_to_pdf", "✍️", "Markdown to PDF", "Format Markdown text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }, "PDF"),
+        ToolItem("pdf_to_images", "🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }, "PDF"),
+        ToolItem("pdf_extract_images", "🖼️", "Extract Images", "Extract embedded photos from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }, "PDF"),
+        ToolItem("pdf_to_word", "📝", "PDF to Word", "Convert PDF to Word DOCX", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "PDF"),
+        ToolItem("pdf_to_ppt", "🖼️", "PDF to PPT", "Convert PDF to Slides", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }, "PDF"),
+        ToolItem("pdf_to_txt", "📝", "PDF to TXT", "Extract plain text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }, "PDF"),
 
-        // Word Tools
-        ToolItem("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
-        ToolItem("📄", "Text Editor", "Read and edit local TXT files", Color(0xFF6B7280), { onSelectFileForType("text") }, "Word"),
-        ToolItem("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
-        ToolItem("📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }, "Word"),
-        ToolItem("✍️", "Markdown to PDF", "Format markdown text to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }, "Word"),
+        // ================= WORD TOOLS =================
+        ToolItem("word_viewer", "📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
+        ToolItem("text_editor", "📄", "Text Editor", "Read and edit local TXT files", Color(0xFF6B7280), { onSelectFileForType("text") }, "Word"),
+        ToolItem("word_count", "🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }, "Word"),
+        ToolItem("docx_to_txt", "📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }, "Word"),
+        ToolItem("text_compare", "🔍", "Text Compare", "Compare text diffs offline", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToTextCompare) }, "Word"),
 
-        // Excel Tools
-        ToolItem("📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }, "Excel"),
-        ToolItem("📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }, "Excel"),
-        ToolItem("📤", "CSV to Excel", "Import CSV records to Excel workbook", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToXlsx) }, "Excel"),
-        ToolItem("📥", "Excel to CSV", "Export workbook sheet cells to CSV", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsxToCsv) }, "Excel"),
+        // ================= EXCEL TOOLS =================
+        ToolItem("excel_viewer", "📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }, "Excel"),
+        ToolItem("csv_editor", "📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }, "Excel"),
+        ToolItem("csv_to_xlsx", "📤", "CSV to Excel", "Import CSV records to Excel", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToXlsx) }, "Excel"),
+        ToolItem("xlsx_to_csv", "📥", "Excel to CSV", "Export sheet cells to CSV", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsxToCsv) }, "Excel"),
 
-        // Slides Tools
-        ToolItem("🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }, "Slides"),
-        ToolItem("📄", "PPTX to TXT", "Extract presentation slides text to TXT", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptxToTxt) }, "Slides"),
+        // ================= SLIDES TOOLS =================
+        ToolItem("slides_viewer", "🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }, "Slides"),
+        ToolItem("pptx_to_txt", "📄", "PPTX to TXT", "Extract presentation text to TXT", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptxToTxt) }, "Slides"),
 
-        // Image Tools
-        ToolItem("📐", "Resize Dimensions", "Exact WxH in px, aspect lock, presets", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }, "Image"),
-        ToolItem("🗜️", "Compress Image", "Target KB for jobs & govt forms", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
-        ToolItem("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(2)) }, "Image"),
-        ToolItem("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
-        ToolItem("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }, "Image"),
-        ToolItem("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }, "Image"),
-        ToolItem("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }, "Image"),
+        // ================= IMAGE TOOLS =================
+        ToolItem("image_resize", "📐", "Resize Dimensions", "Exact WxH px & presets", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }, "Image"),
+        ToolItem("image_compress", "🗜️", "Compress Image", "Target KB for jobs & forms", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
+        ToolItem("passport_photo", "✂️", "Passport Photo", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(2)) }, "Image"),
+        ToolItem("image_convert", "🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }, "Image"),
+        ToolItem("photo_adjust", "🎨", "Photo Adjust", "Brightness, contrast, tones", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }, "Image"),
+        ToolItem("text_ocr", "🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }, "Image"),
+        ToolItem("collage_maker", "🖼️", "Collage Maker", "Grid photo collage designer", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToCollageMaker) }, "Image"),
+        ToolItem("meme_maker", "🎭", "Meme Maker", "Add top & bottom captions", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToMemeMaker) }, "Image"),
+        ToolItem("color_picker", "🎨", "Color Picker", "Pick color codes from photos", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToColorPicker) }, "Image"),
 
-        // Archive & Security Tools
-        ToolItem("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToZipMaker) }, "Archive"),
-        ToolItem("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }, "Archive"),
-        ToolItem("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }, "Archive"),
-        ToolItem("🔐", "Password ZIP", "Create password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }, "Archive"),
-        ToolItem("🔓", "Extract Password ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }, "Archive"),
-        ToolItem("🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }, "Archive"),
-        ToolItem("🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }, "Archive"),
+        // ================= ARCHIVE & SECURITY TOOLS =================
+        ToolItem("zip_maker", "🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToZipMaker) }, "Archive"),
+        ToolItem("zip_extractor", "🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }, "Archive"),
+        ToolItem("password_zip", "🔐", "Password ZIP", "Create AES-256 protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }, "Archive"),
+        ToolItem("extract_password_zip", "🔓", "Extract Pass ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }, "Archive"),
+        ToolItem("file_encrypt", "🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }, "Archive"),
+        ToolItem("file_decrypt", "🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }, "Archive"),
+        ToolItem("tar_tools", "📦", "TAR Archiver", "Create or unpack TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }, "Archive"),
+        ToolItem("file_checksum", "🛡️", "File Checksum", "MD5, SHA-256 hash calculator", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileChecksum) }, "Archive"),
 
-        // QR & Barcode Tools
-        ToolItem("📷", "QR & Barcode Scanner", "Live camera viewfinder scanner", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToBarcodeScanner) }, "QR & Scan"),
-        ToolItem("🧬", "QR Generator", "Compile WiFi/vCard QR codes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }, "QR & Scan"),
-        ToolItem("📊", "Barcode Builder", "Generate EAN/UPC barcodes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }, "QR & Scan"),
+        // ================= QR & SCAN TOOLS =================
+        ToolItem("qr_scanner", "📷", "QR & Barcode Scanner", "Live camera viewfinder scanner", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToBarcodeScanner) }, "QR & Scan"),
+        ToolItem("qr_generator", "🧬", "QR Generator", "Compile WiFi/vCard/URL QR", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }, "QR & Scan"),
+        ToolItem("barcode_builder", "📊", "Barcode Builder", "Generate EAN/UPC barcodes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGeneratorWithTab(1)) }, "QR & Scan"),
 
-        // Document Utilities & Tools (in PDF & Docs)
-        ToolItem("⚡", "Batch Toolkit", "Optimize multiple document actions", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToBatchTools) }, "PDF"),
-        ToolItem("🔊", "Read Aloud", "Text-to-speech for documents (offline)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToReadAloud) }, "PDF"),
-
-        // Utilities
-        ToolItem("📏", "Unit Converter", "Length, weight, temperature", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToUnitConverter) }, "Utilities")
+        // ================= UTILITIES =================
+        ToolItem("batch_toolkit", "⚡", "Batch Toolkit", "Batch process multiple files", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToBatchTools) }, "Utilities"),
+        ToolItem("read_aloud", "🔊", "Read Aloud", "Text-to-speech for docs (offline)", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToReadAloud) }, "Utilities"),
+        ToolItem("unit_converter", "📏", "Unit Converter", "Length, weight, temperature", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToUnitConverter) }, "Utilities")
     )
-}
-
-@Composable
-fun PdfToolsList(onEvent: (NavigationEvent) -> Unit) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("🥞", "Merge PDFs", "Combine multiple files", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMerge) }) }
-        item { ToolListRow("✂️", "Split PDF", "Extract page ranges", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfSplit) }) }
-        item { ToolListRow("🔒", "Encrypt PDF", "Lock with secure password", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfLock) }) }
-        item { ToolListRow("🔓", "Decrypt PDF", "Remove PDF password lock offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDecrypt) }) }
-        item { ToolListRow("🔄", "Rotate PDF Pages", "Rotate visual page layout preview", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRotate) }) }
-        item { ToolListRow("✂️", "Extract PDF Pages", "Select and extract pages to new PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtract) }) }
-        item { ToolListRow("🗑️", "Delete PDF Pages", "Select and remove pages from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfDelete) }) }
-        item { ToolListRow("✍️", "Digital Sign", "Stamp digital signature", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToSignaturePad) }) }
-        item { ToolListRow("💧", "Watermark", "Add security stamp overlay", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWatermark) }) }
-        item { ToolListRow("📕", "Images to PDF", "Compile multiple photos into PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToImagesToPdf) }) }
-        item { ToolListRow("📑", "Doc to PDF", "Transcode Word files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToDocToPdf) }) }
-        item { ToolListRow("🖼️", "Slides to PDF", "Transcode PPTX files to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPptToPdf) }) }
-        item { ToolListRow("📷", "Scan to PDF", "Compile camera scans to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToScanToPdf) }) }
-        item { ToolListRow("🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }) }
-        item { ToolListRow("📝", "PDF to Word", "Convert PDF to Word offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }) }
-        item { ToolListRow("🖼️", "PDF to PPT", "Convert PDF to Slides offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }) }
-        item { ToolListRow("🖨️", "Print & Imposition Studio", "N-Up, Booklets, Bleeds & Registration", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPrintImpositionStudio) }) }
-        item { ToolListRow("📊", "PDF to Excel", "Convert PDF to Sheets offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToExcel) }) }
-        item { ToolListRow("✍️", "Fill Form", "Fill PDF interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFormFiller) }) }
-        item { ToolListRow("🗜️", "Compress PDF", "Reduce PDF file size offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompress) }) }
-        item { ToolListRow("🔒", "Flatten PDF", "Flatten interactive form fields", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfFlatten) }) }
-        item { ToolListRow("📊", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToXlsToPdf) }) }
-        item { ToolListRow("🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }) }
-        item { ToolListRow("<html>", "HTML to PDF", "Compile custom HTML text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }) }
-        item { ToolListRow("🔢", "Page Numbers", "Add page numbers to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfPageNumber) }) }
-        item { ToolListRow("🔀", "Reorder Pages", "Drag and drop to reorder PDF pages", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReorder) }) }
-        item { ToolListRow("🖼️", "Extract Images", "Extract embedded images from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }) }
-        item { ToolListRow("📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }) }
-        item { ToolListRow("📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }) }
-        item { ToolListRow("📝", "PDF to TXT", "Extract text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }) }
-        item { ToolListRow("📝", "Header & Footer", "Add header and footer to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfHeaderFooter) }) }
-        item { ToolListRow("📐", "Resize Pages", "Change PDF page size (A3/A4/A5/Letter)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfResize) }) }
-        item { ToolListRow("✏️", "Edit Metadata", "Edit title, author, subject, keywords", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfMetadata) }) }
-        item { ToolListRow("✂️", "Crop Margins", "Adjust PDF page margins", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCropMargins) }) }
-        item { ToolListRow("⬛", "Redact PDF", "Permanently blackout sensitive areas", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfRedact) }) }
-        item { ToolListRow("⚖️", "Compare PDF", "Compare text of two PDFs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfCompare) }) }
-        item { ToolListRow("📎", "Insert Pages", "Insert pages from another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfInsertPages) }) }
-        item { ToolListRow("🔄", "Replace Pages", "Replace pages with another PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfReplacePages) }) }
-        item { ToolListRow("🔖", "Bookmarks", "Add and view PDF bookmarks", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfBookmarks) }) }
-        item { ToolListRow("⚡", "Batch Toolkit", "Optimize & process multiple files in batch", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToBatchTools) }) }
-        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech for documents (offline)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToReadAloud) }) }
-    }
-}
-
-@Composable
-fun WordToolsList(
-    onSelectFileForType: (String) -> Unit,
-    onEvent: (NavigationEvent) -> Unit
-) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }) }
-        item { ToolListRow("📄", "Text Editor", "Read and edit local TXT files", OmniColors.TextMuted, { onSelectFileForType("text") }) }
-        item { ToolListRow("🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onSelectFileForType("word") }) }
-        item { ToolListRow("📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }) }
-        item { ToolListRow("✍️", "Markdown to PDF", "Format markdown text to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }) }
-    }
-}
-
-@Composable
-fun ExcelToolsList(
-    onSelectFileForType: (String) -> Unit,
-    onEvent: (NavigationEvent) -> Unit
-) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }) }
-        item { ToolListRow("📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }) }
-        item { ToolListRow("📤", "CSV to Excel", "Import CSV records to Excel workbook", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToXlsx) }) }
-        item { ToolListRow("📥", "Excel to CSV", "Export workbook sheet cells to CSV", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsxToCsv) }) }
-    }
-}
-
-@Composable
-fun SlidesToolsList(
-    onSelectFileForType: (String) -> Unit,
-    onEvent: (NavigationEvent) -> Unit
-) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }) }
-        item { ToolListRow("📄", "PPTX to TXT", "Extract presentation slides text to TXT", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptxToTxt) }) }
-    }
-}
-
-@Composable
-fun ImageToolsList(onEvent: (NavigationEvent) -> Unit) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("📐", "Resize Dimensions", "Exact WxH in px, aspect lock, presets", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(0)) }) }
-        item { ToolListRow("🗜️", "Compress Image", "Target KB for job & govt applications", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
-        item { ToolListRow("✂️", "Passport Photo Maker", "Standard 2x2, 3.5x4.5cm ID crop", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(2)) }) }
-        item { ToolListRow("🔄", "Format Converter", "Convert JPG, PNG, WEBP, PDF", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(1)) }) }
-        item { ToolListRow("🎨", "Photo Adjust & Filters", "Brightness, contrast, saturation, tones", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToImageToolsWithTab(3)) }) }
-        item { ToolListRow("🔬", "Text OCR", "Extract text offline with ML Kit", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToOcr) }) }
-        item { ToolListRow("📷", "Smart Scan", "Auto edge-detect page camera", OmniColors.ImgPurple, { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
-    }
-}
-
-@Composable
-fun ArchiveToolsList(
-    onEvent: (NavigationEvent) -> Unit,
-    onSelectFileForType: (String) -> Unit
-) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("🗜️", "ZIP Maker", "Compress multiple files to ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToZipMaker) }) }
-        item { ToolListRow("🔓", "ZIP Extractor", "Extract local ZIP archives", OmniColors.ArcCyan, { onSelectFileForType("zip") }) }
-        item { ToolListRow("📦", "TAR Archiver", "Create or unpack offline TAR archives", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToTarTools) }) }
-        item { ToolListRow("🔐", "Password ZIP", "Create password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZip) }) }
-        item { ToolListRow("🔓", "Extract Password ZIP", "Extract password-protected ZIP", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToPasswordZipExtract) }) }
-        item { ToolListRow("🔒", "Encrypt File", "AES-256 file encryption", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileEncrypt) }) }
-        item { ToolListRow("🔓", "Decrypt File", "Decrypt AES-256 files", OmniColors.ArcCyan, { onEvent(NavigationEvent.NavigateToFileDecrypt) }) }
-    }
-}
-
-@Composable
-fun QrScanToolsList(onEvent: (NavigationEvent) -> Unit) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("📷", "QR & Barcode Scanner", "Live offline viewfinder decoding", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToBarcodeScanner) }) }
-        item { ToolListRow("🧬", "QR Generator", "Compile WiFi/vCard/URL QR codes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
-        item { ToolListRow("📊", "Barcode Builder", "Generate EAN/UPC barcodes", Color(0xFF8B5CF6), { onEvent(NavigationEvent.NavigateToQrGenerator) }) }
-    }
-}
-
-@Composable
-fun UtilityToolsList(onEvent: (NavigationEvent) -> Unit) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item { ToolListRow("⚡", "Batch Toolkit", "Optimize multiple actions", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToBatchTools) }) }
-        item { ToolListRow("📏", "Unit Converter", "Length, weight, temperature", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToUnitConverter) }) }
-        item { ToolListRow("🔊", "Read Aloud", "Text-to-speech (offline)", Color(0xFF10B981), { onEvent(NavigationEvent.NavigateToReadAloud) }) }
-    }
 }

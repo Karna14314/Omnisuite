@@ -13,5 +13,7 @@ class OmniApplication : Application() {
             "org.apache.poi.javax.xml.stream.XMLInputFactory",
             "com.sun.xml.internal.stream.XMLInputFactoryImpl"
         )
+        // Initialize Tool Preferences for persistent favorites
+        com.karnadigital.omnisuite.core.util.ToolPreferences.init(this)
     }
 }

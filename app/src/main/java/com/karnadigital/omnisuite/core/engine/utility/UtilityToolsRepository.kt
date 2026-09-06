@@ -464,6 +464,8 @@ class UtilityToolsRepository @Inject constructor(
         return result
     }
 
+    private val OMNI_ENC_MAGIC = byteArrayOf('O'.code.toByte(), 'M'.code.toByte(), 'N'.code.toByte(), 'I'.code.toByte(), 'E'.code.toByte(), 'N'.code.toByte(), 'C'.code.toByte(), '1'.code.toByte())
+
     suspend fun encryptFile(inputUri: Uri, pass: String, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             val file = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open source file.")
@@ -482,21 +484,34 @@ class UtilityToolsRepository @Inject constructor(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
 
+            val originalName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
+            val nameBytes = originalName.toByteArray(Charsets.UTF_8)
+
             FileOutputStream(tempOutputFile).use { fos ->
+                fos.write(OMNI_ENC_MAGIC)
                 fos.write(salt)
                 fos.write(iv)
-                CipherOutputStream(fos, cipher).use { cos ->
-                    file.inputStream().use { fis ->
-                        val buffer = ByteArray(8192)
-                        var read: Int
-                        while (fis.read(buffer).also { read = it } >= 0) {
-                            cos.write(buffer, 0, read)
+                java.io.DataOutputStream(fos).apply {
+                    writeShort(nameBytes.size)
+                    write(nameBytes)
+                }
+
+                file.inputStream().use { fis ->
+                    val buffer = ByteArray(64 * 1024)
+                    var read: Int
+                    while (fis.read(buffer).also { read = it } >= 0) {
+                        val outputChunk = cipher.update(buffer, 0, read)
+                        if (outputChunk != null && outputChunk.isNotEmpty()) {
+                            fos.write(outputChunk)
                         }
+                    }
+                    val finalChunk = cipher.doFinal()
+                    if (finalChunk != null && finalChunk.isNotEmpty()) {
+                        fos.write(finalChunk)
                     }
                 }
             }
 
-            val originalName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
             val outName = customFilename ?: "$originalName.enc"
             val savedUri = fileOutputManager.saveFileToDefault(tempOutputFile, outName, "application/octet-stream", "Encrypted")
                 ?: throw Exception("Failed to save encrypted file.")
@@ -526,12 +541,36 @@ class UtilityToolsRepository @Inject constructor(
             val file = uriCacheUtils.cacheUriToFile(inputUri) ?: throw Exception("Could not open source file.")
             val tempOutputFile = File(context.cacheDir, "decrypted_${System.currentTimeMillis()}")
 
-            val salt = ByteArray(16)
-            val iv = ByteArray(12)
-
             file.inputStream().use { fis ->
-                if (fis.read(salt) != 16) throw Exception("Invalid encrypted file header.")
-                if (fis.read(iv) != 12) throw Exception("Invalid encrypted file header.")
+                val magic = ByteArray(8)
+                val bytesRead = fis.read(magic)
+                if (bytesRead != 8) throw Exception("Invalid encrypted file.")
+
+                val isOmniEnc = magic.contentEquals(OMNI_ENC_MAGIC)
+                val salt: ByteArray
+                val iv: ByteArray
+                val restoredName: String
+
+                if (isOmniEnc) {
+                    salt = ByteArray(16)
+                    iv = ByteArray(12)
+                    if (fis.read(salt) != 16) throw Exception("Corrupted encrypted file header.")
+                    if (fis.read(iv) != 12) throw Exception("Corrupted encrypted file header.")
+                    val dis = java.io.DataInputStream(fis)
+                    val nameLen = dis.readShort().toInt() and 0xFFFF
+                    val nameBytes = ByteArray(nameLen)
+                    dis.readFully(nameBytes)
+                    restoredName = String(nameBytes, Charsets.UTF_8)
+                } else {
+                    // Backwards-compatibility for older files without magic header
+                    salt = ByteArray(16)
+                    System.arraycopy(magic, 0, salt, 0, 8)
+                    if (fis.read(salt, 8, 8) != 8) throw Exception("Corrupted encrypted file.")
+                    iv = ByteArray(12)
+                    if (fis.read(iv) != 12) throw Exception("Corrupted encrypted file.")
+                    val fallbackName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
+                    restoredName = fallbackName
+                }
 
                 val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
                 val spec = PBEKeySpec(pass.toCharArray(), salt, 65536, 256)
@@ -540,37 +579,48 @@ class UtilityToolsRepository @Inject constructor(
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
 
-                CipherInputStream(fis, cipher).use { cis ->
-                    FileOutputStream(tempOutputFile).use { fos ->
-                        val buffer = ByteArray(8192)
-                        var read: Int
-                        while (cis.read(buffer).also { read = it } >= 0) {
-                            fos.write(buffer, 0, read)
+                FileOutputStream(tempOutputFile).use { fos ->
+                    val buffer = ByteArray(64 * 1024)
+                    var read: Int
+                    while (fis.read(buffer).also { read = it } >= 0) {
+                        val outputChunk = cipher.update(buffer, 0, read)
+                        if (outputChunk != null && outputChunk.isNotEmpty()) {
+                            fos.write(outputChunk)
                         }
                     }
+                    val finalChunk = try {
+                        cipher.doFinal()
+                    } catch (e: javax.crypto.AEADBadTagException) {
+                        throw Exception("Incorrect password or corrupted encrypted file.")
+                    }
+                    if (finalChunk != null && finalChunk.isNotEmpty()) {
+                        fos.write(finalChunk)
+                    }
                 }
-            }
 
-            val originalName = (getFileNameFromUri(inputUri) ?: "file").removeSuffix(".enc")
-            val outName = customFilename ?: originalName
-            val savedUri = fileOutputManager.saveFileToDefault(tempOutputFile, outName, "application/octet-stream", "Decrypted")
-                ?: throw Exception("Failed to save decrypted file.")
+                val outName = customFilename ?: restoredName
+                val extension = outName.substringAfterLast('.', "").lowercase()
+                val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
 
-            recentFileRepository.insertRecentFile(
-                RecentFile(
-                    fileUri = savedUri.toString(),
-                    fileName = outName,
-                    mimeType = "application/octet-stream",
-                    fileSize = tempOutputFile.length(),
-                    lastOpened = System.currentTimeMillis(),
-                    isOperation = true
+                val savedUri = fileOutputManager.saveFileToDefault(tempOutputFile, outName, mimeType, "Decrypted")
+                    ?: throw Exception("Failed to save decrypted file.")
+
+                recentFileRepository.insertRecentFile(
+                    RecentFile(
+                        fileUri = savedUri.toString(),
+                        fileName = outName,
+                        mimeType = mimeType,
+                        fileSize = tempOutputFile.length(),
+                        lastOpened = System.currentTimeMillis(),
+                        isOperation = true
+                    )
                 )
-            )
 
-            if (tempOutputFile.exists()) tempOutputFile.delete()
-            if (file.exists()) file.delete()
+                if (tempOutputFile.exists()) tempOutputFile.delete()
+                if (file.exists()) file.delete()
 
-            Result.success(savedUri)
+                Result.success(savedUri)
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

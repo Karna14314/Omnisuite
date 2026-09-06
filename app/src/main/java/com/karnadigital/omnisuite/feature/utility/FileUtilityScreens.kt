@@ -160,24 +160,191 @@ fun TextCompareScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hil
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdvancedWordCountScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hiltViewModel()) {
+    val context = LocalContext.current
     var text by remember { mutableStateOf("") }
-    var wordCountResult by remember { mutableStateOf<Map<String, Any>?>(null) }
-    Scaffold(topBar = { TopAppBar(title = { Text("Advanced Word Count", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }) }) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Enter or paste text") }, modifier = Modifier.fillMaxWidth().height(200.dp), maxLines = 20)
-            Button(onClick = { wordCountResult = viewModel.getWordCount(text) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = text.isNotBlank()) {
-                Icon(Icons.Default.Calculate, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Analyze Text")
+
+    val docPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                val name = it.path?.lowercase() ?: ""
+                val stream = context.contentResolver.openInputStream(it)
+                if (stream != null) {
+                    val extractedText = when {
+                        name.endsWith(".docx") -> {
+                            org.apache.poi.xwpf.usermodel.XWPFDocument(stream).use { doc ->
+                                doc.paragraphs.joinToString("\n") { p -> p.text }
+                            }
+                        }
+                        name.endsWith(".pdf") -> {
+                            com.tom_roush.pdfbox.pdmodel.PDDocument.load(stream).use { pdfDoc ->
+                                com.tom_roush.pdfbox.text.PDFTextStripper().getText(pdfDoc)
+                            }
+                        }
+                        else -> {
+                            stream.bufferedReader().use { r -> r.readText() }
+                        }
+                    }
+                    if (extractedText.isNotBlank()) {
+                        text = extractedText
+                    }
+                }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Error reading document: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
             }
-            if (wordCountResult != null) {
-                val result = wordCountResult!!
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Analysis Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        HorizontalDivider()
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Words:"); Text("${result["words"]}", fontWeight = FontWeight.Bold) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Characters:"); Text("${result["characters"]}", fontWeight = FontWeight.Bold) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Lines:"); Text("${result["lines"]}", fontWeight = FontWeight.Bold) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Estimated Read Time:"); Text("${result["readingTime"]}", fontWeight = FontWeight.Bold) }
+        }
+    }
+
+    val words = remember(text) {
+        if (text.isBlank()) 0
+        else text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+    }
+    val charsWithSpaces = text.length
+    val charsWithoutSpaces = remember(text) { text.count { !it.isWhitespace() } }
+    val lines = remember(text) { if (text.isBlank()) 0 else text.lines().size }
+    val sentences = remember(text) {
+        if (text.isBlank()) 0
+        else text.split(Regex("[.!?]+")).count { it.isNotBlank() }
+    }
+    val paragraphs = remember(text) {
+        if (text.isBlank()) 0
+        else text.split(Regex("\n+")).count { it.isNotBlank() }
+    }
+    val readingTimeMin = if (words == 0) 0 else kotlin.math.max(1, (words + 199) / 200)
+    val speakingTimeMin = if (words == 0) 0 else kotlin.math.max(1, (words + 129) / 130)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Word & Document Count", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { docPicker.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }) {
+                        Icon(Icons.Default.UploadFile, contentDescription = "Load Document")
+                    }
+                    if (text.isNotEmpty()) {
+                        IconButton(onClick = { text = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear text")
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Document Load Shortcut Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        docPicker.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import File", fontSize = 13.sp)
+                }
+            }
+
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Type, paste, or import text...") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                maxLines = 15,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            // Real-time Statistics Cards
+            Text("Document Metrics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            // Key Big Numbers Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Card(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("$words", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("Words", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("$charsWithSpaces", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text("Characters", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+            }
+
+            // Detailed Breakdown Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Characters (no spaces)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$charsWithoutSpaces", fontWeight = FontWeight.Bold)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Sentences", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$sentences", fontWeight = FontWeight.Bold)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Paragraphs", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$paragraphs", fontWeight = FontWeight.Bold)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Lines", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$lines", fontWeight = FontWeight.Bold)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Estimated Reading Time (@200 wpm)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$readingTimeMin min", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Estimated Speaking Time (@130 wpm)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$speakingTimeMin min", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
                     }
                 }
             }

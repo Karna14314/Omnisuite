@@ -35,7 +35,8 @@ fun OmniNavGraph(
                 onEvent = { event ->
                     when (event) {
                         is NavigationEvent.NavigateToSettings -> navController.navigate(Screen.Settings.route)
-                        is NavigationEvent.NavigateToQrGenerator -> navController.navigate(Screen.QrGenerator.route)
+                        is NavigationEvent.NavigateToQrGenerator -> navController.navigate(Screen.QrGenerator.createRoute(0))
+                        is NavigationEvent.NavigateToQrGeneratorWithTab -> navController.navigate(Screen.QrGenerator.createRoute(event.tab))
                         is NavigationEvent.NavigateToBarcodeScanner -> navController.navigate(Screen.BarcodeScanner.route)
                         is NavigationEvent.NavigateToImageTools -> navController.navigate(Screen.ImageTools.createRoute(tab = 0))
                         is NavigationEvent.NavigateToImageToolsWithTab -> navController.navigate(Screen.ImageTools.createRoute(tab = event.tab))
@@ -51,7 +52,6 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToWatermark -> navController.navigate(Screen.Watermark.route)
                         is NavigationEvent.NavigateToPdfToWord -> navController.navigate(Screen.PdfToWord.route)
                         is NavigationEvent.NavigateToPdfToPpt -> navController.navigate(Screen.PdfToPpt.route)
-                        is NavigationEvent.NavigateToPdfToExcel -> navController.navigate(Screen.PdfToExcel.route)
                         is NavigationEvent.NavigateToPdfFormFiller -> navController.navigate(Screen.PdfFormFiller.route)
                         is NavigationEvent.NavigateToImagesToPdf -> navController.navigate(Screen.ImagesToPdf.route)
                         is NavigationEvent.NavigateToPdfCompress -> navController.navigate(Screen.PdfCompress.route)
@@ -92,17 +92,17 @@ fun OmniNavGraph(
                         is NavigationEvent.NavigateToPasswordZipExtract -> navController.navigate(Screen.PasswordZipExtract.route)
                         is NavigationEvent.NavigateToFileEncrypt -> navController.navigate(Screen.FileEncrypt.route)
                         is NavigationEvent.NavigateToFileDecrypt -> navController.navigate(Screen.FileDecrypt.route)
-                        is NavigationEvent.NavigateToPdfSelectiveImageExtract -> navController.navigate(Screen.PdfSelectiveImageExtract.route)
-                        is NavigationEvent.NavigateToPdfAllPagesToImage -> navController.navigate(Screen.PdfAllPagesToImage.route)
+                        is NavigationEvent.NavigateToPdfSelectiveImageExtract -> navController.navigate(Screen.PdfExtractImages.route)
+                        is NavigationEvent.NavigateToPdfAllPagesToImage -> navController.navigate(Screen.PdfToImages.route)
                         is NavigationEvent.NavigateToFileChecksum -> navController.navigate(Screen.FileChecksum.route)
                         is NavigationEvent.NavigateToTextCompare -> navController.navigate(Screen.TextCompare.route)
                         is NavigationEvent.NavigateToUnitConverter -> navController.navigate(Screen.UnitConverter.route)
                         is NavigationEvent.NavigateToColorPicker -> navController.navigate(Screen.ColorPicker.route)
                         is NavigationEvent.NavigateToCollageMaker -> navController.navigate(Screen.CollageMaker.route)
                         is NavigationEvent.NavigateToMemeMaker -> navController.navigate(Screen.MemeMaker.route)
-                        is NavigationEvent.NavigateToPdfBookmarkReader -> navController.navigate(Screen.PdfBookmarkReader.route)
-                        is NavigationEvent.NavigateToPdfToWordEnhanced -> navController.navigate(Screen.PdfToWordEnhanced.route)
-                        is NavigationEvent.NavigateToMarkdownToPdfEnhanced -> navController.navigate(Screen.MarkdownToPdfEnhanced.route)
+                        is NavigationEvent.NavigateToPdfBookmarkReader -> navController.navigate(Screen.PdfBookmarks.route)
+                        is NavigationEvent.NavigateToPdfToWordEnhanced -> navController.navigate(Screen.PdfToWord.route)
+                        is NavigationEvent.NavigateToMarkdownToPdfEnhanced -> navController.navigate(Screen.MarkdownToPdf.route)
                         is NavigationEvent.NavigateToAdvancedWordCount -> navController.navigate(Screen.AdvancedWordCount.route)
                         is NavigationEvent.NavigateToExactResize -> navController.navigate(Screen.ExactResize.route)
                         is NavigationEvent.NavigateToReadAloud -> navController.navigate(Screen.ReadAloud.route)
@@ -127,8 +127,16 @@ fun OmniNavGraph(
         }
 
         // 3. Offline QR/Barcode Generator
-        composable(route = Screen.QrGenerator.route) {
+        composable(
+            route = Screen.QrGenerator.route,
+            arguments = listOf(navArgument("tab") {
+                type = NavType.IntType
+                defaultValue = 0
+            })
+        ) { backStackEntry ->
+            val tab = backStackEntry.arguments?.getInt("tab") ?: 0
             QrGeneratorScreen(
+                initialTab = tab,
                 onBack = {
                     navController.popBackStack()
                 },
@@ -327,17 +335,6 @@ fun OmniNavGraph(
             )
         }
 
-        // 7j. Standalone PDF to Excel Screen
-        composable(route = Screen.PdfToExcel.route) {
-            PdfToExcelScreen(
-                onNavigateBack = {
-                    navController.popBackStack()
-                },
-                onOpenFile = { fileUri ->
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(fileUri))
-                }
-            )
-        }
 
         // 7k. Standalone PDF Form Filler Screen
         composable(route = Screen.PdfFormFiller.route) {

@@ -26,9 +26,11 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
 
     /**
-     * Real-time offline QR code generator screen.
+     * Real-time offline QR code and Barcode generator screen.
      */
-    object QrGenerator : Screen("qr_generator")
+    object QrGenerator : Screen("qr_generator?tab={tab}") {
+        fun createRoute(tab: Int = 0): String = "qr_generator?tab=$tab"
+    }
 
     /**
      * Dedicated CameraX barcode and QR viewfinder scanner screen.
@@ -110,11 +112,6 @@ sealed class Screen(val route: String) {
      * Standalone PDF to PowerPoint Converter Screen
      */
     object PdfToPpt : Screen("pdf_to_ppt")
-
-    /**
-     * Standalone PDF to Excel Converter Screen
-     */
-    object PdfToExcel : Screen("pdf_to_excel")
 
     /**
      * Standalone PDF Form Filler Screen

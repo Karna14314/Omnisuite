@@ -45,7 +45,6 @@ class PdfToolsViewModel @Inject constructor(
 
     var pdfToWordInputUri by mutableStateOf<Uri?>(null)
     var pdfToPptInputUri by mutableStateOf<Uri?>(null)
-    var pdfToExcelInputUri by mutableStateOf<Uri?>(null)
     var pdfFormInputUri by mutableStateOf<Uri?>(null)
 
     var splitInputUri by mutableStateOf<Uri?>(null)
@@ -504,22 +503,6 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
-    fun convertPdfToXlsx() {
-        val uri = pdfToExcelInputUri ?: return
-        isProcessing = true
-        resetStatus()
-        viewModelScope.launch {
-            val result = pdfToolsRepository.convertPdfToXlsx(uri)
-            result.onSuccess { outputUri ->
-                successUri = outputUri
-                successMessage = "PDF converted to XLSX successfully!"
-                pdfToExcelInputUri = null
-            }.onFailure { e ->
-                errorMessage = "Error: ${e.localizedMessage}"
-            }
-            isProcessing = false
-        }
-    }
 
     fun fillPdfForm(formData: Map<String, String>) {
         val uri = pdfFormInputUri ?: return

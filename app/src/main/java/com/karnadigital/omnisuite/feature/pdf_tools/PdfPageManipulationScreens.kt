@@ -27,9 +27,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.PathEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -111,13 +121,26 @@ fun PdfRotateScreen(
     LaunchedEffect(fileUri) { fileUri?.let { viewModel.rotateInputUri = Uri.parse(it) } }
 
     val thumbnails = rememberPdfThumbnails(context, viewModel.rotateInputUri)
-    var selectedPageIndices by remember(thumbnails) { mutableStateOf<Set<Int>>(emptySet()) }
+    // Map of page index to applied rotation angle in degrees (0, 90, 180, 270)
+    var pageRotations by remember(thumbnails) { mutableStateOf<Map<Int, Int>>(emptyMap()) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Rotate PDF Pages", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                actions = {
+                    if (thumbnails.isNotEmpty()) {
+                        IconButton(onClick = {
+                            // Cycle all pages +90 degrees
+                            pageRotations = (0 until thumbnails.size).associateWith { idx ->
+                                ((pageRotations[idx] ?: 0) + 90) % 360
+                            }
+                        }) {
+                            Icon(Icons.Default.RotateRight, contentDescription = "Rotate all +90°")
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
@@ -141,7 +164,7 @@ fun PdfRotateScreen(
                         modifier = Modifier.size(48.dp)
                     )
                     Text(
-                        text = if (viewModel.rotateInputUri != null) "PDF Selected" else "Tap to select PDF",
+                        text = if (viewModel.rotateInputUri != null) "PDF Selected (${thumbnails.size} pages)" else "Tap to select PDF",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -149,74 +172,186 @@ fun PdfRotateScreen(
             }
 
             if (thumbnails.isNotEmpty()) {
-                Text("Rotation Angle", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("Quick Rotation Controls", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = viewModel.rotateDegrees == 90, onClick = { viewModel.rotateDegrees = 90 }, label = { Text("90° Right") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateDegrees == 180, onClick = { viewModel.rotateDegrees = 180 }, label = { Text("180°") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = viewModel.rotateDegrees == 270, onClick = { viewModel.rotateDegrees = 270 }, label = { Text("270° Left") }, modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = {
+                            pageRotations = (0 until thumbnails.size).associateWith { idx ->
+                                ((pageRotations[idx] ?: 0) + 90) % 360
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.RotateRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("All +90°", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            pageRotations = (0 until thumbnails.size).associateWith { idx ->
+                                ((pageRotations[idx] ?: 0) + 270) % 360
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.RotateLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("All -90°", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            pageRotations = (0 until thumbnails.size).associateWith { idx ->
+                                ((pageRotations[idx] ?: 0) + 180) % 360
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Text("All 180°", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { pageRotations = emptyMap() },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Text("Reset", fontSize = 12.sp)
+                    }
                 }
 
-                Text("Quick Selection Presets", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = selectedPageIndices.size == thumbnails.size, onClick = { selectedPageIndices = (0 until thumbnails.size).toSet() }, label = { Text("All Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = false, onClick = { selectedPageIndices = (0 until thumbnails.size).filter { it % 2 == 0 }.toSet() }, label = { Text("Odd Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = false, onClick = { selectedPageIndices = (0 until thumbnails.size).filter { it % 2 == 1 }.toSet() }, label = { Text("Even Pages") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = selectedPageIndices.isEmpty(), onClick = { selectedPageIndices = emptySet() }, label = { Text("Clear") }, modifier = Modifier.weight(1f))
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val newMap = pageRotations.toMutableMap()
+                            (0 until thumbnails.size).filter { it % 2 == 0 }.forEach { idx ->
+                                newMap[idx] = ((newMap[idx] ?: 0) + 90) % 360
+                            }
+                            pageRotations = newMap
+                        },
+                        label = { Text("Odd Pages +90°", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val newMap = pageRotations.toMutableMap()
+                            (0 until thumbnails.size).filter { it % 2 == 1 }.forEach { idx ->
+                                newMap[idx] = ((newMap[idx] ?: 0) + 90) % 360
+                            }
+                            pageRotations = newMap
+                        },
+                        label = { Text("Even Pages +90°", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
-                Text("Visual Page Selection (Tap to toggle rotation):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Interactive Page Rotation", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("Tap page to cycle angle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     itemsIndexed(thumbnails) { index, bitmap ->
-                        val isSelected = selectedPageIndices.contains(index)
+                        val currentAngle = pageRotations[index] ?: 0
+                        val isRotated = currentAngle > 0
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(0.75f)
                                 .clickable {
-                                    selectedPageIndices = if (isSelected) selectedPageIndices - index else selectedPageIndices + index
+                                    // Cycle angle: 0 -> 90 -> 180 -> 270 -> 0
+                                    val nextAngle = (currentAngle + 90) % 360
+                                    val newMap = pageRotations.toMutableMap()
+                                    if (nextAngle == 0) {
+                                        newMap.remove(index)
+                                    } else {
+                                        newMap[index] = nextAngle
+                                    }
+                                    pageRotations = newMap
                                 },
-                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                            border = BorderStroke(
+                                if (isRotated) 2.5.dp else 1.dp,
+                                if (isRotated) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isRotated) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface
+                            )
                         ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize().padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Image(
                                     bitmap = bitmap.asImageBitmap(),
                                     contentDescription = "Page ${index + 1}",
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize(0.9f)
+                                        .rotate(currentAngle.toFloat()),
                                     contentScale = ContentScale.Fit
                                 )
+
                                 Surface(
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(2.dp),
                                     shape = CircleShape,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)
+                                    color = if (isRotated) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.55f)
                                 ) {
                                     Text(
-                                        text = "${index + 1}${if (isSelected) " (${viewModel.rotateDegrees}°)" else ""}",
+                                        text = "${index + 1}${if (isRotated) " ($currentAngle°)" else ""}",
                                         color = Color.White,
                                         style = MaterialTheme.typography.labelSmall,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
+                                }
+
+                                if (isRotated) {
+                                    Surface(
+                                        modifier = Modifier.align(Alignment.BottomStart).padding(2.dp),
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Icon(
+                                            Icons.Default.RotateRight,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp).padding(2.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
+                val rotatedCount = pageRotations.filter { it.value > 0 }.size
                 Button(
                     onClick = {
-                        val rotationsMap = selectedPageIndices.associateWith { viewModel.rotateDegrees }
-                        viewModel.rotatePdfPages(rotations = rotationsMap)
+                        val activeRotations = pageRotations.filter { it.value > 0 }
+                        viewModel.rotatePdfPages(rotations = activeRotations)
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    enabled = !viewModel.isProcessing && selectedPageIndices.isNotEmpty()
+                    enabled = !viewModel.isProcessing && rotatedCount > 0
                 ) {
-                    if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.RotateRight, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Rotate ${selectedPageIndices.size} Selected Pages") }
+                    if (viewModel.isProcessing) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.RotateRight, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (rotatedCount > 0) "Save Rotated PDF ($rotatedCount pages changed)" else "Tap pages to rotate")
+                    }
                 }
             }
 
@@ -713,29 +848,153 @@ fun PdfCropMarginsScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hilt
         uri?.let { viewModel.cropInputUri = it; try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {} }
     }
 
+    val thumbnails = rememberPdfThumbnails(context, viewModel.cropInputUri)
+    val pageOneBitmap = thumbnails.firstOrNull()
+
     Scaffold(topBar = { TopAppBar(title = { Text("Crop Margins", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("application/pdf")) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Crop, contentDescription = null, tint = if (viewModel.cropInputUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(48.dp))
                     Text(if (viewModel.cropInputUri != null) "PDF Selected" else "Tap to select PDF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (viewModel.cropInputUri != null) {
+                        Text("Live preview of Page 1 shown below with cut margins shaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             if (viewModel.cropInputUri != null) {
+                // Live Page 1 Preview Card with Canvas Crop Mask Overlay
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Page 1 Margin Preview", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    val cropPrimaryColor = MaterialTheme.colorScheme.primary
+                    Box(
+                        modifier = Modifier
+                            .width(200.dp)
+                            .aspectRatio(1f / 1.414f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (pageOneBitmap != null) {
+                            Image(
+                                bitmap = pageOneBitmap.asImageBitmap(),
+                                contentDescription = "Page 1 Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                for (i in 0..6) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(if (i % 2 == 0) 0.85f else 0.95f)
+                                            .height(8.dp)
+                                            .background(Color.LightGray.copy(alpha = 0.4f))
+                                    )
+                                }
+                            }
+                        }
+
+                        // Canvas drawing shaded cut margins and dashed active box
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+                            // Standard A4 reference: 595 x 842 points
+                            val normLeft = (viewModel.cropLeft / 595f).coerceIn(0f, 0.45f)
+                            val normRight = (viewModel.cropRight / 595f).coerceIn(0f, 0.45f)
+                            val normTop = (viewModel.cropTop / 842f).coerceIn(0f, 0.45f)
+                            val normBottom = (viewModel.cropBottom / 842f).coerceIn(0f, 0.45f)
+
+                            val maskColor = Color.Black.copy(alpha = 0.45f)
+                            // Top strip
+                            if (normTop > 0f) {
+                                drawRect(color = maskColor, topLeft = Offset(0f, 0f), size = Size(w, h * normTop))
+                            }
+                            // Bottom strip
+                            if (normBottom > 0f) {
+                                drawRect(color = maskColor, topLeft = Offset(0f, h * (1f - normBottom)), size = Size(w, h * normBottom))
+                            }
+                            // Left strip
+                            if (normLeft > 0f) {
+                                drawRect(color = maskColor, topLeft = Offset(0f, h * normTop), size = Size(w * normLeft, h * (1f - normTop - normBottom)))
+                            }
+                            // Right strip
+                            if (normRight > 0f) {
+                                drawRect(color = maskColor, topLeft = Offset(w * (1f - normRight), h * normTop), size = Size(w * normRight, h * (1f - normTop - normBottom)))
+                            }
+
+                            // Remaining content boundary
+                            drawRect(
+                                color = cropPrimaryColor,
+                                topLeft = Offset(w * normLeft, h * normTop),
+                                size = Size(w * (1f - normLeft - normRight), h * (1f - normTop - normBottom)),
+                                style = Stroke(
+                                    width = 2.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Presets
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.cropTop = 0f; viewModel.cropBottom = 0f; viewModel.cropLeft = 0f; viewModel.cropRight = 0f },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("Reset (0pt)", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.cropTop = 18f; viewModel.cropBottom = 18f; viewModel.cropLeft = 18f; viewModel.cropRight = 18f },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("Narrow (18)", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.cropTop = 36f; viewModel.cropBottom = 36f; viewModel.cropLeft = 36f; viewModel.cropRight = 36f },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("Normal (36)", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.cropTop = 72f; viewModel.cropBottom = 72f; viewModel.cropLeft = 72f; viewModel.cropRight = 72f },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("Wide (72)", fontSize = 11.sp)
+                    }
+                }
+
                 listOf(
-                    Triple("Top", { viewModel.cropTop }, { v: Float -> viewModel.cropTop = v }),
-                    Triple("Bottom", { viewModel.cropBottom }, { v: Float -> viewModel.cropBottom = v }),
-                    Triple("Left", { viewModel.cropLeft }, { v: Float -> viewModel.cropLeft = v }),
-                    Triple("Right", { viewModel.cropRight }, { v: Float -> viewModel.cropRight = v })
+                    Triple("Top Margin", { viewModel.cropTop }, { v: Float -> viewModel.cropTop = v }),
+                    Triple("Bottom Margin", { viewModel.cropBottom }, { v: Float -> viewModel.cropBottom = v }),
+                    Triple("Left Margin", { viewModel.cropLeft }, { v: Float -> viewModel.cropLeft = v }),
+                    Triple("Right Margin", { viewModel.cropRight }, { v: Float -> viewModel.cropRight = v })
                 ).forEach { (label, getter, setter) ->
                     Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold); Text("${getter().toInt()}pt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold); Text("${getter().toInt()} pt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                         Slider(value = getter(), onValueChange = { setter(it) }, valueRange = 0f..100f, steps = 19)
                     }
                 }
                 Button(onClick = { viewModel.cropPdfMargins() }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !viewModel.isProcessing) {
                     if (viewModel.isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    else { Icon(Icons.Default.Crop, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Crop Margins") }
+                    else { Icon(Icons.Default.Crop, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Apply Margin Crop") }
                 }
             }
             if (viewModel.successMessage != null) Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f))) { Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50)); Spacer(modifier = Modifier.width(12.dp)); Text(viewModel.successMessage!!, color = Color(0xFF2E7D32)) } }

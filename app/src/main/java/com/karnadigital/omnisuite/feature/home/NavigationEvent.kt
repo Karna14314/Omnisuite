@@ -3,6 +3,7 @@ package com.karnadigital.omnisuite.feature.home
 sealed class NavigationEvent {
     data object NavigateToSettings : NavigationEvent()
     data object NavigateToQrGenerator : NavigationEvent()
+    data class NavigateToQrGeneratorWithTab(val tab: Int = 0) : NavigationEvent()
     data object NavigateToBarcodeScanner : NavigationEvent()
     data object NavigateToImageTools : NavigationEvent()
     data class NavigateToImageToolsWithTab(val tab: Int = 0) : NavigationEvent()
@@ -18,7 +19,6 @@ sealed class NavigationEvent {
     data object NavigateToWatermark : NavigationEvent()
     data object NavigateToPdfToWord : NavigationEvent()
     data object NavigateToPdfToPpt : NavigationEvent()
-    data object NavigateToPdfToExcel : NavigationEvent()
     data object NavigateToPdfFormFiller : NavigationEvent()
     data object NavigateToImagesToPdf : NavigationEvent()
     data object NavigateToPdfCompress : NavigationEvent()

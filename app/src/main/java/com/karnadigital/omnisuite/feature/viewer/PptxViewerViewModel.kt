@@ -1495,8 +1495,9 @@ class PptxViewerViewModel @Inject constructor(
                                 val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
                                 val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
                                 val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
+                                val sId = try { (shape as? XSLFShape)?.shapeId } catch (_: Throwable) { null }
                                 val parsedShape = PptxTextShape(
-                                    id = if (isDistinctTitle) "title" else "body_$bodyCount",
+                                    id = if (isDistinctTitle) "title" else (if (sId != null) "shape_$sId" else "body_$bodyCount"),
                                     isTitle = isTitle,
                                     paragraphs = shapeParagraphs,
                                     shapeGeometry = shapeGeom,
@@ -2338,6 +2339,15 @@ class PptxViewerViewModel @Inject constructor(
 
     private fun findShapeById(slide: XSLFSlide, shapeId: String): org.apache.poi.sl.usermodel.Shape<*, *>? {
         val allShapes = getAllShapesForSlide(slide)
+        if (shapeId.startsWith("shape_")) {
+            val targetId = shapeId.removePrefix("shape_").toIntOrNull()
+            if (targetId != null) {
+                for (shape in allShapes) {
+                    val sId = try { (shape as? XSLFShape)?.shapeId } catch (_: Throwable) { null }
+                    if (sId == targetId) return shape
+                }
+            }
+        }
         if (shapeId == "title") {
             var titleFound = false
             for (shape in allShapes) {
@@ -2367,8 +2377,11 @@ class PptxViewerViewModel @Inject constructor(
                     if (isDistinctTitle) {
                         titleFound = true
                     } else {
-                        if (bodyCount == targetIdx) return shape
-                        bodyCount++
+                        val hasText = try { shape.textParagraphs.isNotEmpty() } catch (_: Throwable) { false }
+                        if (hasText) {
+                            if (bodyCount == targetIdx) return shape
+                            bodyCount++
+                        }
                     }
                 }
             }

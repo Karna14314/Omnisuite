@@ -180,6 +180,8 @@ fun PptxViewerScreen(
         (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0 
     })
 
+    val currentSlideIndex = if (viewMode == PptxViewMode.PAGER) pagerState.currentPage else (activeIndexToEdit ?: pagerState.currentPage)
+
     LaunchedEffect(currentMatchIndex) {
         if (currentMatchIndex >= 0 && currentMatchIndex < searchResults.size) {
             val match = searchResults[currentMatchIndex]
@@ -194,7 +196,7 @@ fun PptxViewerScreen(
                 coroutineScope.launch {
                     val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
-                        val slideIndex = if (viewMode == PptxViewMode.PAGER) pagerState.currentPage else (activeIndexToEdit ?: pagerState.currentPage)
+                        val slideIndex = currentSlideIndex
                         viewModel.insertImageIntoSlide(
                             slideIndex = slideIndex,
                             imagePath = cachedFile.absolutePath,
@@ -384,7 +386,7 @@ fun PptxViewerScreen(
                                      IconButton(
                                           onClick = {
                                               selectedShapeId?.let { id ->
-                                                  viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                  viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                               }
                                               viewModel.commitChanges {
                                                   isEditMode = false
@@ -501,7 +503,7 @@ fun PptxViewerScreen(
                                 LaunchedEffect(quickEditText) {
                                     delay(500)
                                     selectedShapeId?.let { id ->
-                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                        viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                     }
                                 }
                                 Surface(
@@ -535,7 +537,7 @@ fun PptxViewerScreen(
                                             keyboardActions = KeyboardActions(
                                                 onDone = {
                                                     selectedShapeId?.let { id ->
-                                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                        viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                                     }
                                                     selectedShapeId = null
                                                 }
@@ -553,7 +555,7 @@ fun PptxViewerScreen(
                                         IconButton(
                                             onClick = {
                                                 selectedShapeId?.let { id ->
-                                                    viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                    viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                                 }
                                                 selectedShapeId = null
                                             },
@@ -570,7 +572,7 @@ fun PptxViewerScreen(
                                         IconButton(
                                             onClick = {
                                                 selectedShapeId?.let { id ->
-                                                    viewModel.deleteShape(pagerState.currentPage, id)
+                                                    viewModel.deleteShape(currentSlideIndex, id)
                                                     selectedShapeId = null
                                                     quickEditText = ""
                                                 }
@@ -583,7 +585,7 @@ fun PptxViewerScreen(
                                             onClick = {
                                                 selectedShapeId?.let { id ->
                                                     if (quickEditText.isNotBlank()) {
-                                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                        viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                                     }
                                                 }
                                                 selectedShapeId = null
@@ -672,7 +674,7 @@ fun PptxViewerScreen(
                                                     fontWeight = FontWeight.Bold,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isBold = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isBold = true)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -682,7 +684,7 @@ fun PptxViewerScreen(
                                                     fontStyle = FontStyle.Italic,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isItalic = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isItalic = true)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -692,7 +694,7 @@ fun PptxViewerScreen(
                                                     textDecoration = TextDecoration.Underline,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isUnderline = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isUnderline = true)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -711,7 +713,7 @@ fun PptxViewerScreen(
                                                             if (currentFontSizePt > 8f) {
                                                                 currentFontSizePt -= 2f
                                                                 selectedShapeId?.let { id ->
-                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, fontSizePt = currentFontSizePt)
+                                                                    viewModel.applyShapeFormatting(currentSlideIndex, id, fontSizePt = currentFontSizePt)
                                                                 }
                                                             }
                                                         },
@@ -730,7 +732,7 @@ fun PptxViewerScreen(
                                                             if (currentFontSizePt < 72f) {
                                                                 currentFontSizePt += 2f
                                                                 selectedShapeId?.let { id ->
-                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, fontSizePt = currentFontSizePt)
+                                                                    viewModel.applyShapeFormatting(currentSlideIndex, id, fontSizePt = currentFontSizePt)
                                                                 }
                                                             }
                                                         },
@@ -753,7 +755,7 @@ fun PptxViewerScreen(
                                                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                                                             .clickable {
                                                                 selectedShapeId?.let { id ->
-                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, textColorHex = hex)
+                                                                    viewModel.applyShapeFormatting(currentSlideIndex, id, textColorHex = hex)
                                                                 } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                             }
                                                     )
@@ -764,7 +766,7 @@ fun PptxViewerScreen(
                                                 IconButton(
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "LEFT")
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, alignment = "LEFT")
                                                         }
                                                     },
                                                     modifier = Modifier.size(36.dp)
@@ -774,7 +776,7 @@ fun PptxViewerScreen(
                                                 IconButton(
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "CENTER")
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, alignment = "CENTER")
                                                         }
                                                     },
                                                     modifier = Modifier.size(36.dp)
@@ -784,7 +786,7 @@ fun PptxViewerScreen(
                                                 IconButton(
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "RIGHT")
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, alignment = "RIGHT")
                                                         }
                                                     },
                                                     modifier = Modifier.size(36.dp)
@@ -809,7 +811,7 @@ fun PptxViewerScreen(
                                                     subtitle = "Add text",
                                                     isPrimary = true,
                                                     onClick = {
-                                                        viewModel.insertTextBox(pagerState.currentPage)
+                                                        viewModel.insertTextBox(currentSlideIndex)
                                                         Toast.makeText(context, "Text box added to slide!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -824,7 +826,7 @@ fun PptxViewerScreen(
                                                     title = "New Slide",
                                                     subtitle = "Add blank",
                                                     onClick = {
-                                                        viewModel.addSlide(pagerState.currentPage)
+                                                        viewModel.addSlide(currentSlideIndex)
                                                         Toast.makeText(context, "New slide added!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -833,7 +835,7 @@ fun PptxViewerScreen(
                                                     title = "Duplicate",
                                                     subtitle = "Copy slide",
                                                     onClick = {
-                                                        viewModel.duplicateSlide(pagerState.currentPage)
+                                                        viewModel.duplicateSlide(currentSlideIndex)
                                                         Toast.makeText(context, "Slide duplicated!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -859,14 +861,14 @@ fun PptxViewerScreen(
                                                             .background(safeParseColor(hex, Color.White))
                                                             .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
                                                             .clickable {
-                                                                viewModel.setSlideBackground(pagerState.currentPage, hex)
+                                                                viewModel.setSlideBackground(currentSlideIndex, hex)
                                                             }
                                                     )
                                                 }
 
                                                 VerticalDivider(modifier = Modifier.height(28.dp).padding(horizontal = 2.dp))
 
-                                                val currentSlideIdx = pagerState.currentPage
+                                                val currentSlideIdx = currentSlideIndex
                                                 val totalSlidesCount = (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0
 
                                                 RibbonActionCard(
@@ -902,7 +904,7 @@ fun PptxViewerScreen(
                                                     title = "Delete Slide",
                                                     subtitle = "Remove slide",
                                                     isDestructive = true,
-                                                    onClick = { viewModel.deleteSlide(pagerState.currentPage) }
+                                                    onClick = { viewModel.deleteSlide(currentSlideIndex) }
                                                 )
                                             }
                                         }
@@ -937,7 +939,7 @@ fun PptxViewerScreen(
                                                     enabled = selectedShapeId != null,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.deleteShape(pagerState.currentPage, id)
+                                                            viewModel.deleteShape(currentSlideIndex, id)
                                                             selectedShapeId = null
                                                             quickEditText = ""
                                                         }
@@ -1146,6 +1148,11 @@ fun PptxViewerScreen(
                                 presentation = presentation,
                                 isEditMode = isEditMode,
                                 selectedShapeId = selectedShapeId,
+                                onVisibleSlideChange = { idx ->
+                                    if (selectedShapeId == null) {
+                                        activeIndexToEdit = idx
+                                    }
+                                },
                                 onTextBlockClick = { slideIdx, textBlock, isTitle, blockIdx ->
                                     activeIndexToEdit = slideIdx
                                     blockToEdit = textBlock
@@ -1737,10 +1744,17 @@ fun ContinuousSlideView(
     presentation: PptxPresentation,
     isEditMode: Boolean,
     selectedShapeId: String? = null,
+    onVisibleSlideChange: (Int) -> Unit = {},
     onTextBlockClick: (slideIndex: Int, PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
+    val firstVisible = remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    LaunchedEffect(firstVisible.value) {
+        if (firstVisible.value in presentation.slides.indices) {
+            onVisibleSlideChange(firstVisible.value)
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         ZoomableBox(modifier = Modifier.fillMaxSize()) {
