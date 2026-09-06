@@ -162,6 +162,15 @@ class PptxViewerViewModel @Inject constructor(
     private val _saveStatus = MutableSharedFlow<String>()
     val saveStatus = _saveStatus.asSharedFlow()
 
+    private val undoStack = java.util.ArrayDeque<ByteArray>()
+    private val redoStack = java.util.ArrayDeque<ByteArray>()
+
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
+    private val _canRedo = MutableStateFlow(false)
+    val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
     private var activePresentation: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
     private var activeFilePath: String? = null
 
@@ -1683,6 +1692,10 @@ class PptxViewerViewModel @Inject constructor(
                 } catch (t: Throwable) {}
                 activePresentation = null
                 activeFilePath = null
+                undoStack.clear()
+                redoStack.clear()
+                _canUndo.value = false
+                _canRedo.value = false
 
                 var fileInputStream: FileInputStream? = null
                 var ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
@@ -1745,6 +1758,108 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
+    private fun takeSnapshotBytes(ppt: org.apache.poi.sl.usermodel.SlideShow<*, *>): ByteArray? {
+        return try {
+            val bos = java.io.ByteArrayOutputStream()
+            ppt.write(bos)
+            bos.toByteArray()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            null
+        }
+    }
+
+    private fun pushUndoState() {
+        val ppt = activePresentation ?: return
+        val bytes = takeSnapshotBytes(ppt) ?: return
+        if (undoStack.size >= 30) {
+            undoStack.removeFirst()
+        }
+        undoStack.addLast(bytes)
+        redoStack.clear()
+        _canUndo.value = true
+        _canRedo.value = false
+    }
+
+    private fun restoreSnapshot(snapshotBytes: ByteArray) {
+        viewModelScope.launch {
+            _loadState.value = PptxLoadState.Loading
+            withContext(Dispatchers.IO) {
+                try {
+                    val bis = java.io.ByteArrayInputStream(snapshotBytes)
+                    val newPpt = XMLSlideShow(bis)
+                    try {
+                        activePresentation?.close()
+                    } catch (_: Throwable) {}
+                    activePresentation = newPpt
+                    val slides = parseAllSlides(newPpt)
+                    _loadState.value = PptxLoadState.Success(
+                        presentation = PptxPresentation(slides),
+                        fileName = activeFilePath?.let { File(it).name } ?: "presentation.pptx"
+                    )
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                    _saveStatus.emit("Failed to restore history snapshot: ${t.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    fun undo() {
+        if (undoStack.isEmpty()) return
+        val ppt = activePresentation ?: return
+        val currentBytes = takeSnapshotBytes(ppt) ?: return
+        val previousBytes = undoStack.removeLast()
+        if (redoStack.size >= 30) {
+            redoStack.removeFirst()
+        }
+        redoStack.addLast(currentBytes)
+        _canUndo.value = undoStack.isNotEmpty()
+        _canRedo.value = true
+        restoreSnapshot(previousBytes)
+    }
+
+    fun redo() {
+        if (redoStack.isEmpty()) return
+        val ppt = activePresentation ?: return
+        val currentBytes = takeSnapshotBytes(ppt) ?: return
+        val nextBytes = redoStack.removeLast()
+        if (undoStack.size >= 30) {
+            undoStack.removeFirst()
+        }
+        undoStack.addLast(currentBytes)
+        _canUndo.value = true
+        _canRedo.value = redoStack.isNotEmpty()
+        restoreSnapshot(nextBytes)
+    }
+
+    fun moveSlide(fromIndex: Int, toIndex: Int) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (fromIndex !in slides.indices || toIndex !in slides.indices || fromIndex == toIndex) return
+
+        pushUndoState()
+        try {
+            val slide = slides[fromIndex]
+            ppt.setSlideOrder(slide, toIndex)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+
+        viewModelScope.launch {
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath!!).name
+            )
+        }
+    }
+
     fun updateSlideTextShape(
         slideIndex: Int,
         isTitle: Boolean,
@@ -1766,6 +1881,7 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
+            pushUndoState()
             val slide = slides[slideIndex]
             var blockIdx = 0
 
@@ -1862,6 +1978,7 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
+            pushUndoState()
             val slide = slides[slideIndex]
             setSlideBgColorHex(slide, colorHex)
             viewModelScope.launch {
@@ -1883,6 +2000,7 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
+            pushUndoState()
             val slide = slides[slideIndex]
             try {
                 val imageBytes = File(imagePath).readBytes()
@@ -1955,6 +2073,7 @@ class PptxViewerViewModel @Inject constructor(
             null
         }
         val layout = layoutsList?.firstOrNull() ?: return
+        pushUndoState()
         try {
             val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout)
             ppt.setSlideOrder(newSlide as? XSLFSlide, (afterIndex + 1).coerceIn(0, ppt.slides.size))
@@ -1980,6 +2099,7 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
+            pushUndoState()
             try {
                 ppt.removeSlide(index)
             } catch (t: Throwable) {
@@ -2004,6 +2124,7 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
+            pushUndoState()
             try {
                 val originalSlide = slides[index]
                 val layout = originalSlide.slideLayout

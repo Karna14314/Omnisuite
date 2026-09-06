@@ -141,6 +141,8 @@ fun PptxViewerScreen(
     }
 
     val state by viewModel.loadState.collectAsState()
+    val canUndo by viewModel.canUndo.collectAsState()
+    val canRedo by viewModel.canRedo.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
     var viewMode by remember { mutableStateOf(PptxViewMode.CONTINUOUS) }
     var showNotesPanel by remember { mutableStateOf(false) }
@@ -328,12 +330,49 @@ fun PptxViewerScreen(
                                     Icon(Icons.Default.Search, contentDescription = "Search text")
                                 }
 
+                                if (isEditMode) {
+                                    IconButton(
+                                        onClick = { viewModel.undo() },
+                                        enabled = canUndo
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Undo,
+                                            contentDescription = "Undo",
+                                            tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { viewModel.redo() },
+                                        enabled = canRedo
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Redo,
+                                            contentDescription = "Redo",
+                                            tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.commitChanges()
+                                            isEditMode = false
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Save & Exit Edit Mode",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+
                                 IconButton(onClick = { isEditMode = !isEditMode }) {
                                     Icon(
                                         imageVector = if (isEditMode) Icons.Default.Close else Icons.Default.Edit,
-                                        contentDescription = "Toggle Edit Mode",
-                                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
+                                        contentDescription = if (isEditMode) "Cancel Edit Mode" else "Edit Presentation",
+                                        tint = if (isEditMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
 
                                 IconButton(onClick = { showMenu = true }) {
@@ -427,6 +466,32 @@ fun PptxViewerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                IconButton(
+                                    onClick = { viewModel.undo() },
+                                    enabled = canUndo,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Undo,
+                                        contentDescription = "Undo",
+                                        tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.redo() },
+                                    enabled = canRedo,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Redo,
+                                        contentDescription = "Redo",
+                                        tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    )
+                                }
+
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+
                                 IconButton(onClick = {
                                     activeIndexToEdit = pagerState.currentPage
                                     isTitleEdit = true
@@ -451,6 +516,47 @@ fun PptxViewerScreen(
 
                                 VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
 
+                                val currentSlideIdx = pagerState.currentPage
+                                val totalSlidesCount = (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0
+
+                                IconButton(
+                                    onClick = {
+                                        if (currentSlideIdx > 0) {
+                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx - 1)
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(currentSlideIdx - 1)
+                                            }
+                                        }
+                                    },
+                                    enabled = currentSlideIdx > 0,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ArrowBack,
+                                        contentDescription = "Move Slide Left",
+                                        tint = if (currentSlideIdx > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (currentSlideIdx < totalSlidesCount - 1) {
+                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx + 1)
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(currentSlideIdx + 1)
+                                            }
+                                        }
+                                    },
+                                    enabled = currentSlideIdx < totalSlidesCount - 1,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ArrowForward,
+                                        contentDescription = "Move Slide Right",
+                                        tint = if (currentSlideIdx < totalSlidesCount - 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    )
+                                }
+
                                 IconButton(onClick = { viewModel.addSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
                                     Icon(Icons.Default.Add, contentDescription = "Add Slide")
                                 }
@@ -466,7 +572,10 @@ fun PptxViewerScreen(
                                 VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
 
                                 Button(
-                                    onClick = { viewModel.commitChanges() },
+                                    onClick = {
+                                        viewModel.commitChanges()
+                                        isEditMode = false
+                                    },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
@@ -649,7 +758,8 @@ fun PptxViewerScreen(
                             ContinuousSlideView(
                                 presentation = presentation,
                                 isEditMode = isEditMode,
-                                onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                onTextBlockClick = { slideIdx, textBlock, isTitle, blockIdx ->
+                                    activeIndexToEdit = slideIdx
                                     blockToEdit = textBlock
                                     isTitleEdit = isTitle
                                     blockIndexToEdit = blockIdx
@@ -761,40 +871,6 @@ fun PptxViewerScreen(
                                                     showFormatter = true
                                                 }
                                             )
-                                        }
-                                    }
-                                }
-
-                                if (isEditMode) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 24.dp),
-                                        horizontalArrangement = Arrangement.SpaceEvenly,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        OutlinedButton(
-                                            onClick = { viewModel.addSlide(pagerState.currentPage) },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text("+ Add Slide", fontSize = 12.sp)
-                                        }
-                                        OutlinedButton(
-                                            onClick = { viewModel.duplicateSlide(pagerState.currentPage) },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text("📋 Duplicate", fontSize = 12.sp)
-                                        }
-                                        OutlinedButton(
-                                            onClick = { viewModel.deleteSlide(pagerState.currentPage) },
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text("🗑️ Delete", fontSize = 12.sp)
                                         }
                                     }
                                 }
@@ -1246,9 +1322,9 @@ fun PptxTextFormatterDialog(
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 ) {
-                    Icon(imageVector = Icons.Default.Share, contentDescription = "Insert Image", modifier = Modifier.size(18.dp))
+                    Icon(imageVector = Icons.Default.AddPhotoAlternate, contentDescription = "Insert Image", modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Insert Picture Run")
+                    Text("Insert Picture")
                 }
             }
         },
@@ -1267,7 +1343,7 @@ fun PptxTextFormatterDialog(
 fun ContinuousSlideView(
     presentation: PptxPresentation,
     isEditMode: Boolean,
-    onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
+    onTextBlockClick: (slideIndex: Int, PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -1291,7 +1367,9 @@ fun ContinuousSlideView(
                         SlideCardItem(
                             slide = slide,
                             isEditMode = isEditMode,
-                            onTextBlockClick = onTextBlockClick
+                            onTextBlockClick = { textBlock, isTitle, blockIdx ->
+                                onTextBlockClick(index, textBlock, isTitle, blockIdx)
+                            }
                         )
                         // Page number badge on bottom right of slide card
                         Surface(
@@ -1391,10 +1469,10 @@ fun SlideCardItem(
             // Combine foreground images and text shapes into a single z-ordered list
             val imageElements = slide.images.map { img -> SlideElement.ImageElement(img) }
             val titleElement = if (title.fullText.isNotBlank() && title.id == "title") {
-                listOf(SlideElement.TextElement(title, true, title.zOrder))
+                listOf(SlideElement.TextElement(title, true, 0))
             } else emptyList()
-            val bodyElements = slide.textShapes.map { shape ->
-                SlideElement.TextElement(shape, shape.isTitle, shape.zOrder)
+            val bodyElements = slide.textShapes.mapIndexed { idx, shape ->
+                SlideElement.TextElement(shape, shape.isTitle, idx)
             }
             val allElements = (imageElements + titleElement + bodyElements).sortedBy { it.zOrder }
 
