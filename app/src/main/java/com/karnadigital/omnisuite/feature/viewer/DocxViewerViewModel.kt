@@ -172,6 +172,9 @@ class DocxViewerViewModel @Inject constructor(
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
 
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
     private fun pushUndoState(doc: DocxDocument) {
         undoStack.push(doc)
         if (undoStack.size > 25) undoStack.removeLast()
@@ -995,6 +998,66 @@ class DocxViewerViewModel @Inject constructor(
     }
 
     /**
+     * Inserts a hyperlink into the document flow.
+     */
+    fun insertHyperlink(index: Int, text: String, url: String) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        pushUndoState(current.document)
+
+        val displayText = if (text.isNotBlank()) text else url
+        val linkRun = DocxRun(
+            text = displayText,
+            isBold = false,
+            isItalic = false,
+            isUnderline = true,
+            isStrike = false,
+            color = "#2563EB",
+            hyperlinkUrl = url
+        )
+
+        val newPara = DocxParagraph(
+            runs = listOf(linkRun),
+            alignment = "LEFT",
+            headingLevel = 0,
+            isHeading = false
+        )
+
+        val insertIndex = if (index in elements.indices) index + 1 else elements.size
+        elements.add(insertIndex, DocxBodyElement.Para(newPara))
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
+     * Inserts a page break indicator into the document flow.
+     */
+    fun insertPageBreak(index: Int) {
+        val current = (_loadState.value as? DocxLoadState.Success) ?: return
+        val elements = current.document.elements.toMutableList()
+        pushUndoState(current.document)
+
+        val breakRun = DocxRun(
+            text = "--- Page Break ---",
+            isBold = false,
+            isItalic = true,
+            isUnderline = false,
+            isStrike = false,
+            color = "#9CA3AF"
+        )
+
+        val newPara = DocxParagraph(
+            runs = listOf(breakRun),
+            alignment = "CENTER",
+            headingLevel = 0,
+            isHeading = false
+        )
+
+        val insertIndex = if (index in elements.indices) index + 1 else elements.size
+        elements.add(insertIndex, DocxBodyElement.Para(newPara))
+        _loadState.value = current.copy(document = current.document.copy(elements = elements))
+    }
+
+    /**
      * Updates text of a specific cell in a table.
      */
     fun updateTableCellText(tableIndex: Int, rowIndex: Int, colIndex: Int, text: String) {
@@ -1217,7 +1280,7 @@ class DocxViewerViewModel @Inject constructor(
     /**
      * Commits all in-memory changes back to the offline storage path and refreshes docxBase64 for View Mode.
      */
-    fun commitChanges() {
+    fun commitChanges(onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             if (activeLegacyDocument != null) {
                 _saveStatus.emit("Editing is not supported for legacy Word (.doc) documents. Please save as .docx format to edit.")
@@ -1232,6 +1295,8 @@ class DocxViewerViewModel @Inject constructor(
                 return@launch
             }
 
+            _isSaving.value = true
+            var savedSuccessfully = false
             withContext(Dispatchers.IO) {
                 var fileOutputStream: java.io.FileOutputStream? = null
                 try {
@@ -1258,9 +1323,12 @@ class DocxViewerViewModel @Inject constructor(
                     // Re-encode Base64 so WebView instantly reflects edits when switching to View Mode
                     val rawBytes = f.readBytes()
                     val newBase64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
-                    _loadState.value = currentSuccess.copy(docxBase64 = newBase64)
+                    withContext(Dispatchers.Main) {
+                        _loadState.value = currentSuccess.copy(document = currentSuccess.document, docxBase64 = newBase64)
+                    }
 
                     _saveStatus.emit("Word document changes committed successfully!")
+                    savedSuccessfully = true
                 } catch (e: Exception) {
                     e.printStackTrace()
                     _saveStatus.emit("Failed to save changes: ${e.localizedMessage}")
@@ -1271,6 +1339,10 @@ class DocxViewerViewModel @Inject constructor(
                         e.printStackTrace()
                     }
                 }
+            }
+            _isSaving.value = false
+            if (savedSuccessfully) {
+                onSuccess?.invoke()
             }
         }
     }

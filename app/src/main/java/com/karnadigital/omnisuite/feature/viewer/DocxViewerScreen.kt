@@ -67,6 +67,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -123,9 +124,11 @@ fun DocxViewerScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val currentMatchIndex by viewModel.currentMatchIndex.collectAsState()
+    val isSaving by viewModel.isSaving.collectAsState()
 
     var searchExpanded by remember { mutableStateOf(false) }
     var activeElementIndex by remember { mutableIntStateOf(0) }
+    var ribbonTab by remember { mutableStateOf("HOME") }
     var showInsertTableDialog by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
     var showFontSizeMenu by remember { mutableStateOf(false) }
@@ -392,11 +395,24 @@ fun DocxViewerScreen(
                                             tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                         )
                                     }
-                                    IconButton(onClick = {
-                                        viewModel.commitChanges()
-                                        isEditMode = false
-                                    }) {
-                                        Icon(Icons.Default.Check, contentDescription = "Save changes", tint = MaterialTheme.colorScheme.primary)
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.commitChanges {
+                                                isEditMode = false
+                                                Toast.makeText(context, "Saved changes to document!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        enabled = !isSaving
+                                    ) {
+                                        if (isSaving) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            Icon(Icons.Default.Check, contentDescription = "Save changes", tint = MaterialTheme.colorScheme.primary)
+                                        }
                                     }
                                 }
                                 IconButton(onClick = { isEditMode = !isEditMode }) {
@@ -499,378 +515,550 @@ fun DocxViewerScreen(
                         val currentHeadingLevel = activePara?.headingLevel ?: 0
                         val currentFontSize = firstRun?.fontSizePt ?: (if (activePara?.isHeading == true) 16f else 12f)
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            // Undo & Redo
-                            IconButton(
-                                onClick = { viewModel.undo() },
-                                enabled = canUndo,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Undo,
-                                    contentDescription = "Undo",
-                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.redo() },
-                                enabled = canRedo,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Redo,
-                                    contentDescription = "Redo",
-                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                )
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // B, I, U, S styling toggles
-                            FormatRibbonToggleButton(
-                                label = "B",
-                                isSelected = currentIsBold,
-                                fontWeight = FontWeight.Bold,
-                                onClick = {
-                                    viewModel.applyParagraphFormatting(activeElementIndex, isBold = !currentIsBold)
-                                }
-                            )
-                            FormatRibbonToggleButton(
-                                label = "I",
-                                isSelected = currentIsItalic,
-                                fontStyle = FontStyle.Italic,
-                                onClick = {
-                                    viewModel.applyParagraphFormatting(activeElementIndex, isItalic = !currentIsItalic)
-                                }
-                            )
-                            FormatRibbonToggleButton(
-                                label = "U",
-                                isSelected = currentIsUnderline,
-                                textDecoration = TextDecoration.Underline,
-                                onClick = {
-                                    viewModel.applyParagraphFormatting(activeElementIndex, isUnderline = !currentIsUnderline)
-                                }
-                            )
-                            FormatRibbonToggleButton(
-                                label = "S",
-                                isSelected = currentIsStrike,
-                                textDecoration = TextDecoration.LineThrough,
-                                onClick = {
-                                    viewModel.applyParagraphFormatting(activeElementIndex, isStrike = !currentIsStrike)
-                                }
-                            )
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Font Size Stepper
+                            // --- MICROSOFT 365 RIBBON TAB SELECTOR ---
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(
-                                    onClick = {
-                                        val newSize = (currentFontSize - 1f).coerceAtLeast(8f)
-                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease Font Size", modifier = Modifier.size(16.dp))
-                                }
-                                Box {
-                                    Text(
-                                        text = "${currentFontSize.toInt()} pt",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable { showFontSizeMenu = true }
-                                            .padding(horizontal = 6.dp)
+                                listOf(
+                                    Triple("HOME", "Home", Icons.Default.Edit),
+                                    Triple("INSERT", "Insert", Icons.Default.AddCircleOutline),
+                                    Triple("TABLE", "Table", Icons.Default.TableChart),
+                                    Triple("MANAGE", "Manage", Icons.Default.Tune)
+                                ).forEach { (tabId, label, icon) ->
+                                    val isSelected = ribbonTab == tabId
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { ribbonTab = tabId },
+                                        label = {
+                                            Text(
+                                                label,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 12.sp
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                icon,
+                                                contentDescription = label,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedLeadingIconColor = MaterialTheme.colorScheme.primary
+                                        ),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.padding(horizontal = 2.dp)
                                     )
-                                    DropdownMenu(
-                                        expanded = showFontSizeMenu,
-                                        onDismissRequest = { showFontSizeMenu = false }
+                                }
+                            }
+
+                            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                            // --- RIBBON TAB CONTENTS ---
+                            when (ribbonTab) {
+                                "HOME" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        listOf(9f, 10f, 11f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f).forEach { size ->
-                                            DropdownMenuItem(
-                                                text = { Text("${size.toInt()} pt", fontWeight = if (size == currentFontSize) FontWeight.Bold else FontWeight.Normal) },
+                                        // Home Row 1: Undo/Redo, B, I, U, S, Font Size Stepper, Text Color
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Undo & Redo
+                                            IconButton(
+                                                onClick = { viewModel.undo() },
+                                                enabled = canUndo,
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Undo,
+                                                    contentDescription = "Undo",
+                                                    tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.redo() },
+                                                enabled = canRedo,
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Redo,
+                                                    contentDescription = "Redo",
+                                                    tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                                )
+                                            }
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // B, I, U, S styling toggles
+                                            FormatRibbonToggleButton(
+                                                label = "B",
+                                                isSelected = currentIsBold,
+                                                fontWeight = FontWeight.Bold,
                                                 onClick = {
-                                                    viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = size)
-                                                    showFontSizeMenu = false
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, isBold = !currentIsBold)
                                                 }
+                                            )
+                                            FormatRibbonToggleButton(
+                                                label = "I",
+                                                isSelected = currentIsItalic,
+                                                fontStyle = FontStyle.Italic,
+                                                onClick = {
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, isItalic = !currentIsItalic)
+                                                }
+                                            )
+                                            FormatRibbonToggleButton(
+                                                label = "U",
+                                                isSelected = currentIsUnderline,
+                                                textDecoration = TextDecoration.Underline,
+                                                onClick = {
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, isUnderline = !currentIsUnderline)
+                                                }
+                                            )
+                                            FormatRibbonToggleButton(
+                                                label = "S",
+                                                isSelected = currentIsStrike,
+                                                textDecoration = TextDecoration.LineThrough,
+                                                onClick = {
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, isStrike = !currentIsStrike)
+                                                }
+                                            )
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // Font Size Stepper
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val newSize = (currentFontSize - 1f).coerceAtLeast(8f)
+                                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
+                                                    },
+                                                    modifier = Modifier.size(26.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Remove, contentDescription = "Decrease Font Size", modifier = Modifier.size(14.dp))
+                                                }
+                                                Box {
+                                                    Text(
+                                                        text = "${currentFontSize.toInt()} pt",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier
+                                                            .clickable { showFontSizeMenu = true }
+                                                            .padding(horizontal = 6.dp)
+                                                    )
+                                                    DropdownMenu(
+                                                        expanded = showFontSizeMenu,
+                                                        onDismissRequest = { showFontSizeMenu = false }
+                                                    ) {
+                                                        listOf(9f, 10f, 11f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f).forEach { size ->
+                                                            DropdownMenuItem(
+                                                                text = { Text("${size.toInt()} pt", fontWeight = if (size == currentFontSize) FontWeight.Bold else FontWeight.Normal) },
+                                                                onClick = {
+                                                                    viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = size)
+                                                                    showFontSizeMenu = false
+                                                                }
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        val newSize = (currentFontSize + 1f).coerceAtMost(72f)
+                                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
+                                                    },
+                                                    modifier = Modifier.size(26.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Add, contentDescription = "Increase Font Size", modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // Text Color Swatches
+                                            Box {
+                                                IconButton(onClick = { showColorMenu = true }, modifier = Modifier.size(34.dp)) {
+                                                    Icon(Icons.Default.FormatColorText, contentDescription = "Text Color")
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showColorMenu,
+                                                    onDismissRequest = { showColorMenu = false }
+                                                ) {
+                                                    listOf(
+                                                        "Default" to "CLEAR",
+                                                        "Black" to "#000000",
+                                                        "Red" to "#EF4444",
+                                                        "Blue" to "#3B82F6",
+                                                        "Green" to "#10B981",
+                                                        "Orange" to "#F59E0B",
+                                                        "Purple" to "#8B5CF6"
+                                                    ).forEach { (name, hex) ->
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .size(16.dp)
+                                                                            .clip(RoundedCornerShape(4.dp))
+                                                                            .background(if (hex == "CLEAR") Color.Gray else Color(android.graphics.Color.parseColor(hex)))
+                                                                    )
+                                                                    Text(name)
+                                                                }
+                                                            },
+                                                            onClick = {
+                                                                viewModel.applyParagraphFormatting(activeElementIndex, colorHex = hex)
+                                                                showColorMenu = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Home Row 2: Alignment, Bullet & Number Lists, Style/Heading, Delete Box
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Alignment Controls
+                                            IconButton(
+                                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "LEFT") },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatAlignLeft,
+                                                    contentDescription = "Align Left",
+                                                    tint = if (currentAlignment == "LEFT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "CENTER") },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatAlignCenter,
+                                                    contentDescription = "Align Center",
+                                                    tint = if (currentAlignment == "CENTER") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "RIGHT") },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatAlignRight,
+                                                    contentDescription = "Align Right",
+                                                    tint = if (currentAlignment == "RIGHT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "JUSTIFY") },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatAlignJustify,
+                                                    contentDescription = "Justify",
+                                                    tint = if (currentAlignment == "JUSTIFY") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // Bullet & Number Lists
+                                            IconButton(
+                                                onClick = {
+                                                    val next = if (currentBulletType == "bullet") "NONE" else "bullet"
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
+                                                },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatListBulleted,
+                                                    contentDescription = "Bullet List",
+                                                    tint = if (currentBulletType == "bullet") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    val next = if (currentBulletType == "number") "NONE" else "number"
+                                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
+                                                },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.FormatListNumbered,
+                                                    contentDescription = "Numbered List",
+                                                    tint = if (currentBulletType == "number") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // Style / Heading Menu
+                                            Box {
+                                                OutlinedButton(
+                                                    onClick = { showStyleMenu = true },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = when (currentHeadingLevel) {
+                                                            1 -> "Heading 1"
+                                                            2 -> "Heading 2"
+                                                            3 -> "Heading 3"
+                                                            else -> "Normal"
+                                                        },
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showStyleMenu,
+                                                    onDismissRequest = { showStyleMenu = false }
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Normal Text") },
+                                                        onClick = {
+                                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 0, fontSizePt = 12f)
+                                                            showStyleMenu = false
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Heading 1", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                                                        onClick = {
+                                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 1, fontSizePt = 20f, isBold = true)
+                                                            showStyleMenu = false
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Heading 2", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                                                        onClick = {
+                                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 2, fontSizePt = 16f, isBold = true)
+                                                            showStyleMenu = false
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Heading 3", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
+                                                        onClick = {
+                                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 3, fontSizePt = 14f, isBold = true)
+                                                            showStyleMenu = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+
+                                            VerticalDivider(modifier = Modifier.height(20.dp).padding(horizontal = 2.dp))
+
+                                            // Delete Current Box
+                                            IconButton(
+                                                onClick = {
+                                                    val next = viewModel.deleteParagraph(activeElementIndex)
+                                                    activeElementIndex = next
+                                                },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete Box", tint = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "INSERT" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Image,
+                                            title = "Picture",
+                                            subtitle = "Insert image",
+                                            onClick = { imagePickerLauncher.launch("image/*") }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.TableChart,
+                                            title = "Table",
+                                            subtitle = "Rows & cols",
+                                            onClick = { showInsertTableDialog = true }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Link,
+                                            title = "Link",
+                                            subtitle = "Hyperlink",
+                                            onClick = { showLinkDialog = true }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.FormatAlignLeft,
+                                            title = "Text Below",
+                                            subtitle = "New paragraph",
+                                            onClick = {
+                                                val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = true)
+                                                if (newIdx != -1) activeElementIndex = newIdx
+                                            }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.VerticalAlignTop,
+                                            title = "Text Above",
+                                            subtitle = "New paragraph",
+                                            onClick = {
+                                                val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = false)
+                                                if (newIdx != -1) activeElementIndex = newIdx
+                                            }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.VerticalSplit,
+                                            title = "Page Break",
+                                            subtitle = "Layout break",
+                                            onClick = { viewModel.insertPageBreak(activeElementIndex) }
+                                        )
+                                    }
+                                }
+
+                                "TABLE" -> {
+                                    val isTableActive = activeElement is DocxBodyElement.Table
+                                    if (isTableActive) {
+                                        val activeTable = activeElement as DocxBodyElement.Table
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RibbonActionCard(
+                                                icon = Icons.Default.PlaylistAdd,
+                                                title = "Insert Row",
+                                                subtitle = "Add row below",
+                                                onClick = {
+                                                    viewModel.insertTableRow(activeElementIndex, activeTable.rows.size - 1)
+                                                }
+                                            )
+                                            RibbonActionCard(
+                                                icon = Icons.Default.RemoveCircleOutline,
+                                                title = "Delete Row",
+                                                subtitle = "Remove bottom row",
+                                                onClick = {
+                                                    viewModel.deleteTableRow(activeElementIndex, activeTable.rows.size - 1)
+                                                }
+                                            )
+                                            RibbonActionCard(
+                                                icon = Icons.Default.DeleteForever,
+                                                title = "Delete Table",
+                                                subtitle = "Remove entire table",
+                                                isDestructive = true,
+                                                onClick = {
+                                                    val next = viewModel.deleteParagraph(activeElementIndex)
+                                                    activeElementIndex = next
+                                                }
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RibbonActionCard(
+                                                icon = Icons.Default.TableChart,
+                                                title = "Insert Table",
+                                                subtitle = "Create new table",
+                                                isPrimary = true,
+                                                onClick = { showInsertTableDialog = true }
+                                            )
+                                            Text(
+                                                text = "Tap 'Insert Table' or select any table to use Table tools.",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
                                     }
                                 }
-                                IconButton(
-                                    onClick = {
-                                        val newSize = (currentFontSize + 1f).coerceAtMost(72f)
-                                        viewModel.applyParagraphFormatting(activeElementIndex, fontSizePt = newSize)
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase Font Size", modifier = Modifier.size(16.dp))
-                                }
-                            }
 
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Alignment Controls
-                            IconButton(
-                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "LEFT") },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatAlignLeft,
-                                    contentDescription = "Align Left",
-                                    tint = if (currentAlignment == "LEFT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "CENTER") },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatAlignCenter,
-                                    contentDescription = "Align Center",
-                                    tint = if (currentAlignment == "CENTER") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "RIGHT") },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatAlignRight,
-                                    contentDescription = "Align Right",
-                                    tint = if (currentAlignment == "RIGHT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.applyParagraphFormatting(activeElementIndex, alignment = "JUSTIFY") },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatAlignJustify,
-                                    contentDescription = "Justify",
-                                    tint = if (currentAlignment == "JUSTIFY") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Bullet & Number Lists
-                            IconButton(
-                                onClick = {
-                                    val next = if (currentBulletType == "bullet") "NONE" else "bullet"
-                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatListBulleted,
-                                    contentDescription = "Bullet List",
-                                    tint = if (currentBulletType == "bullet") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    val next = if (currentBulletType == "number") "NONE" else "number"
-                                    viewModel.applyParagraphFormatting(activeElementIndex, bulletType = next)
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.FormatListNumbered,
-                                    contentDescription = "Numbered List",
-                                    tint = if (currentBulletType == "number") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Style / Heading Menu
-                            Box {
-                                OutlinedButton(
-                                    onClick = { showStyleMenu = true },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = when (currentHeadingLevel) {
-                                            1 -> "Heading 1"
-                                            2 -> "Heading 2"
-                                            3 -> "Heading 3"
-                                            else -> "Normal"
-                                        },
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = showStyleMenu,
-                                    onDismissRequest = { showStyleMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Normal Text") },
-                                        onClick = {
-                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 0, fontSizePt = 12f)
-                                            showStyleMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Heading 1", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                                        onClick = {
-                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 1, fontSizePt = 20f, isBold = true)
-                                            showStyleMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Heading 2", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
-                                        onClick = {
-                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 2, fontSizePt = 16f, isBold = true)
-                                            showStyleMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Heading 3", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
-                                        onClick = {
-                                            viewModel.applyParagraphFormatting(activeElementIndex, headingLevel = 3, fontSizePt = 14f, isBold = true)
-                                            showStyleMenu = false
-                                        }
-                                    )
-                                }
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Text Color Swatches
-                            Box {
-                                IconButton(onClick = { showColorMenu = true }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.FormatColorText, contentDescription = "Text Color")
-                                }
-                                DropdownMenu(
-                                    expanded = showColorMenu,
-                                    onDismissRequest = { showColorMenu = false }
-                                ) {
-                                    listOf(
-                                        "Default" to "CLEAR",
-                                        "Black" to "#000000",
-                                        "Red" to "#EF4444",
-                                        "Blue" to "#3B82F6",
-                                        "Green" to "#10B981",
-                                        "Orange" to "#F59E0B",
-                                        "Purple" to "#8B5CF6"
-                                    ).forEach { (name, hex) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(16.dp)
-                                                            .clip(RoundedCornerShape(4.dp))
-                                                            .background(if (hex == "CLEAR") Color.Gray else Color(android.graphics.Color.parseColor(hex)))
-                                                    )
-                                                    Text(name)
-                                                }
-                                            },
+                                "MANAGE" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Save,
+                                            title = if (isSaving) "Saving..." else "Save DOCX",
+                                            subtitle = "Commit changes",
+                                            isPrimary = true,
+                                            enabled = !isSaving,
                                             onClick = {
-                                                viewModel.applyParagraphFormatting(activeElementIndex, colorHex = hex)
-                                                showColorMenu = false
+                                                viewModel.commitChanges {
+                                                    isEditMode = false
+                                                    Toast.makeText(context, "Saved changes to document!", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Delete,
+                                            title = "Delete Box",
+                                            subtitle = "Remove active box",
+                                            isDestructive = true,
+                                            onClick = {
+                                                val next = viewModel.deleteParagraph(activeElementIndex)
+                                                activeElementIndex = next
+                                            }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Undo,
+                                            title = "Undo",
+                                            subtitle = "Revert edit",
+                                            enabled = canUndo,
+                                            onClick = { viewModel.undo() }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Redo,
+                                            title = "Redo",
+                                            subtitle = "Repeat edit",
+                                            enabled = canRedo,
+                                            onClick = { viewModel.redo() }
+                                        )
+                                        RibbonActionCard(
+                                            icon = Icons.Default.Close,
+                                            title = "Exit Editor",
+                                            subtitle = "Back to viewer",
+                                            onClick = { isEditMode = false }
                                         )
                                     }
                                 }
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Insert Menu (+)
-                            Box {
-                                IconButton(onClick = { showInsertMenu = true }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.AddCircleOutline, contentDescription = "Insert Elements", tint = MaterialTheme.colorScheme.primary)
-                                }
-                                DropdownMenu(
-                                    expanded = showInsertMenu,
-                                    onDismissRequest = { showInsertMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Paragraph Below") },
-                                        leadingIcon = { Icon(Icons.Default.FormatAlignLeft, contentDescription = null) },
-                                        onClick = {
-                                            val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = true)
-                                            if (newIdx != -1) activeElementIndex = newIdx
-                                            showInsertMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Paragraph Above") },
-                                        leadingIcon = { Icon(Icons.Default.FormatAlignLeft, contentDescription = null) },
-                                        onClick = {
-                                            val newIdx = viewModel.insertParagraph(activeElementIndex, "", after = false)
-                                            if (newIdx != -1) activeElementIndex = newIdx
-                                            showInsertMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Insert Image") },
-                                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
-                                        onClick = {
-                                            imagePickerLauncher.launch("image/*")
-                                            showInsertMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Insert Table") },
-                                        leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
-                                        onClick = {
-                                            showInsertTableDialog = true
-                                            showInsertMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Insert Link") },
-                                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
-                                        onClick = {
-                                            showLinkDialog = true
-                                            showInsertMenu = false
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Delete Paragraph
-                            IconButton(
-                                onClick = {
-                                    val next = viewModel.deleteParagraph(activeElementIndex)
-                                    activeElementIndex = next
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete Paragraph", tint = MaterialTheme.colorScheme.error)
-                            }
-
-                            VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                            // Save Changes Button
-                            Button(
-                                onClick = {
-                                    viewModel.commitChanges()
-                                    isEditMode = false
-                                },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -953,14 +1141,16 @@ fun DocxViewerScreen(
                         EmptyDocumentState()
                     } else if (!isEditMode && currentState.docxBase64 != null) {
                         // High-fidelity WebView DOCX renderer using docx-preview.js (Print Layout / Reflow)
-                        DocxWebView(
-                            docxBase64 = currentState.docxBase64,
-                            isPrintLayout = isPrintLayout,
-                            searchQuery = searchQuery,
-                            currentMatchIndex = currentMatchIndex,
-                            modifier = Modifier.fillMaxSize(),
-                            onWebViewReady = { activeWebView = it }
-                        )
+                        key(currentState.docxBase64) {
+                            DocxWebView(
+                                docxBase64 = currentState.docxBase64,
+                                isPrintLayout = isPrintLayout,
+                                searchQuery = searchQuery,
+                                currentMatchIndex = currentMatchIndex,
+                                modifier = Modifier.fillMaxSize(),
+                                onWebViewReady = { activeWebView = it }
+                            )
+                        }
                     } else {
                         // Document Sheet Container (when in Edit Mode or fallback for legacy format)
                         Box(
@@ -1003,6 +1193,13 @@ fun DocxViewerScreen(
                                                         onDeleteImage = {
                                                             val filtered = element.paragraph.runs.filter { it.imageUrl == null }
                                                             viewModel.updateParagraphText(index, filtered.joinToString("") { it.text })
+                                                        },
+                                                        onDeleteParagraph = {
+                                                            val next = viewModel.deleteParagraph(index)
+                                                            activeElementIndex = next
+                                                        },
+                                                        onRemoveBullet = {
+                                                            viewModel.applyParagraphFormatting(index, bulletType = "NONE")
                                                         }
                                                     )
                                                 } else {
@@ -1151,8 +1348,7 @@ fun DocxViewerScreen(
             confirmButton = {
                 Button(onClick = {
                     if (linkText.isNotBlank()) {
-                        val formattedLink = if (linkUrl.isNotBlank()) "$linkText ($linkUrl)" else linkText
-                        viewModel.insertParagraph(activeElementIndex, formattedLink, after = true)
+                        viewModel.insertHyperlink(activeElementIndex, linkText, linkUrl)
                     }
                     showLinkDialog = false
                 }) {
@@ -1228,6 +1424,77 @@ private fun mapFontFamily(name: String?): FontFamily {
 }
 
 @Composable
+private fun RibbonActionCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    isPrimary: Boolean = false,
+    isDestructive: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                isPrimary -> MaterialTheme.colorScheme.primaryContainer
+                isDestructive -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                isPrimary -> MaterialTheme.colorScheme.onPrimaryContainer
+                isDestructive -> MaterialTheme.colorScheme.onErrorContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ),
+        modifier = Modifier
+            .widthIn(min = 84.dp)
+            .height(58.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                modifier = Modifier.size(18.dp),
+                tint = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    isDestructive -> MaterialTheme.colorScheme.error
+                    isPrimary -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun FormatRibbonToggleButton(
     label: String,
     isSelected: Boolean,
@@ -1264,16 +1531,20 @@ fun DocxInPlaceParagraphEditor(
     onFocus: () -> Unit,
     onTextChange: (String) -> Unit,
     onEnterPressed: (String) -> Unit,
-    onDeleteImage: () -> Unit
+    onDeleteImage: () -> Unit,
+    onDeleteParagraph: () -> Unit,
+    onRemoveBullet: () -> Unit
 ) {
     val currentParagraphText = paragraph.runs.joinToString("") { it.text }
     var rawText by remember(paragraph.id, currentParagraphText) {
-        mutableStateOf(currentParagraphText)
+        mutableStateOf(if (currentParagraphText.isEmpty()) "\u200B" else currentParagraphText)
     }
 
     LaunchedEffect(currentParagraphText) {
-        if (rawText != currentParagraphText) {
-            rawText = currentParagraphText
+        val cleanCurrent = currentParagraphText.replace("\u200B", "")
+        val cleanRaw = rawText.replace("\u200B", "")
+        if (cleanRaw != cleanCurrent) {
+            rawText = if (cleanCurrent.isEmpty()) "\u200B" else cleanCurrent
         }
     }
 
@@ -1301,54 +1572,83 @@ fun DocxInPlaceParagraphEditor(
         else -> TextDecoration.None
     }
 
+    val hasBullet = !paragraph.bulletType.isNullOrBlank() && paragraph.bulletType != "NONE"
     val bulletPrefix = when (paragraph.bulletType) {
         "bullet" -> "• "
         "number" -> "${index + 1}. "
         else -> null
     }
 
+    val cleanText = rawText.replace("\u200B", "")
+    val isVisuallyEmpty = cleanText.isEmpty()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = if (isVisuallyEmpty) 1.dp else 2.dp)
             .background(
-                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.04f) else Color.Transparent,
-                RoundedCornerShape(4.dp)
+                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) else Color.Transparent,
+                RoundedCornerShape(6.dp)
             )
             .border(
-                width = if (isActive) 1.dp else 0.dp,
-                color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
-                shape = RoundedCornerShape(4.dp)
+                width = if (isActive) 1.dp else if (isVisuallyEmpty) 0.5.dp else 0.dp,
+                color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                        else if (isVisuallyEmpty) MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        else Color.Transparent,
+                shape = RoundedCornerShape(6.dp)
             )
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = if (isVisuallyEmpty) 3.dp else 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
             if (bulletPrefix != null) {
-                Text(
-                    text = bulletPrefix,
-                    fontSize = fontSize,
-                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(end = 4.dp, top = 2.dp)
-                )
+                // Clickable bullet badge: tapping directly removes the bullet
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onRemoveBullet() }
+                        .padding(end = 4.dp, top = 1.dp)
+                ) {
+                    Text(
+                        text = bulletPrefix,
+                        fontSize = fontSize,
+                        fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             BasicTextField(
                 value = rawText,
-                onValueChange = { newText ->
-                    if (newText.contains("\n")) {
-                        val parts = newText.split("\n", limit = 2)
-                        val beforeEnter = parts[0]
-                        val afterEnter = if (parts.size > 1) parts[1] else ""
-                        rawText = beforeEnter
+                onValueChange = { incomingText ->
+                    if (incomingText.contains("\n")) {
+                        val parts = incomingText.split("\n", limit = 2)
+                        val beforeEnter = parts[0].replace("\u200B", "")
+                        val afterEnter = if (parts.size > 1) parts[1].replace("\u200B", "") else ""
+                        rawText = if (beforeEnter.isEmpty()) "\u200B" else beforeEnter
                         onTextChange(beforeEnter)
                         onEnterPressed(afterEnter)
                     } else {
-                        rawText = newText
-                        onTextChange(newText)
+                        // Detect backspace on already-empty text (when sentinel \u200B is deleted by IME)
+                        if (incomingText.isEmpty() && rawText == "\u200B") {
+                            if (hasBullet) {
+                                onRemoveBullet()
+                            } else {
+                                onDeleteParagraph()
+                            }
+                        } else {
+                            val clean = incomingText.replace("\u200B", "")
+                            if (clean.isEmpty()) {
+                                rawText = "\u200B"
+                                onTextChange("")
+                            } else {
+                                rawText = clean
+                                onTextChange(clean)
+                            }
+                        }
                     }
                 },
                 modifier = Modifier
@@ -1356,6 +1656,24 @@ fun DocxInPlaceParagraphEditor(
                     .onFocusChanged { focusState ->
                         if (focusState.isFocused) {
                             onFocus()
+                        }
+                    }
+                    .onPreviewKeyEvent { keyEvent ->
+                        if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Backspace || keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL)) {
+                            val clean = rawText.replace("\u200B", "")
+                            if (clean.isEmpty()) {
+                                if (hasBullet) {
+                                    onRemoveBullet()
+                                    true
+                                } else {
+                                    onDeleteParagraph()
+                                    true
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
                         }
                     },
                 textStyle = TextStyle(
@@ -1372,8 +1690,40 @@ fun DocxInPlaceParagraphEditor(
                     capitalization = KeyboardCapitalization.Sentences,
                     keyboardType = KeyboardType.Text
                 ),
-                singleLine = false
+                singleLine = false,
+                decorationBox = { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val clean = rawText.replace("\u200B", "")
+                        if (clean.isEmpty()) {
+                            Text(
+                                text = if (hasBullet) "Bullet item (Backspace removes bullet)" else "Empty paragraph (tap ✕ or Backspace to delete)",
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = fontSize,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                                    fontStyle = FontStyle.Italic
+                                )
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
             )
+
+            // Fast delete button on active or empty paragraph box
+            if (isActive || isVisuallyEmpty) {
+                IconButton(
+                    onClick = onDeleteParagraph,
+                    modifier = Modifier.size(26.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Delete Paragraph Box",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
 
         // Display any embedded image with a quick-action delete button in edit mode
@@ -1969,8 +2319,8 @@ fun DocxWebView(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isPageLoaded by remember { mutableStateOf(false) }
 
-    // When layout mode changes (Print Layout vs Reflow)
-    LaunchedEffect(isPrintLayout, isPageLoaded) {
+    // When layout mode changes (Print Layout vs Reflow) or docxBase64 is updated
+    LaunchedEffect(docxBase64, isPrintLayout, isPageLoaded) {
         if (isPageLoaded && webViewInstance != null) {
             webViewInstance?.evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
         }

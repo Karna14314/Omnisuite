@@ -24,6 +24,10 @@ import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -37,6 +41,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Rect
@@ -143,15 +148,28 @@ fun PptxViewerScreen(
     val state by viewModel.loadState.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
+    val isSaving by viewModel.isSaving.collectAsState()
     var isEditMode by remember { mutableStateOf(false) }
     var viewMode by remember { mutableStateOf(PptxViewMode.CONTINUOUS) }
     var showNotesPanel by remember { mutableStateOf(false) }
+
+    var selectedShapeId by remember { mutableStateOf<String?>(null) }
+    var quickEditText by remember { mutableStateOf("") }
+    var ribbonTab by remember { mutableStateOf("HOME") }
+    var currentFontSizePt by remember { mutableFloatStateOf(18f) }
 
     var activeIndexToEdit by remember { mutableStateOf<Int?>(null) }
     var blockToEdit by remember { mutableStateOf<PptxTextShape?>(null) }
     var isTitleEdit by remember { mutableStateOf(false) }
     var blockIndexToEdit by remember { mutableStateOf(-1) }
     var showFormatter by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isEditMode) {
+        if (!isEditMode) {
+            selectedShapeId = null
+            quickEditText = ""
+        }
+    }
 
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
@@ -176,9 +194,19 @@ fun PptxViewerScreen(
                 coroutineScope.launch {
                     val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
-                        val slideIndex = activeIndexToEdit ?: 0
-                        viewModel.insertImageIntoSlide(slideIndex, cachedFile.absolutePath)
-                        Toast.makeText(context, "Picture inserted successfully!", Toast.LENGTH_SHORT).show()
+                        val slideIndex = if (viewMode == PptxViewMode.PAGER) pagerState.currentPage else (activeIndexToEdit ?: pagerState.currentPage)
+                        viewModel.insertImageIntoSlide(
+                            slideIndex = slideIndex,
+                            imagePath = cachedFile.absolutePath,
+                            onSuccess = {
+                                Toast.makeText(context, "Picture inserted on slide ${slideIndex + 1}!", Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { err ->
+                                Toast.makeText(context, "Failed to insert picture: $err", Toast.LENGTH_LONG).show()
+                            }
+                        )
+                    } else {
+                        Toast.makeText(context, "Unable to access selected image", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -353,18 +381,33 @@ fun PptxViewerScreen(
                                         )
                                     }
 
-                                    IconButton(
-                                        onClick = {
-                                            viewModel.commitChanges()
-                                            isEditMode = false
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Save & Exit Edit Mode",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
+                                     IconButton(
+                                          onClick = {
+                                              selectedShapeId?.let { id ->
+                                                  viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                              }
+                                              viewModel.commitChanges {
+                                                  isEditMode = false
+                                                  selectedShapeId = null
+                                                  Toast.makeText(context, "Saved presentation changes!", Toast.LENGTH_SHORT).show()
+                                              }
+                                          },
+                                          enabled = !isSaving
+                                      ) {
+                                         if (isSaving) {
+                                             CircularProgressIndicator(
+                                                 modifier = Modifier.size(20.dp),
+                                                 strokeWidth = 2.dp,
+                                                 color = MaterialTheme.colorScheme.primary
+                                             )
+                                         } else {
+                                             Icon(
+                                                 imageVector = Icons.Default.Check,
+                                                 contentDescription = "Save & Exit Edit Mode",
+                                                 tint = MaterialTheme.colorScheme.primary
+                                             )
+                                         }
+                                     }
                                 }
 
                                 IconButton(onClick = { isEditMode = !isEditMode }) {
@@ -452,136 +495,477 @@ fun PptxViewerScreen(
                         enter = slideInVertically { it } + fadeIn(),
                         exit = slideOutVertically { it } + fadeOut()
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 8.dp,
-                            shadowElevation = 8.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Quick In-Place Text Editor Strip (appears when a shape is selected)
+                            if (selectedShapeId != null) {
+                                LaunchedEffect(quickEditText) {
+                                    delay(500)
+                                    selectedShapeId?.let { id ->
+                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                    }
+                                }
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    tonalElevation = 6.dp,
+                                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        OutlinedTextField(
+                                            value = quickEditText,
+                                            onValueChange = {
+                                                quickEditText = it
+                                            },
+                                            placeholder = { Text("Type shape text...", fontSize = 13.sp) },
+                                            singleLine = false,
+                                            maxLines = 4,
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                            keyboardActions = KeyboardActions(
+                                                onDone = {
+                                                    selectedShapeId?.let { id ->
+                                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                    }
+                                                    selectedShapeId = null
+                                                }
+                                            ),
+                                            modifier = Modifier.weight(1f),
+                                            textStyle = TextStyle(fontSize = 13.sp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = {
+                                                selectedShapeId?.let { id ->
+                                                    viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                }
+                                                selectedShapeId = null
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Check, contentDescription = "Apply Text", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(
+                                            onClick = { showFormatter = true },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Tune, contentDescription = "Advanced Formatter", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                selectedShapeId?.let { id ->
+                                                    viewModel.deleteShape(pagerState.currentPage, id)
+                                                    selectedShapeId = null
+                                                    quickEditText = ""
+                                                }
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete Shape", tint = MaterialTheme.colorScheme.error)
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                selectedShapeId?.let { id ->
+                                                    if (quickEditText.isNotBlank()) {
+                                                        viewModel.updateShapeText(pagerState.currentPage, id, quickEditText)
+                                                    }
+                                                }
+                                                selectedShapeId = null
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Done Editing Shape")
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Microsoft 365 Ribbon Toolbar
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                tonalElevation = 8.dp,
+                                shadowElevation = 8.dp,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                IconButton(
-                                    onClick = { viewModel.undo() },
-                                    enabled = canUndo,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Undo,
-                                        contentDescription = "Undo",
-                                        tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { viewModel.redo() },
-                                    enabled = canRedo,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Redo,
-                                        contentDescription = "Redo",
-                                        tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
-                                }
-
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                                IconButton(onClick = {
-                                    activeIndexToEdit = pagerState.currentPage
-                                    isTitleEdit = true
-                                    blockIndexToEdit = 0
-                                    showFormatter = true
-                                }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Title, contentDescription = "Edit Title")
-                                }
-
-                                IconButton(onClick = {
-                                    activeIndexToEdit = pagerState.currentPage
-                                    isTitleEdit = false
-                                    blockIndexToEdit = 0
-                                    showFormatter = true
-                                }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.TextFields, contentDescription = "Edit Text")
-                                }
-
-                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Image, contentDescription = "Insert Image")
-                                }
-
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                                val currentSlideIdx = pagerState.currentPage
-                                val totalSlidesCount = (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0
-
-                                IconButton(
-                                    onClick = {
-                                        if (currentSlideIdx > 0) {
-                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx - 1)
-                                            coroutineScope.launch {
-                                                pagerState.animateScrollToPage(currentSlideIdx - 1)
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    // Ribbon Tabs Header: HOME | INSERT | SLIDE | MANAGE
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        listOf("HOME", "INSERT", "SLIDE", "MANAGE").forEach { tab ->
+                                            val isTabSelected = ribbonTab == tab
+                                            Surface(
+                                                shape = RoundedCornerShape(16.dp),
+                                                color = if (isTabSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                modifier = Modifier.clickable { ribbonTab = tab }
+                                            ) {
+                                                Text(
+                                                    text = tab,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isTabSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
                                             }
                                         }
-                                    },
-                                    enabled = currentSlideIdx > 0,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.ArrowBack,
-                                        contentDescription = "Move Slide Left",
-                                        tint = if (currentSlideIdx > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
-                                }
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                                IconButton(
-                                    onClick = {
-                                        if (currentSlideIdx < totalSlidesCount - 1) {
-                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx + 1)
-                                            coroutineScope.launch {
-                                                pagerState.animateScrollToPage(currentSlideIdx + 1)
+                                    // Ribbon Tab Body
+                                    when (ribbonTab) {
+                                        "HOME" -> {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState())
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                IconButton(
+                                                    onClick = { viewModel.undo() },
+                                                    enabled = canUndo,
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Undo,
+                                                        contentDescription = "Undo",
+                                                        tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { viewModel.redo() },
+                                                    enabled = canRedo,
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Redo,
+                                                        contentDescription = "Redo",
+                                                        tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                                    )
+                                                }
+                                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                                                FormatRibbonToggleButton(
+                                                    label = "B",
+                                                    isSelected = false,
+                                                    fontWeight = FontWeight.Bold,
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isBold = true)
+                                                        } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                FormatRibbonToggleButton(
+                                                    label = "I",
+                                                    isSelected = false,
+                                                    fontStyle = FontStyle.Italic,
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isItalic = true)
+                                                        } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                FormatRibbonToggleButton(
+                                                    label = "U",
+                                                    isSelected = false,
+                                                    textDecoration = TextDecoration.Underline,
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, isUnderline = true)
+                                                        } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+
+                                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                                                // Font Size Stepper
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (currentFontSizePt > 8f) {
+                                                                currentFontSizePt -= 2f
+                                                                selectedShapeId?.let { id ->
+                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, fontSizePt = currentFontSizePt)
+                                                                }
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(30.dp)
+                                                    ) {
+                                                        Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Text(
+                                                        text = "${currentFontSizePt.toInt()}pt",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                                    )
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (currentFontSizePt < 72f) {
+                                                                currentFontSizePt += 2f
+                                                                selectedShapeId?.let { id ->
+                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, fontSizePt = currentFontSizePt)
+                                                                }
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(30.dp)
+                                                    ) {
+                                                        Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                                                // Text Color Swatches
+                                                val textColors = listOf("#000000", "#D32F2F", "#1976D2", "#388E3C", "#7B1FA2", "#F57C00")
+                                                textColors.forEach { hex ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .clip(CircleShape)
+                                                            .background(safeParseColor(hex, Color.Black))
+                                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                                            .clickable {
+                                                                selectedShapeId?.let { id ->
+                                                                    viewModel.applyShapeFormatting(pagerState.currentPage, id, textColorHex = hex)
+                                                                } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                    )
+                                                }
+
+                                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                                                IconButton(
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "LEFT")
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(Icons.Default.FormatAlignLeft, contentDescription = "Align Left")
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "CENTER")
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(Icons.Default.FormatAlignCenter, contentDescription = "Align Center")
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.applyShapeFormatting(pagerState.currentPage, id, alignment = "RIGHT")
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(Icons.Default.FormatAlignRight, contentDescription = "Align Right")
+                                                }
                                             }
                                         }
-                                    },
-                                    enabled = currentSlideIdx < totalSlidesCount - 1,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.ArrowForward,
-                                        contentDescription = "Move Slide Right",
-                                        tint = if (currentSlideIdx < totalSlidesCount - 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    )
-                                }
 
-                                IconButton(onClick = { viewModel.addSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Add, contentDescription = "Add Slide")
-                                }
+                                        "INSERT" -> {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState())
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.TextFields,
+                                                    title = "Text Box",
+                                                    subtitle = "Add text",
+                                                    isPrimary = true,
+                                                    onClick = {
+                                                        viewModel.insertTextBox(pagerState.currentPage)
+                                                        Toast.makeText(context, "Text box added to slide!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Image,
+                                                    title = "Picture",
+                                                    subtitle = "Insert image",
+                                                    onClick = { imagePickerLauncher.launch("image/*") }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Add,
+                                                    title = "New Slide",
+                                                    subtitle = "Add blank",
+                                                    onClick = {
+                                                        viewModel.addSlide(pagerState.currentPage)
+                                                        Toast.makeText(context, "New slide added!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.ContentCopy,
+                                                    title = "Duplicate",
+                                                    subtitle = "Copy slide",
+                                                    onClick = {
+                                                        viewModel.duplicateSlide(pagerState.currentPage)
+                                                        Toast.makeText(context, "Slide duplicated!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                            }
+                                        }
 
-                                IconButton(onClick = { viewModel.duplicateSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Slide")
-                                }
+                                        "SLIDE" -> {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState())
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("Background:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                val bgColors = listOf("#FFFFFF", "#F5F5F5", "#E3F2FD", "#FFF8E1", "#E8F5E9", "#212121")
+                                                bgColors.forEach { hex ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(28.dp)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(safeParseColor(hex, Color.White))
+                                                            .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                                                            .clickable {
+                                                                viewModel.setSlideBackground(pagerState.currentPage, hex)
+                                                            }
+                                                    )
+                                                }
 
-                                IconButton(onClick = { viewModel.deleteSlide(pagerState.currentPage) }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete Slide", tint = MaterialTheme.colorScheme.error)
-                                }
+                                                VerticalDivider(modifier = Modifier.height(28.dp).padding(horizontal = 2.dp))
 
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+                                                val currentSlideIdx = pagerState.currentPage
+                                                val totalSlidesCount = (state as? PptxLoadState.Success)?.presentation?.slides?.size ?: 0
 
-                                Button(
-                                    onClick = {
-                                        viewModel.commitChanges()
-                                        isEditMode = false
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Save Slides", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.ArrowBack,
+                                                    title = "Move Left",
+                                                    subtitle = "Slide order",
+                                                    enabled = currentSlideIdx > 0,
+                                                    onClick = {
+                                                        if (currentSlideIdx > 0) {
+                                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx - 1)
+                                                            coroutineScope.launch {
+                                                                pagerState.animateScrollToPage(currentSlideIdx - 1)
+                                                            }
+                                                        }
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.ArrowForward,
+                                                    title = "Move Right",
+                                                    subtitle = "Slide order",
+                                                    enabled = currentSlideIdx < totalSlidesCount - 1,
+                                                    onClick = {
+                                                        if (currentSlideIdx < totalSlidesCount - 1) {
+                                                            viewModel.moveSlide(currentSlideIdx, currentSlideIdx + 1)
+                                                            coroutineScope.launch {
+                                                                pagerState.animateScrollToPage(currentSlideIdx + 1)
+                                                            }
+                                                        }
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Delete,
+                                                    title = "Delete Slide",
+                                                    subtitle = "Remove slide",
+                                                    isDestructive = true,
+                                                    onClick = { viewModel.deleteSlide(pagerState.currentPage) }
+                                                )
+                                            }
+                                        }
+
+                                        "MANAGE" -> {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState())
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Save,
+                                                    title = if (isSaving) "Saving..." else "Save PPTX",
+                                                    subtitle = "Commit changes",
+                                                    isPrimary = true,
+                                                    enabled = !isSaving,
+                                                    onClick = {
+                                                        viewModel.commitChanges {
+                                                            isEditMode = false
+                                                            Toast.makeText(context, "Saved changes to presentation!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Delete,
+                                                    title = "Delete Box",
+                                                    subtitle = "Remove shape",
+                                                    isDestructive = true,
+                                                    enabled = selectedShapeId != null,
+                                                    onClick = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.deleteShape(pagerState.currentPage, id)
+                                                            selectedShapeId = null
+                                                            quickEditText = ""
+                                                        }
+                                                    }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Undo,
+                                                    title = "Undo",
+                                                    subtitle = "Revert edit",
+                                                    enabled = canUndo,
+                                                    onClick = { viewModel.undo() }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Redo,
+                                                    title = "Redo",
+                                                    subtitle = "Repeat edit",
+                                                    enabled = canRedo,
+                                                    onClick = { viewModel.redo() }
+                                                )
+                                                RibbonActionCard(
+                                                    icon = Icons.Default.Close,
+                                                    title = "Exit Editor",
+                                                    subtitle = "Back to viewer",
+                                                    onClick = { isEditMode = false }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -619,6 +1003,9 @@ fun PptxViewerScreen(
                                 title = if (isEditMode) "Done" else "Edit"
                             ) {
                                 isEditMode = !isEditMode
+                                if (isEditMode && viewMode != PptxViewMode.PAGER) {
+                                    viewMode = PptxViewMode.PAGER
+                                }
                             }
 
                             ViewerActionColumnButton(
@@ -758,12 +1145,15 @@ fun PptxViewerScreen(
                             ContinuousSlideView(
                                 presentation = presentation,
                                 isEditMode = isEditMode,
+                                selectedShapeId = selectedShapeId,
                                 onTextBlockClick = { slideIdx, textBlock, isTitle, blockIdx ->
                                     activeIndexToEdit = slideIdx
                                     blockToEdit = textBlock
                                     isTitleEdit = isTitle
                                     blockIndexToEdit = blockIdx
-                                    showFormatter = true
+                                    selectedShapeId = textBlock.id
+                                    quickEditText = textBlock.fullText
+                                    currentFontSizePt = textBlock.fontSizePt
                                 }
                             )
                         } else if (viewMode == PptxViewMode.GRID) {
@@ -863,12 +1253,15 @@ fun PptxViewerScreen(
                                             SlideCardItem(
                                                 slide = slide,
                                                 isEditMode = isEditMode,
+                                                selectedShapeId = selectedShapeId,
                                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                                     blockToEdit = textBlock
                                                     activeIndexToEdit = pageIndex
                                                     isTitleEdit = isTitle
                                                     blockIndexToEdit = blockIdx
-                                                    showFormatter = true
+                                                    selectedShapeId = textBlock.id
+                                                    quickEditText = textBlock.fullText
+                                                    currentFontSizePt = textBlock.fontSizePt
                                                 }
                                             )
                                         }
@@ -1126,7 +1519,7 @@ fun PptxTextFormatterDialog(
     ) -> Unit,
     onInsertImageClick: () -> Unit
 ) {
-    var text by remember { mutableStateOf(textBlock.primaryText.ifBlank { textBlock.fullText }) }
+    var text by remember { mutableStateOf(textBlock.fullText) }
     var isBold by remember { mutableStateOf(textBlock.isBold) }
     var isItalic by remember { mutableStateOf(textBlock.isItalic) }
     var isUnderline by remember { mutableStateOf(textBlock.isUnderline) }
@@ -1343,6 +1736,7 @@ fun PptxTextFormatterDialog(
 fun ContinuousSlideView(
     presentation: PptxPresentation,
     isEditMode: Boolean,
+    selectedShapeId: String? = null,
     onTextBlockClick: (slideIndex: Int, PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1367,6 +1761,7 @@ fun ContinuousSlideView(
                         SlideCardItem(
                             slide = slide,
                             isEditMode = isEditMode,
+                            selectedShapeId = selectedShapeId,
                             onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                 onTextBlockClick(index, textBlock, isTitle, blockIdx)
                             }
@@ -1417,6 +1812,7 @@ fun ContinuousSlideView(
 fun SlideCardItem(
     slide: PptxSlide,
     isEditMode: Boolean = false,
+    selectedShapeId: String? = null,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit
 ) {
     Card(
@@ -1502,6 +1898,7 @@ fun SlideCardItem(
                             fontScale = fontScale,
                             isTitle = element.isTitle,
                             isEditMode = isEditMode,
+                            isSelected = isEditMode && (element.shape.id == selectedShapeId),
                             onClick = { onTextBlockClick(element.shape, element.isTitle, element.index) }
                         )
                     }
@@ -1591,6 +1988,7 @@ fun TextShapeItem(
     fontScale: Float,
     isTitle: Boolean,
     isEditMode: Boolean,
+    isSelected: Boolean = false,
     onClick: () -> Unit
 ) {
     val shapeGeom = shape.shapeGeometry
@@ -1606,6 +2004,7 @@ fun TextShapeItem(
     }
 
     val borderWidth = when {
+        isSelected -> 2.dp
         shapeBorder != null && shapeBorder.strokeColorHex != null -> shapeBorder.strokeWidthDp.dp
         isTableCell -> 1.dp
         isEditMode -> 1.dp
@@ -1613,6 +2012,7 @@ fun TextShapeItem(
     }
 
     val borderColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
         shapeBorder != null && shapeBorder.strokeColorHex != null -> safeParseColor(shapeBorder.strokeColorHex, MaterialTheme.colorScheme.primary)
         isTableCell -> MaterialTheme.colorScheme.outlineVariant
         isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
@@ -1785,9 +2185,10 @@ fun TextShapeItem(
             .clip(shapeShape)
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
-                if (isEditMode) {
-                    if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else if (isEditMode) {
+                    if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.06f)
                 } else shapeBgColor
             )
             .border(
@@ -1795,15 +2196,16 @@ fun TextShapeItem(
                 color = borderColor,
                 shape = shapeShape
             )
-            .padding(
-                start = if (isEllipseBadge) 1.dp else (shape.insets.left * slideW).coerceAtLeast(if (isTitle) 2f else 1f).dp,
-                top = if (isEllipseBadge) 1.dp else (shape.insets.top * slideH).coerceAtLeast(1f).dp,
-                end = if (isEllipseBadge) 1.dp else (shape.insets.right * slideW).coerceAtLeast(if (isTitle) 2f else 1f).dp,
-                bottom = if (isEllipseBadge) 1.dp else (shape.insets.bottom * slideH).coerceAtLeast(1f).dp
-            )
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = if (isEllipseBadge) 1.dp else (shape.insets.left * slideW).coerceAtLeast(if (isTitle) 2f else 1f).dp,
+                    top = if (isEllipseBadge) 1.dp else (shape.insets.top * slideH).coerceAtLeast(1f).dp,
+                    end = if (isEllipseBadge) 1.dp else (shape.insets.right * slideW).coerceAtLeast(if (isTitle) 2f else 1f).dp,
+                    bottom = if (isEllipseBadge) 1.dp else (shape.insets.bottom * slideH).coerceAtLeast(1f).dp
+                ),
             verticalArrangement = if (isEllipseBadge) Arrangement.Center else Arrangement.Top,
             horizontalAlignment = if (isEllipseBadge || isTitle) Alignment.CenterHorizontally else Alignment.Start
         ) {
@@ -1851,6 +2253,13 @@ fun TextShapeItem(
                     )
                 }
             }
+        }
+
+        if (isSelected) {
+            Box(modifier = Modifier.size(7.dp).align(Alignment.TopStart).background(MaterialTheme.colorScheme.primary, CircleShape))
+            Box(modifier = Modifier.size(7.dp).align(Alignment.TopEnd).background(MaterialTheme.colorScheme.primary, CircleShape))
+            Box(modifier = Modifier.size(7.dp).align(Alignment.BottomStart).background(MaterialTheme.colorScheme.primary, CircleShape))
+            Box(modifier = Modifier.size(7.dp).align(Alignment.BottomEnd).background(MaterialTheme.colorScheme.primary, CircleShape))
         }
     }
 }
@@ -1994,4 +2403,77 @@ private class PptxPrintDocumentAdapter(private val context: Context, private val
         }
     }
 }
+
+@Composable
+private fun RibbonActionCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    isPrimary: Boolean = false,
+    isDestructive: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                isPrimary -> MaterialTheme.colorScheme.primaryContainer
+                isDestructive -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                isPrimary -> MaterialTheme.colorScheme.onPrimaryContainer
+                isDestructive -> MaterialTheme.colorScheme.onErrorContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ),
+        modifier = Modifier
+            .widthIn(min = 84.dp)
+            .height(58.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                modifier = Modifier.size(18.dp),
+                tint = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    isDestructive -> MaterialTheme.colorScheme.error
+                    isPrimary -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+
 
