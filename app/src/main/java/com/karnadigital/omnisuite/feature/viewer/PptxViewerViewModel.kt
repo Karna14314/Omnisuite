@@ -2303,18 +2303,52 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
+    private fun getAllShapesForSlide(slide: XSLFSlide): List<org.apache.poi.sl.usermodel.Shape<*, *>> {
+        val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
+        fun collectShapes(shapeList: List<org.apache.poi.sl.usermodel.Shape<*, *>>, isMasterOrLayout: Boolean = false) {
+            for (sh in shapeList) {
+                if (isMasterOrLayout && sh is org.apache.poi.sl.usermodel.SimpleShape<*, *> && sh.isPlaceholder) {
+                    continue
+                }
+                if (sh is org.apache.poi.sl.usermodel.GroupShape<*, *>) {
+                    val nested = try { sh.shapes } catch (t: Throwable) { emptyList() }
+                    collectShapes(nested, isMasterOrLayout)
+                } else {
+                    allShapes.add(sh)
+                }
+            }
+        }
+        val showMaster = try {
+            (slide.javaClass.getMethod("getDisplayMasterShapes").invoke(slide) as? Boolean) ?: true
+        } catch (_: Throwable) { true }
+        if (showMaster) {
+            try {
+                val masterShapes = slide.slideLayout?.slideMaster?.shapes ?: emptyList()
+                collectShapes(masterShapes, isMasterOrLayout = true)
+            } catch (_: Throwable) { }
+            try {
+                val layoutShapes = slide.slideLayout?.shapes ?: emptyList()
+                collectShapes(layoutShapes, isMasterOrLayout = true)
+            } catch (_: Throwable) { }
+        }
+        val rootShapes = try { slide.shapes } catch (t: Throwable) { emptyList() }
+        collectShapes(rootShapes, isMasterOrLayout = false)
+        return allShapes
+    }
+
     private fun findShapeById(slide: XSLFSlide, shapeId: String): org.apache.poi.sl.usermodel.Shape<*, *>? {
+        val allShapes = getAllShapesForSlide(slide)
         if (shapeId == "title") {
-            for (shape in slide.shapes) {
-                if (shape is XSLFTextShape) {
-                    val shapeText = try { shape.text ?: "" } catch (t: Throwable) { "" }
-                    if (shapeText.isNotBlank()) {
-                        val isTitle = try {
-                            shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
-                        } catch (t: Throwable) {
-                            shape.shapeName.lowercase().contains("title")
-                        }
-                        if (isTitle) return shape
+            var titleFound = false
+            for (shape in allShapes) {
+                if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                    val isTitle = try {
+                        shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
+                    } catch (t: Throwable) {
+                        shape.shapeName.lowercase().contains("title")
+                    }
+                    if (isTitle && !titleFound) {
+                        return shape
                     }
                 }
             }
@@ -2322,22 +2356,19 @@ class PptxViewerViewModel @Inject constructor(
             val targetIdx = shapeId.removePrefix("body_").toIntOrNull() ?: -1
             var bodyCount = 0
             var titleFound = false
-            for (shape in slide.shapes) {
-                if (shape is XSLFTextShape) {
-                    val shapeText = try { shape.text ?: "" } catch (t: Throwable) { "" }
-                    if (shapeText.isNotBlank()) {
-                        val isTitle = try {
-                            shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
-                        } catch (t: Throwable) {
-                            shape.shapeName.lowercase().contains("title")
-                        }
-                        val isDistinctTitle = isTitle && !titleFound
-                        if (isDistinctTitle) {
-                            titleFound = true
-                        } else {
-                            if (bodyCount == targetIdx) return shape
-                            bodyCount++
-                        }
+            for (shape in allShapes) {
+                if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
+                    val isTitle = try {
+                        shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
+                    } catch (t: Throwable) {
+                        shape.shapeName.lowercase().contains("title")
+                    }
+                    val isDistinctTitle = isTitle && !titleFound
+                    if (isDistinctTitle) {
+                        titleFound = true
+                    } else {
+                        if (bodyCount == targetIdx) return shape
+                        bodyCount++
                     }
                 }
             }
@@ -2346,8 +2377,8 @@ class PptxViewerViewModel @Inject constructor(
             if (parts.size >= 4) {
                 val r = parts[2].toIntOrNull() ?: 0
                 val c = parts[3].toIntOrNull() ?: 0
-                for (shape in slide.shapes) {
-                    if (shape is org.apache.poi.xslf.usermodel.XSLFTable) {
+                for (shape in allShapes) {
+                    if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
                         val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null }
                         if (cell != null) return cell
                     }
@@ -2355,6 +2386,77 @@ class PptxViewerViewModel @Inject constructor(
             }
         }
         return null
+    }
+
+    fun updateShapeTextSync(slideIndex: Int, shapeId: String, newText: String) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex !in slides.indices) return
+
+        pushUndoState()
+        val slide = slides[slideIndex]
+        val shape = findShapeById(slide, shapeId)
+        if (shape is XSLFTextShape) {
+            val lines = newText.split("\n")
+            // Sample existing formatting
+            val firstPara = shape.textParagraphs.firstOrNull()
+            val sampleRun = firstPara?.textRuns?.firstOrNull()
+            val sampleFontSize = sampleRun?.let {
+                try { it.fontSize?.toFloat() } catch (_: Throwable) { null }
+            } ?: 14f
+            val sampleBold = sampleRun?.isBold ?: false
+            val sampleItalic = sampleRun?.isItalic ?: false
+            val sampleColorHex = sampleRun?.let { extractTextRunColorHex(it) }
+
+            // 1. Update existing paragraphs or add new ones for each line
+            for (i in lines.indices) {
+                val lineText = lines[i]
+                val p = if (i < shape.textParagraphs.size) {
+                    shape.textParagraphs[i]
+                } else {
+                    val newPara = shape.addNewTextParagraph()
+                    if (i > 0) {
+                        try { newPara.indentLevel = shape.textParagraphs[i - 1].indentLevel } catch (_: Throwable) {}
+                        try { newPara.textAlign = shape.textParagraphs[i - 1].textAlign } catch (_: Throwable) {}
+                    }
+                    newPara
+                }
+                val r = p.textRuns.firstOrNull() ?: p.addNewTextRun()
+                r.setText(lineText)
+                if (p.textRuns.size == 1 && r.fontSize == null) {
+                    setRunProperties(r, sampleColorHex, sampleFontSize)
+                    r.isBold = sampleBold
+                    r.isItalic = sampleItalic
+                }
+                while (p.textRuns.size > 1) {
+                    val prevRunSize = p.textRuns.size
+                    try {
+                        p.removeTextRun(p.textRuns[p.textRuns.size - 1])
+                    } catch (_: Throwable) { break }
+                    if (p.textRuns.size >= prevRunSize) break
+                }
+            }
+
+            // 2. Remove extra paragraphs if newText has fewer lines than shape currently has
+            while (shape.textParagraphs.size > lines.size) {
+                val prevParaSize = shape.textParagraphs.size
+                try {
+                    shape.removeTextParagraph(shape.textParagraphs[shape.textParagraphs.size - 1])
+                } catch (_: Throwable) { break }
+                if (shape.textParagraphs.size >= prevParaSize) break
+            }
+        }
+
+        _loadState.value = PptxLoadState.Success(
+            presentation = PptxPresentation(parseAllSlides(ppt)),
+            fileName = File(activeFilePath ?: "presentation.pptx").name
+        )
     }
 
     fun updateShapeText(slideIndex: Int, shapeId: String, newText: String) {
@@ -2369,60 +2471,7 @@ class PptxViewerViewModel @Inject constructor(
         if (slideIndex !in slides.indices) return
 
         viewModelScope.launch(Dispatchers.IO) {
-            pushUndoState()
-            val slide = slides[slideIndex]
-            val shape = findShapeById(slide, shapeId)
-            if (shape is XSLFTextShape) {
-                val lines = newText.split("\n")
-                // Sample existing formatting
-                val firstPara = shape.textParagraphs.firstOrNull()
-                val sampleRun = firstPara?.textRuns?.firstOrNull()
-                val sampleFontSize = sampleRun?.let {
-                    try { it.fontSize?.toFloat() } catch (_: Throwable) { null }
-                } ?: 14f
-                val sampleBold = sampleRun?.isBold ?: false
-                val sampleItalic = sampleRun?.isItalic ?: false
-                val sampleColorHex = sampleRun?.let { extractTextRunColorHex(it) }
-
-                // 1. Update existing paragraphs or add new ones for each line
-                for (i in lines.indices) {
-                    val lineText = lines[i]
-                    val p = if (i < shape.textParagraphs.size) {
-                        shape.textParagraphs[i]
-                    } else {
-                        val newPara = shape.addNewTextParagraph()
-                        if (i > 0) {
-                            try { newPara.indentLevel = shape.textParagraphs[i - 1].indentLevel } catch (_: Throwable) {}
-                            try { newPara.textAlign = shape.textParagraphs[i - 1].textAlign } catch (_: Throwable) {}
-                        }
-                        newPara
-                    }
-                    val r = p.textRuns.firstOrNull() ?: p.addNewTextRun()
-                    r.setText(lineText)
-                    if (p.textRuns.size == 1 && r.fontSize == null) {
-                        setRunProperties(r, sampleColorHex, sampleFontSize)
-                        r.isBold = sampleBold
-                        r.isItalic = sampleItalic
-                    }
-                    while (p.textRuns.size > 1) {
-                        try {
-                            p.removeTextRun(p.textRuns[p.textRuns.size - 1])
-                        } catch (_: Throwable) { break }
-                    }
-                }
-
-                // 2. Remove extra paragraphs if newText has fewer lines than shape currently has
-                while (shape.textParagraphs.size > lines.size) {
-                    try {
-                        shape.removeTextParagraph(shape.textParagraphs[shape.textParagraphs.size - 1])
-                    } catch (_: Throwable) { break }
-                }
-            }
-
-            _loadState.value = PptxLoadState.Success(
-                presentation = PptxPresentation(parseAllSlides(ppt)),
-                fileName = File(activeFilePath ?: "presentation.pptx").name
-            )
+            updateShapeTextSync(slideIndex, shapeId, newText)
         }
     }
 

@@ -222,26 +222,27 @@ class PptxRendererUnitTest {
 
         val parseMethod = getMethod(PptxViewerViewModel::class.java, "parseAllSlides", org.apache.poi.sl.usermodel.SlideShow::class.java)
 
-        // Update the shape with 3 lines using its exact shape ID
+        // Update the shape with 3 lines using its exact computed shape ID
         @Suppress("UNCHECKED_CAST")
         val initialSlides = parseMethod.invoke(vm, ppt) as List<PptxSlide>
-        val targetId = initialSlides[0].title?.id ?: initialSlides[0].textShapes[0].id
-        vm.updateShapeText(0, targetId, "Line 1\nLine 2\nLine 3")
-        Thread.sleep(200)
+        val targetShape = if (initialSlides[0].title.id != "empty_title") initialSlides[0].title else initialSlides[0].textShapes[0]
+        val targetId = targetShape.id
+
+        vm.updateShapeTextSync(0, targetId, "Line 1\nLine 2\nLine 3")
 
         @Suppress("UNCHECKED_CAST")
         val slides = parseMethod.invoke(vm, ppt) as List<PptxSlide>
-        val shape = slides[0].title ?: slides[0].textShapes[0]
+        val shape = if (slides[0].title.id != "empty_title") slides[0].title else slides[0].textShapes[0]
 
         assertEquals(3, shape.paragraphs.size)
         assertEquals("Line 1\nLine 2\nLine 3", shape.fullText)
 
         // Update down to 1 line (test paragraph and run trimming):
-        vm.updateShapeText(0, targetId, "Only Line")
-        Thread.sleep(200)
+        vm.updateShapeTextSync(0, targetId, "Only Line")
+
         @Suppress("UNCHECKED_CAST")
         val slidesAfterTrim = parseMethod.invoke(vm, ppt) as List<PptxSlide>
-        val shapeAfterTrim = slidesAfterTrim[0].title ?: slidesAfterTrim[0].textShapes[0]
+        val shapeAfterTrim = if (slidesAfterTrim[0].title.id != "empty_title") slidesAfterTrim[0].title else slidesAfterTrim[0].textShapes[0]
         assertEquals(1, shapeAfterTrim.paragraphs.size)
         assertEquals("Only Line", shapeAfterTrim.fullText)
     }
