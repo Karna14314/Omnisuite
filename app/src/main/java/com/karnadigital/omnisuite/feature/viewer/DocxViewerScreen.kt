@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import java.io.File
+import com.karnadigital.omnisuite.ui.component.OperationResultBottomSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -113,6 +114,11 @@ fun DocxViewerScreen(
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     var isExporting by remember { mutableStateOf(false) }
+    var showExportResultSheet by remember { mutableStateOf(false) }
+    var exportedResultUri by remember { mutableStateOf<String?>(null) }
+    var exportedResultName by remember { mutableStateOf<String?>(null) }
+    var exportedResultSize by remember { mutableLongStateOf(0L) }
+    var activeWebView by remember { mutableStateOf<WebView?>(null) }
 
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
@@ -153,19 +159,79 @@ fun DocxViewerScreen(
     val exportPdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf"),
         onResult = { uri ->
-            uri?.let {
+            uri?.let { targetUri ->
                 isExporting = true
-                viewModel.exportToPdf(
-                    outputUri = it,
-                    onSuccess = {
+                val webView = activeWebView
+                if (webView != null) {
+                    try {
+                        val tempPdfFile = File(context.cacheDir, "docx_export_${System.currentTimeMillis()}.pdf")
+                        val pfd = ParcelFileDescriptor.open(
+                            tempPdfFile,
+                            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE
+                        )
+                        val printAdapter = webView.createPrintDocumentAdapter("DOCX_Export")
+                        val printAttributes = PrintAttributes.Builder()
+                            .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                            .setResolution(PrintAttributes.Resolution("pdf", "pdf", 300, 300))
+                            .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                            .build()
+
+                        android.print.PrintAdapterHelper.print(printAdapter, printAttributes, pfd) { success, error ->
+                            try { pfd.close() } catch (_: Exception) {}
+                            if (success && tempPdfFile.exists() && tempPdfFile.length() > 0) {
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    try {
+                                        context.contentResolver.openOutputStream(targetUri)?.use { outStream ->
+                                            tempPdfFile.inputStream().use { inStream ->
+                                                inStream.copyTo(outStream)
+                                            }
+                                            outStream.flush()
+                                        }
+                                        val fileSize = tempPdfFile.length()
+                                        val fileName = viewModel.getFileName(targetUri) ?: "document_exported.pdf"
+                                        viewModel.registerExportedPdf(targetUri, fileName, fileSize)
+                                        withContext(Dispatchers.Main) {
+                                            exportedResultUri = targetUri.toString()
+                                            exportedResultName = fileName
+                                            exportedResultSize = fileSize
+                                            showExportResultSheet = true
+                                            isExporting = false
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            isExporting = false
+                                            Toast.makeText(context, "Failed to save PDF: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    } finally {
+                                        tempPdfFile.delete()
+                                    }
+                                }
+                            } else {
+                                isExporting = false
+                                Toast.makeText(context, "Export failed: ${error ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+                                tempPdfFile.delete()
+                            }
+                        }
+                    } catch (e: Exception) {
                         isExporting = false
-                        Toast.makeText(context, "Document exported to PDF successfully!", Toast.LENGTH_LONG).show()
-                    },
-                    onFailure = { error ->
-                        isExporting = false
-                        Toast.makeText(context, "Export failed: $error", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Export error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                     }
-                )
+                } else {
+                    viewModel.exportToPdf(
+                        outputUri = targetUri,
+                        onSuccess = { fileSize, fileName ->
+                            isExporting = false
+                            exportedResultUri = targetUri.toString()
+                            exportedResultName = fileName
+                            exportedResultSize = fileSize
+                            showExportResultSheet = true
+                        },
+                        onFailure = { error ->
+                            isExporting = false
+                            Toast.makeText(context, "Export failed: $error", Toast.LENGTH_LONG).show()
+                        }
+                    )
+                }
             }
         }
     )
@@ -892,7 +958,8 @@ fun DocxViewerScreen(
                             isPrintLayout = isPrintLayout,
                             searchQuery = searchQuery,
                             currentMatchIndex = currentMatchIndex,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            onWebViewReady = { activeWebView = it }
                         )
                     } else {
                         // Document Sheet Container (when in Edit Mode or fallback for legacy format)
@@ -1117,6 +1184,20 @@ fun DocxViewerScreen(
             }
         )
     }
+
+    OperationResultBottomSheet(
+        show = showExportResultSheet,
+        onDismiss = { showExportResultSheet = false },
+        title = "Export to PDF Completed",
+        fileName = exportedResultName,
+        fileUri = exportedResultUri,
+        fileSize = exportedResultSize,
+        mimeType = "application/pdf",
+        onOpenFile = { openUri ->
+            showExportResultSheet = false
+            onToolAction(ViewerTool.Navigate(com.karnadigital.omnisuite.ui.navigation.Screen.ViewerDispatcher.createRoute(openUri)))
+        }
+    )
 }
 
 private fun parseHexColor(hex: String?): Color? {
@@ -1882,7 +1963,8 @@ fun DocxWebView(
     isPrintLayout: Boolean,
     searchQuery: String,
     currentMatchIndex: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onWebViewReady: (WebView) -> Unit = {}
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isPageLoaded by remember { mutableStateOf(false) }
@@ -1951,16 +2033,19 @@ fun DocxWebView(
                         super.onPageFinished(view, url)
                         isPageLoaded = true
                         webViewInstance = this@apply
+                        onWebViewReady(this@apply)
                         evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
                     }
                 }
 
                 loadUrl("file:///android_asset/docx_viewer/viewer.html")
                 webViewInstance = this
+                onWebViewReady(this)
             }
         },
         update = { wv ->
             webViewInstance = wv
+            onWebViewReady(wv)
         },
         modifier = modifier
     )

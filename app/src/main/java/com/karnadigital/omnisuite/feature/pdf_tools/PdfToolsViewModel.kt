@@ -3,7 +3,12 @@ package com.karnadigital.omnisuite.feature.pdf_tools
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.print.PrintAdapterHelper
 import android.print.PrintAttributes
+import android.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -17,8 +22,10 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
@@ -228,6 +235,148 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
+    private fun getFileNameFromUri(uri: Uri): String {
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx != -1) {
+                            val name = cursor.getString(idx)
+                            if (!name.isNullOrBlank()) return name
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "document"
+    }
+
+    fun convertDocToPdfWithWebView(webView: WebView?) {
+        val inputUri = docInputUri ?: run {
+            errorMessage = "Please select a Word document first."
+            return
+        }
+        val fileName = getFileNameFromUri(inputUri)
+        val isDocx = fileName.endsWith(".docx", ignoreCase = true)
+
+        if (!isDocx || webView == null) {
+            // Fallback for legacy .doc or if webview not available
+            convertDocToPdf()
+            return
+        }
+
+        isProcessing = true
+        resetStatus()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val bytes = context.contentResolver.openInputStream(inputUri)?.use { it.readBytes() }
+                    ?: throw Exception("Could not read Word document.")
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+                withContext(Dispatchers.Main) {
+                    var hasTriggered = false
+
+                    val timeoutJob = viewModelScope.launch {
+                        delay(45000)
+                        if (!hasTriggered) {
+                            hasTriggered = true
+                            withContext(Dispatchers.Main) {
+                                errorMessage = "Conversion timed out. Please try again."
+                                isProcessing = false
+                            }
+                        }
+                    }
+
+                    val bridge = object {
+                        @JavascriptInterface
+                        fun onRenderComplete(pageCount: Int) {
+                            if (hasTriggered) return
+                            hasTriggered = true
+                            timeoutJob.cancel()
+
+                            webView.post {
+                                try {
+                                    val tempPdfFile = File(context.cacheDir, "docx_conv_${System.currentTimeMillis()}.pdf")
+                                    val pfd = ParcelFileDescriptor.open(
+                                        tempPdfFile,
+                                        ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE
+                                    )
+                                    val printAdapter = webView.createPrintDocumentAdapter("DOCX_Conversion")
+                                    val printAttributes = PrintAttributes.Builder()
+                                        .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                                        .setResolution(PrintAttributes.Resolution("pdf", "pdf", 300, 300))
+                                        .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                                        .build()
+
+                                    PrintAdapterHelper.print(printAdapter, printAttributes, pfd) { success, error ->
+                                        try { pfd.close() } catch (_: Exception) {}
+                                        if (success && tempPdfFile.exists() && tempPdfFile.length() > 0) {
+                                            viewModelScope.launch(Dispatchers.IO) {
+                                                try {
+                                                    val originalName = fileName.removeSuffix(".docx").removeSuffix(".doc")
+                                                    val outName = "${originalName}_converted.pdf"
+                                                    val pdfBytes = tempPdfFile.readBytes()
+                                                    val savedUri = pdfToolsRepository.saveBytesAndRegister(
+                                                        bytes = pdfBytes,
+                                                        fileName = outName,
+                                                        mimeType = "application/pdf",
+                                                        subfolder = "PDF",
+                                                        isOperation = true
+                                                    )
+
+                                                    withContext(Dispatchers.Main) {
+                                                        successUri = savedUri
+                                                        successName = outName
+                                                        lastOutputBytes = pdfBytes
+                                                        successMessage = "Word document converted to PDF successfully!"
+                                                        isProcessing = false
+                                                        docInputUri = null
+                                                    }
+                                                } catch (e: Exception) {
+                                                    withContext(Dispatchers.Main) {
+                                                        errorMessage = "Failed to save PDF: ${e.localizedMessage}"
+                                                        isProcessing = false
+                                                    }
+                                                } finally {
+                                                    tempPdfFile.delete()
+                                                }
+                                            }
+                                        } else {
+                                            viewModelScope.launch(Dispatchers.Main) {
+                                                errorMessage = "Conversion failed: ${error ?: "Unknown error"}"
+                                                isProcessing = false
+                                                tempPdfFile.delete()
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    errorMessage = "Export error: ${e.localizedMessage}"
+                                    isProcessing = false
+                                }
+                            }
+                        }
+                    }
+
+                    webView.addJavascriptInterface(bridge, "AndroidBridge")
+                    webView.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            view?.evaluateJavascript("renderDocxBase64('$base64', true)", null)
+                        }
+                    }
+                    webView.loadUrl("file:///android_asset/docx_viewer/viewer.html")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    errorMessage = "Error: ${e.localizedMessage}"
+                    isProcessing = false
+                }
+            }
+        }
+    }
+
     fun convertDocToPdf() {
         val inputUri = docInputUri ?: run {
             errorMessage = "Please select a Word document first."
@@ -239,7 +388,24 @@ class PdfToolsViewModel @Inject constructor(
             val result = pdfToolsRepository.convertDocToPdf(inputUri)
             result.onSuccess { uri ->
                 successUri = uri
+                val baseName = (inputUri.lastPathSegment ?: "document")
+                    .substringAfterLast('/')
+                    .removeSuffix(".docx").removeSuffix(".doc")
+                val outName = "${baseName}_converted.pdf"
+                successName = outName
                 successMessage = "Word document converted to PDF successfully!"
+
+                // Populate lastOutputBytes so custom save does not write 0B
+                try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            lastOutputBytes = stream.readBytes()
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
                 docInputUri = null
             }.onFailure { e ->
                 errorMessage = "Error during Word to PDF conversion: ${e.localizedMessage}"

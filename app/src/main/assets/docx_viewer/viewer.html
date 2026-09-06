@@ -172,6 +172,51 @@
             color: #d93025;
             font-size: 14px;
         }
+
+        /* ═══════════════════════════════════════════════
+           PRINT / PDF EXPORT STYLES
+           ═══════════════════════════════════════════════ */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+            html, body {
+                background: #ffffff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            #loading, #error {
+                display: none !important;
+            }
+            #container {
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            .docx-wrapper {
+                background: transparent !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .docx-wrapper > section.docx {
+                background: #ffffff !important;
+                box-shadow: none !important;
+                margin: 0 auto !important;
+                border: none !important;
+                border-radius: 0 !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                page-break-after: always !important;
+                break-after: page !important;
+            }
+            .docx-wrapper > section.docx:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+        }
     </style>
 </head>
 <body class="print-layout">
@@ -241,6 +286,7 @@
                 docx.renderAsync(bytes.buffer, container, null, {
                     className: "docx",
                     inWrapper: true,
+                    hideWrapperOnPrint: true,
                     ignoreWidth: !breakPages,
                     ignoreHeight: !breakPages,
                     breakPages: breakPages,

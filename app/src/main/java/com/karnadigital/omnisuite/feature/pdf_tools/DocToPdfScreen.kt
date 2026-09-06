@@ -26,6 +26,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.viewinterop.AndroidView
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,6 +43,7 @@ fun DocToPdfScreen(
 ) {
     val context = LocalContext.current
     var previewBitmap by remember(viewModel.successUri) { mutableStateOf<Bitmap?>(null) }
+    var converterWebView by remember { mutableStateOf<WebView?>(null) }
 
     LaunchedEffect(viewModel.successUri) {
         val uri = viewModel.successUri
@@ -237,8 +242,15 @@ fun DocToPdfScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val sizeBytes = viewModel.lastOutputBytes?.size?.toLong() ?: 0L
+                            val sizeText = if (sizeBytes > 0) {
+                                val units = arrayOf("B", "KB", "MB", "GB")
+                                val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.toDouble())).toInt().coerceIn(0, 3)
+                                String.format("%.1f %s", sizeBytes / Math.pow(1024.toDouble(), digitGroups.toDouble()), units[digitGroups])
+                            } else null
+
                             Text(
-                                text = "Default Saved to OmniSuite/PDF folder",
+                                text = "Default Saved to OmniSuite/PDF folder" + (if (sizeText != null) " • $sizeText" else ""),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = Color(0xFF2E7D32)
                             )
@@ -354,7 +366,7 @@ fun DocToPdfScreen(
                         Spacer(modifier = Modifier.weight(1f))
 
                         Button(
-                            onClick = { viewModel.convertDocToPdf() },
+                            onClick = { viewModel.convertDocToPdfWithWebView(converterWebView) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
@@ -369,6 +381,25 @@ fun DocToPdfScreen(
                     }
                 }
             }
+
+            // Hidden WebView attached to Window hierarchy for accurate Chromium print conversion
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(1080, 1920)
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            allowFileAccess = true
+                            allowContentAccess = true
+                        }
+                        converterWebView = this
+                    }
+                },
+                modifier = Modifier
+                    .size(1.dp)
+                    .alpha(0.01f)
+            )
 
             // High premium processing overlay
             if (viewModel.isProcessing) {

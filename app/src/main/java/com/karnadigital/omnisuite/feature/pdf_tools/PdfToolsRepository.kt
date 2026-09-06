@@ -120,21 +120,34 @@ class PdfToolsRepository @Inject constructor(
         return result
     }
 
-    suspend fun saveBytesAndRegister(bytes: ByteArray, fileName: String, mimeType: String, subfolder: String): Uri = withContext(Dispatchers.IO) {
+    suspend fun saveBytesAndRegister(
+        bytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+        subfolder: String,
+        isOperation: Boolean = true
+    ): Uri = withContext(Dispatchers.IO) {
         val savedUri = fileOutputManager.saveToDefault(bytes, fileName, mimeType, subfolder)
             ?: throw Exception("Failed to save file.")
-        registerRecentFile(savedUri, fileName, mimeType, bytes.size.toLong())
+        registerRecentFile(savedUri, fileName, mimeType, bytes.size.toLong(), isOperation = isOperation)
         savedUri
     }
 
-    private suspend fun registerRecentFile(savedUri: Uri, fileName: String, mimeType: String, fileSize: Long) {
+    suspend fun registerRecentFile(
+        savedUri: Uri,
+        fileName: String,
+        mimeType: String,
+        fileSize: Long,
+        isOperation: Boolean = false
+    ) {
         recentFileRepository.insertRecentFile(
             RecentFile(
                 fileUri = savedUri.toString(),
                 fileName = fileName,
                 mimeType = mimeType,
                 fileSize = fileSize,
-                lastOpened = System.currentTimeMillis()
+                lastOpened = System.currentTimeMillis(),
+                isOperation = isOperation
             )
         )
     }
@@ -238,22 +251,26 @@ class PdfToolsRepository @Inject constructor(
     }
 
     suspend fun convertDocToPdf(inputUri: Uri): Result<Uri> = withContext(Dispatchers.IO) {
+        var tempInputFile: File? = null
+        var tempOutputFile: File? = null
         try {
-            val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
+            tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
                 ?: throw Exception("Could not open Word document.")
-            val tempOutputFile = File(context.cacheDir, "docx_converted_${System.currentTimeMillis()}.pdf")
+            tempOutputFile = File(context.cacheDir, "docx_converted_${System.currentTimeMillis()}.pdf")
             officeConverter.convertDocxToPdf(tempInputFile, tempOutputFile)
+
             val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".docx").removeSuffix(".doc")
             val outName = "${originalName}_converted.pdf"
             val bytes = tempOutputFile.readBytes()
             val savedUri = fileOutputManager.saveToDefault(bytes, outName, "application/pdf", "PDF")
                 ?: throw Exception("Failed to save PDF to OmniSuite folder.")
-            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length())
-            if (tempInputFile.exists()) tempInputFile.delete()
-            if (tempOutputFile.exists()) tempOutputFile.delete()
+            registerRecentFile(savedUri, outName, "application/pdf", tempOutputFile.length(), isOperation = true)
             Result.success(savedUri)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            if (tempInputFile?.exists() == true) tempInputFile?.delete()
+            if (tempOutputFile?.exists() == true) tempOutputFile?.delete()
         }
     }
 

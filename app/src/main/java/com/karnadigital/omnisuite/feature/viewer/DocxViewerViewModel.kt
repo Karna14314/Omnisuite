@@ -1280,7 +1280,7 @@ class DocxViewerViewModel @Inject constructor(
      */
     fun exportToPdf(
         outputUri: Uri,
-        onSuccess: () -> Unit,
+        onSuccess: (fileSize: Long, fileName: String) -> Unit,
         onFailure: (String) -> Unit
     ) {
         viewModelScope.launch {
@@ -1293,29 +1293,77 @@ class DocxViewerViewModel @Inject constructor(
                 onFailure("No active document loaded.")
                 return@launch
             }
-            withContext(Dispatchers.IO) {
-                val tempPdfFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.pdf")
-                try {
-                    officeConverter.convertDocxToPdf(File(docxPath), tempPdfFile)
+            val docxFile = File(docxPath)
+            val tempPdfFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.pdf")
+            try {
+                withContext(Dispatchers.IO) {
+                    officeConverter.convertDocxToPdf(docxFile, tempPdfFile)
+                }
+
+                val fileSize = tempPdfFile.length()
+                withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
                         tempPdfFile.inputStream().use { inputStream ->
                             inputStream.copyTo(outputStream)
+                            outputStream.flush()
                         }
                     }
-                    withContext(Dispatchers.Main) {
-                        onSuccess()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    withContext(Dispatchers.Main) {
-                        onFailure(e.localizedMessage ?: "Conversion failed")
-                    }
-                } finally {
-                    if (tempPdfFile.exists()) {
-                        tempPdfFile.delete()
-                    }
+                }
+
+                val outName = getFileName(outputUri) ?: (docxFile.nameWithoutExtension + ".pdf")
+                recentFileRepository.insertRecentFile(
+                    RecentFile(
+                        fileUri = outputUri.toString(),
+                        fileName = outName,
+                        mimeType = "application/pdf",
+                        fileSize = fileSize,
+                        lastOpened = System.currentTimeMillis(),
+                        isOperation = true
+                    )
+                )
+
+                withContext(Dispatchers.Main) {
+                    onSuccess(fileSize, outName)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onFailure(e.localizedMessage ?: "Conversion failed")
+                }
+            } finally {
+                if (tempPdfFile.exists()) {
+                    tempPdfFile.delete()
                 }
             }
+        }
+    }
+
+    fun getFileName(uri: Uri): String? {
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx != -1) return cursor.getString(idx)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return uri.lastPathSegment?.substringAfterLast('/')
+    }
+
+    fun registerExportedPdf(outputUri: Uri, fileName: String, fileSize: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            recentFileRepository.insertRecentFile(
+                RecentFile(
+                    fileUri = outputUri.toString(),
+                    fileName = fileName,
+                    mimeType = "application/pdf",
+                    fileSize = fileSize,
+                    lastOpened = System.currentTimeMillis(),
+                    isOperation = true
+                )
+            )
         }
     }
 

@@ -43,6 +43,11 @@ class RecentFileRepository @Inject constructor(
                 name.startsWith("decrypted_") ||
                 name.startsWith("signed_") ||
                 name.startsWith("converted_") ||
+                name.contains("_converted.") ||
+                name.endsWith("_converted.pdf") ||
+                name.startsWith("exported_") ||
+                name.contains("_exported.") ||
+                name.endsWith("_exported.pdf") ||
                 name.startsWith("images_compiled") ||
                 mime.startsWith("application/x-")
 

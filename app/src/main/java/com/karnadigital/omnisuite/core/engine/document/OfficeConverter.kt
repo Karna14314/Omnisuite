@@ -60,42 +60,84 @@ class OfficeConverter @Inject constructor(
             docx = XWPFDocument(docxStream)
             pdf = PDDocument()
 
-            val fontNormal = PDType1Font.HELVETICA
-            val fontBold = PDType1Font.HELVETICA_BOLD
-            val fontSizeNormal = 11f
-            val fontSizeHeading = 15f
-            val leadingNormal = fontSizeNormal * 1.25f
-            val leadingHeading = fontSizeHeading * 1.25f
+            // Determine Page Size
+            val sectPr = try { docx.document.body.sectPr } catch (_: Exception) { null }
+            val pgSz = sectPr?.pgSz
+            val pageBounds = if (pgSz != null && pgSz.w != null && pgSz.h != null) {
+                try {
+                    val w = (pgSz.w as Number).toFloat() / 20f
+                    val h = (pgSz.h as Number).toFloat() / 20f
+                    if (w > 200f && h > 200f) PDRectangle(w, h) else PDRectangle.A4
+                } catch (_: Exception) {
+                    PDRectangle.A4
+                }
+            } else {
+                PDRectangle.A4
+            }
 
-            // A4 Bounds: 595 x 842 points
-            val pageBounds = PDRectangle.A4
-            val margin = 50f
-            val printableWidth = pageBounds.width - (2 * margin)
+            // Extract dynamic page margins from sectPr
+            val pgMar = sectPr?.pgMar
+            val marginTop = try {
+                ((pgMar?.top as? Number)?.toFloat() ?: (pgMar?.top?.toString()?.toFloatOrNull() ?: 500f)) / 20f
+            } catch (_: Exception) { 25f }.coerceIn(18f, 72f)
+
+            val marginBottom = try {
+                ((pgMar?.bottom as? Number)?.toFloat() ?: (pgMar?.bottom?.toString()?.toFloatOrNull() ?: 500f)) / 20f
+            } catch (_: Exception) { 25f }.coerceIn(18f, 72f)
+
+            val marginLeft = try {
+                ((pgMar?.left as? Number)?.toFloat() ?: (pgMar?.left?.toString()?.toFloatOrNull() ?: 600f)) / 20f
+            } catch (_: Exception) { 30f }.coerceIn(18f, 72f)
+
+            val marginRight = try {
+                ((pgMar?.right as? Number)?.toFloat() ?: (pgMar?.right?.toString()?.toFloatOrNull() ?: 600f)) / 20f
+            } catch (_: Exception) { 30f }.coerceIn(18f, 72f)
+
+            val printableWidth = pageBounds.width - (marginLeft + marginRight)
 
             var currentPage = PDPage(pageBounds)
             pdf.addPage(currentPage)
             contentStream = PDPageContentStream(pdf, currentPage)
 
-            var yPosition = pageBounds.height - margin
+            var yPosition = pageBounds.height - marginTop
 
             for (bodyElement in docx.bodyElements) {
                 if (bodyElement is org.apache.poi.xwpf.usermodel.XWPFTable) {
+                    val hasBorders = try {
+                        val tblBorders = bodyElement.ctTbl?.tblPr?.tblBorders
+                        tblBorders != null
+                    } catch (_: Exception) { true }
+
                     for (row in bodyElement.rows) {
                         val cells = row.tableCells
                         val cellCount = cells.size
                         if (cellCount == 0) continue
-                        val colWidth = printableWidth / cellCount.toFloat()
+
+                        val definedWidths = cells.map { cell ->
+                            try {
+                                cell.ctTc?.tcPr?.tcW?.w?.let { (it as Number).toFloat() / 20f } ?: 0f
+                            } catch (_: Exception) { 0f }
+                        }
+                        val sumDefined = definedWidths.sum()
+                        val colWidths = if (sumDefined > 10f) {
+                            definedWidths.map { (it / sumDefined) * printableWidth }
+                        } else {
+                            List(cellCount) { printableWidth / cellCount.toFloat() }
+                        }
 
                         // Store lines of text for each cell
                         class CellLine(val text: String, val font: PDType1Font, val fontSize: Float, val leading: Float, val colorHex: String?)
                         val cellLinesList = mutableListOf<List<CellLine>>()
                         var maxCellHeight = 0f
 
-                        for (cell in cells) {
+                        for (cellIdx in 0 until cellCount) {
+                            val cell = cells[cellIdx]
+                            val cellWidth = colWidths[cellIdx]
                             val lines = mutableListOf<CellLine>()
+
                             for (para in cell.paragraphs) {
                                 val isHeading = para.styleID?.lowercase()?.contains("heading") == true ||
-                                        para.runs.firstOrNull()?.fontSize ?: 0 > 14
+                                        (para.runs.firstOrNull()?.fontSize ?: 0) > 13
 
                                 for (run in para.runs) {
                                     val font = when {
@@ -104,19 +146,19 @@ class OfficeConverter @Inject constructor(
                                         run.isItalic -> PDType1Font.HELVETICA_OBLIQUE
                                         else -> PDType1Font.HELVETICA
                                     }
-                                    val fontSizeHalfPoints = run.fontSize
-                                    val fontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat()) else (if (isHeading) fontSizeHeading else fontSizeNormal)
-                                    val leading = fontSize * 1.4f
+                                    val fontSizePoints = run.fontSize
+                                    val fontSize = if (fontSizePoints > 0) fontSizePoints.toFloat() else (if (isHeading) 13f else 9.5f)
+                                    val leading = fontSize * 1.18f
                                     val runText = run.getText(0) ?: ""
                                     if (runText.isNotEmpty()) {
-                                        val wrapped = wrapText(runText, font, fontSize, colWidth - 10f)
+                                        val wrapped = wrapText(runText, font, fontSize, maxOf(10f, cellWidth - 8f))
                                         for (line in wrapped) {
                                             lines.add(CellLine(line, font, fontSize, leading, run.color))
                                         }
                                     }
                                 }
                             }
-                            val cellHeight = lines.sumOf { it.leading.toDouble() }.toFloat()
+                            val cellHeight = lines.sumOf { it.leading.toDouble() }.toFloat() + 4f
                             if (cellHeight > maxCellHeight) {
                                 maxCellHeight = cellHeight
                             }
@@ -124,24 +166,22 @@ class OfficeConverter @Inject constructor(
                         }
 
                         // Check page bound break for the entire row height
-                        if (yPosition - maxCellHeight < margin) {
+                        if (yPosition - maxCellHeight < marginBottom) {
                             contentStream?.close()
                             currentPage = PDPage(pageBounds)
                             pdf.addPage(currentPage)
                             contentStream = PDPageContentStream(pdf, currentPage)
-                            yPosition = pageBounds.height - margin
+                            yPosition = pageBounds.height - marginTop
                         }
 
                         val startY = yPosition
-                        var rowBottomY = startY - maxCellHeight
-                        if (maxCellHeight == 0f) {
-                            rowBottomY = startY - 15f
-                        }
+                        val rowBottomY = startY - maxCellHeight
 
+                        var currentX = marginLeft
                         for (cellIdx in 0 until cellCount) {
-                            val cellX = margin + (cellIdx.toFloat() * colWidth)
+                            val cellWidth = colWidths[cellIdx]
                             val lines = cellLinesList[cellIdx]
-                            var currentCellY = startY
+                            var currentCellY = startY - 2f
 
                             for (line in lines) {
                                 currentCellY -= line.leading
@@ -154,57 +194,156 @@ class OfficeConverter @Inject constructor(
                                         val g = colorHex.substring(2, 4).toInt(16)
                                         val b = colorHex.substring(4, 6).toInt(16)
                                         contentStream?.setNonStrokingColor(r, g, b)
-                                    } catch (e: Exception) {
+                                    } catch (_: Exception) {
                                         contentStream?.setNonStrokingColor(0, 0, 0)
                                     }
                                 } else {
                                     contentStream?.setNonStrokingColor(0, 0, 0)
                                 }
                                 contentStream?.setFont(line.font, line.fontSize)
-                                contentStream?.newLineAtOffset(cellX + 5f, currentCellY)
+                                contentStream?.newLineAtOffset(currentX + 4f, currentCellY)
                                 contentStream?.showText(sanitizedLine)
                                 contentStream?.endText()
                             }
 
-                            // Draw borders for this cell
-                            contentStream?.setStrokingColor(200, 200, 200)
-                            contentStream?.setLineWidth(0.5f)
-                            contentStream?.moveTo(cellX, startY)
-                            contentStream?.lineTo(cellX + colWidth, startY)
-                            contentStream?.lineTo(cellX + colWidth, rowBottomY)
-                            contentStream?.lineTo(cellX, rowBottomY)
-                            contentStream?.lineTo(cellX, startY)
-                            contentStream?.stroke()
+                            if (hasBorders) {
+                                contentStream?.setStrokingColor(210, 210, 210)
+                                contentStream?.setLineWidth(0.5f)
+                                contentStream?.moveTo(currentX, startY)
+                                contentStream?.lineTo(currentX + cellWidth, startY)
+                                contentStream?.lineTo(currentX + cellWidth, rowBottomY)
+                                contentStream?.lineTo(currentX, rowBottomY)
+                                contentStream?.lineTo(currentX, startY)
+                                contentStream?.stroke()
+                            }
+
+                            currentX += cellWidth
                         }
 
-                        yPosition = rowBottomY
+                        yPosition = rowBottomY - 2f
                     }
                 }
 
                 if (bodyElement is org.apache.poi.xwpf.usermodel.XWPFParagraph) {
                     val paragraph = bodyElement
-                    val isHeading = paragraph.styleID?.lowercase()?.contains("heading") == true ||
-                            paragraph.runs.firstOrNull()?.fontSize ?: 0 > 14
-                    
-                    var xCursor = margin
+                    val styleId = paragraph.styleID?.lowercase() ?: ""
+                    val isHeadingStyle = styleId.contains("heading") || styleId.contains("title")
 
-                    // Check if paragraph needs a page break before starting if yPosition is too low
-                    if (yPosition - 15f < margin) {
-                        contentStream?.close()
-                        currentPage = PDPage(pageBounds)
-                        pdf.addPage(currentPage)
-                        contentStream = PDPageContentStream(pdf, currentPage)
-                        yPosition = pageBounds.height - margin
+                    // Extract alignment dynamically
+                    val align = try { paragraph.alignment?.name } catch (_: Exception) { null }
+                    val isCenter = align == "CENTER"
+                    val isRight = align == "RIGHT"
+
+                    // Helper to resolve run font size dynamically
+                    fun getRunFontSize(run: org.apache.poi.xwpf.usermodel.XWPFRun): Float {
+                        val fs = run.fontSize
+                        if (fs > 0) return fs.toFloat()
+                        val rPrSz = try {
+                            val rPr = run.ctr?.rPr
+                            if (rPr != null) {
+                                val szObj = rPr.javaClass.getMethod("getSz").invoke(rPr)
+                                val valObj = szObj?.javaClass?.getMethod("getVal")?.invoke(szObj)
+                                (valObj as? Number)?.toFloat()?.let { it / 2f }
+                            } else null
+                        } catch (_: Exception) { null }
+                        if (rPrSz != null && rPrSz > 0f) return rPrSz
+                        return if (isHeadingStyle) 12f else 9f
                     }
 
-                    // Check if paragraph has text or images
+                    // Helper to resolve font style
+                    fun getRunFont(run: org.apache.poi.xwpf.usermodel.XWPFRun, isHeading: Boolean): PDType1Font {
+                        val bold = run.isBold || isHeading
+                        val italic = run.isItalic
+                        return when {
+                            bold && italic -> PDType1Font.HELVETICA_BOLD_OBLIQUE
+                            bold -> PDType1Font.HELVETICA_BOLD
+                            italic -> PDType1Font.HELVETICA_OBLIQUE
+                            else -> PDType1Font.HELVETICA
+                        }
+                    }
+
+                    // Helper to resolve text color
+                    fun getRunColor(run: org.apache.poi.xwpf.usermodel.XWPFRun, isHeading: Boolean): Triple<Int, Int, Int> {
+                        val colorHex = run.color ?: try {
+                            val rPr = run.ctr?.rPr
+                            if (rPr != null) {
+                                val colorObj = rPr.javaClass.getMethod("getColor").invoke(rPr)
+                                colorObj?.javaClass?.getMethod("getVal")?.invoke(colorObj)?.toString()
+                            } else null
+                        } catch (_: Exception) { null }
+
+                        if (colorHex != null && colorHex.length == 6 && !colorHex.equals("auto", ignoreCase = true)) {
+                            try {
+                                val r = colorHex.substring(0, 2).toInt(16)
+                                val g = colorHex.substring(2, 4).toInt(16)
+                                val b = colorHex.substring(4, 6).toInt(16)
+                                return Triple(r, g, b)
+                            } catch (_: Exception) {}
+                        }
+                        return Triple(0, 0, 0)
+                    }
+
+                    val firstRunSize = paragraph.runs.firstOrNull()?.let { getRunFontSize(it) } ?: 9f
+                    val isHeading = isHeadingStyle
+
+                    // Spacing extraction (twips -> points)
+                    val spacingBeforeTwips = try { paragraph.spacingBefore } catch (_: Exception) { -1 }
+                    val spacingAfterTwips = try { paragraph.spacingAfter } catch (_: Exception) { -1 }
+                    val spacingBeforePt = if (spacingBeforeTwips >= 0) (spacingBeforeTwips / 20f).coerceIn(0f, 10f) else (if (isHeading) 2.5f else 0f)
+                    val spacingAfterPt = if (spacingAfterTwips >= 0) (spacingAfterTwips / 20f).coerceIn(0f, 10f) else (if (isHeading) 2f else 0f)
+
                     val hasTextOrImage = paragraph.runs.any { (it.getText(0) ?: "").isNotEmpty() || it.embeddedPictures.isNotEmpty() }
                     if (!hasTextOrImage) {
+                        yPosition -= 3f
                         continue
                     }
 
+                    if (spacingBeforePt > 0) {
+                        yPosition -= spacingBeforePt
+                    }
+
+                    // List / Indentation extraction
+                    val isList = try {
+                        paragraph.numID != null || paragraph.numFmt != null || styleId.contains("list")
+                    } catch (_: Exception) { false }
+
+                    val rawLeftIndentTwips = try {
+                        val ind = paragraph.ctp?.pPr?.ind
+                        if (ind != null) {
+                            val leftObj = ind.javaClass.getMethod("getLeft").invoke(ind)
+                            (leftObj as? Number)?.toFloat() ?: -1f
+                        } else -1f
+                    } catch (_: Exception) { -1f }
+                    val rawHangingTwips = try {
+                        val ind = paragraph.ctp?.pPr?.ind
+                        if (ind != null) {
+                            val hangObj = ind.javaClass.getMethod("getHanging").invoke(ind)
+                            (hangObj as? Number)?.toFloat() ?: -1f
+                        } else -1f
+                    } catch (_: Exception) { -1f }
+
+                    val indentLeft = if (rawLeftIndentTwips > 0) {
+                        (rawLeftIndentTwips / 20f).coerceIn(0f, 36f)
+                    } else if (isList) {
+                        14f
+                    } else {
+                        0f
+                    }
+
+                    val hangingIndent = if (rawHangingTwips > 0) {
+                        (rawHangingTwips / 20f).coerceIn(0f, 16f)
+                    } else if (isList) {
+                        8f
+                    } else {
+                        0f
+                    }
+
+                    val lineStartX = marginLeft + indentLeft
+                    val effectiveMaxX = pageBounds.width - marginRight
+                    val effectiveWidth = (effectiveMaxX - lineStartX).coerceAtLeast(50f)
+
+                    // Render embedded pictures if any
                     for (run in paragraph.runs) {
-                        // Check for images
                         val pictures = run.embeddedPictures
                         if (pictures.isNotEmpty()) {
                             for (pic in pictures) {
@@ -217,21 +356,16 @@ class OfficeConverter @Inject constructor(
                                         val targetWidth = Math.min(printableWidth, originalWidth)
                                         val targetHeight = (targetWidth / originalWidth) * originalHeight
 
-                                        if (xCursor > margin) {
-                                            yPosition -= (if (isHeading) fontSizeHeading else fontSizeNormal) * 1.4f
-                                            xCursor = margin
-                                        }
-
-                                        if (yPosition - targetHeight < margin) {
+                                        if (yPosition - targetHeight < marginBottom) {
                                             contentStream?.close()
                                             currentPage = PDPage(pageBounds)
                                             pdf.addPage(currentPage)
                                             contentStream = PDPageContentStream(pdf, currentPage)
-                                            yPosition = pageBounds.height - margin
+                                            yPosition = pageBounds.height - marginTop
                                         }
 
                                         val pdImage = LosslessFactory.createFromImage(pdf, bitmap)
-                                        contentStream?.drawImage(pdImage, margin, yPosition - targetHeight, targetWidth, targetHeight)
+                                        contentStream?.drawImage(pdImage, lineStartX, yPosition - targetHeight, targetWidth, targetHeight)
                                         yPosition -= targetHeight
                                         bitmap.recycle()
                                     }
@@ -240,71 +374,232 @@ class OfficeConverter @Inject constructor(
                                 }
                             }
                         }
+                    }
 
-                        // Check for text
-                        val runText = run.getText(0) ?: ""
-                        if (runText.isNotEmpty()) {
-                            val fontSizeHalfPoints = run.fontSize
-                            val actualFontSize = if (fontSizeHalfPoints > 0) (fontSizeHalfPoints.toFloat()) else (if (isHeading) fontSizeHeading else fontSizeNormal)
-                            val leading = actualFontSize * 1.4f
-                            val font = when {
-                                run.isBold && run.isItalic -> PDType1Font.HELVETICA_BOLD_OBLIQUE
-                                run.isBold -> PDType1Font.HELVETICA_BOLD
-                                run.isItalic -> PDType1Font.HELVETICA_OBLIQUE
-                                else -> PDType1Font.HELVETICA
+                    // Check for tabs (e.g. left degree / title and right-aligned date)
+                    val rawText = paragraph.text ?: ""
+                    fun runHasTab(r: org.apache.poi.xwpf.usermodel.XWPFRun): Boolean {
+                        val t = r.getText(0) ?: ""
+                        if (t.contains("\t")) return true
+                        return try {
+                            val ctr = r.ctr
+                            if (ctr != null) {
+                                val tabList = ctr.javaClass.getMethod("getTabList").invoke(ctr) as? List<*>
+                                tabList?.isNotEmpty() == true
+                            } else false
+                        } catch (_: Exception) { false }
+                    }
+
+                    val hasTab = rawText.contains("\t") || paragraph.runs.any { runHasTab(it) }
+
+                    // Bottom border / heading underline check (only if explicitly defined in docx)
+                    val hasBottomBorder = try {
+                        val pBdr = paragraph.ctp?.pPr?.pBdr
+                        if (pBdr != null) {
+                            val bdr = pBdr.javaClass.getMethod("getBottom").invoke(pBdr)
+                            val valProp = bdr?.javaClass?.getMethod("getVal")?.invoke(bdr)?.toString()
+                            valProp != null && valProp != "none" && valProp != "nil"
+                        } else false
+                    } catch (_: Exception) { false }
+
+                    class WordItem(
+                        val text: String,
+                        val font: PDType1Font,
+                        val fontSize: Float,
+                        val width: Float,
+                        val color: Triple<Int, Int, Int>
+                    )
+
+                    if (hasTab && !isList) {
+                        // Split runs into left part and right part around the tab
+                        val leftWords = mutableListOf<WordItem>()
+                        val rightWords = mutableListOf<WordItem>()
+                        var seenTab = false
+
+                        for (run in paragraph.runs) {
+                            val rText = run.getText(0) ?: ""
+                            val hasSubTab = runHasTab(run)
+                            val fontSize = getRunFontSize(run)
+                            val font = getRunFont(run, isHeading)
+                            val color = getRunColor(run, isHeading)
+
+                            if (hasSubTab) {
+                                val parts = rText.split("\t")
+                                if (parts.isNotEmpty() && parts[0].isNotEmpty()) {
+                                    val s = sanitizeText(parts[0])
+                                    val w = try { font.getStringWidth(s) / 1000f * fontSize } catch (_: Exception) { 0f }
+                                    if (seenTab) rightWords.add(WordItem(s, font, fontSize, w, color))
+                                    else leftWords.add(WordItem(s, font, fontSize, w, color))
+                                }
+                                seenTab = true
+                                for (i in 1 until parts.size) {
+                                    if (parts[i].isNotEmpty()) {
+                                        val s = sanitizeText(parts[i])
+                                        val w = try { font.getStringWidth(s) / 1000f * fontSize } catch (_: Exception) { 0f }
+                                        rightWords.add(WordItem(s, font, fontSize, w, color))
+                                    }
+                                }
+                            } else {
+                                if (rText.isNotEmpty()) {
+                                    val words = rText.split(Regex("(?<=\\s)|(?=\\s)"))
+                                    for (word in words) {
+                                        if (word.isEmpty()) continue
+                                        val s = sanitizeText(word)
+                                        val w = try { font.getStringWidth(s) / 1000f * fontSize } catch (_: Exception) { 0f }
+                                        if (seenTab) rightWords.add(WordItem(s, font, fontSize, w, color))
+                                        else leftWords.add(WordItem(s, font, fontSize, w, color))
+                                    }
+                                }
                             }
+                        }
 
-                            // Split runText into words
-                            val words = runText.split(Regex("(?<=\\s)|(?=\\s)"))
+                        val maxFontSize = (leftWords + rightWords).maxOfOrNull { it.fontSize } ?: firstRunSize
+                        val leading = maxFontSize * 1.15f
+
+                        if (yPosition - leading < marginBottom) {
+                            contentStream?.close()
+                            currentPage = PDPage(pageBounds)
+                            pdf.addPage(currentPage)
+                            contentStream = PDPageContentStream(pdf, currentPage)
+                            yPosition = pageBounds.height - marginTop
+                        }
+
+                        // Render Left Words
+                        var curX = lineStartX
+                        for (item in leftWords) {
+                            if (item.text.trim().isNotEmpty()) {
+                                contentStream?.beginText()
+                                contentStream?.setNonStrokingColor(item.color.first, item.color.second, item.color.third)
+                                contentStream?.setFont(item.font, item.fontSize)
+                                contentStream?.newLineAtOffset(curX, yPosition)
+                                contentStream?.showText(item.text)
+                                contentStream?.endText()
+                            }
+                            curX += item.width
+                        }
+
+                        // Render Right Words (right-aligned to effectiveMaxX)
+                        val totalRightWidth = rightWords.sumOf { it.width.toDouble() }.toFloat()
+                        var rightCurX = (effectiveMaxX - totalRightWidth).coerceAtLeast(curX + 6f)
+                        for (item in rightWords) {
+                            if (item.text.trim().isNotEmpty()) {
+                                contentStream?.beginText()
+                                contentStream?.setNonStrokingColor(item.color.first, item.color.second, item.color.third)
+                                contentStream?.setFont(item.font, item.fontSize)
+                                contentStream?.newLineAtOffset(rightCurX, yPosition)
+                                contentStream?.showText(item.text)
+                                contentStream?.endText()
+                            }
+                            rightCurX += item.width
+                        }
+
+                        yPosition -= (leading + spacingAfterPt)
+                    } else {
+                        // Standard paragraph flow (with wrapping, alignment, and bullet glyphs)
+                        val allWords = mutableListOf<WordItem>()
+                        for (run in paragraph.runs) {
+                            val rText = run.getText(0) ?: ""
+                            if (rText.isEmpty()) continue
+                            val fontSize = getRunFontSize(run)
+                            val font = getRunFont(run, isHeading)
+                            val color = getRunColor(run, isHeading)
+
+                            val words = rText.split(Regex("(?<=\\s)|(?=\\s)"))
                             for (word in words) {
                                 if (word.isEmpty()) continue
-                                val sanitizedWord = sanitizeText(word)
-                                val wordWidth = try {
-                                    font.getStringWidth(sanitizedWord) / 1000f * actualFontSize
-                                } catch (e: Exception) {
-                                    0f
-                                }
-
-                                if (xCursor + wordWidth > pageBounds.width - margin) {
-                                    yPosition -= leading
-                                    xCursor = margin
-
-                                    if (yPosition < margin) {
-                                        contentStream?.close()
-                                        currentPage = PDPage(pageBounds)
-                                        pdf.addPage(currentPage)
-                                        contentStream = PDPageContentStream(pdf, currentPage)
-                                        yPosition = pageBounds.height - margin
-                                    }
-                                }
-
-                                if (sanitizedWord.trim().isNotEmpty()) {
-                                    contentStream?.beginText()
-                                    val colorHex = run.color
-                                    if (colorHex != null && colorHex.length == 6) {
-                                        try {
-                                            val r = colorHex.substring(0, 2).toInt(16)
-                                            val g = colorHex.substring(2, 4).toInt(16)
-                                            val b = colorHex.substring(4, 6).toInt(16)
-                                            contentStream?.setNonStrokingColor(r, g, b)
-                                        } catch (e: Exception) {
-                                            contentStream?.setNonStrokingColor(0, 0, 0)
-                                        }
-                                    } else {
-                                        contentStream?.setNonStrokingColor(0, 0, 0)
-                                    }
-                                    contentStream?.setFont(font, actualFontSize)
-                                    contentStream?.newLineAtOffset(xCursor, yPosition)
-                                    contentStream?.showText(sanitizedWord)
-                                    contentStream?.endText()
-                                }
-                                xCursor += wordWidth
+                                val s = sanitizeText(word)
+                                val w = try { font.getStringWidth(s) / 1000f * fontSize } catch (_: Exception) { 0f }
+                                allWords.add(WordItem(s, font, fontSize, w, color))
                             }
+                        }
+
+                        if (allWords.isNotEmpty()) {
+                            // Pack words into lines
+                            val lines = mutableListOf<MutableList<WordItem>>()
+                            var currentLine = mutableListOf<WordItem>()
+                            var currentLineWidth = 0f
+
+                            for (word in allWords) {
+                                if (currentLineWidth + word.width > effectiveWidth && currentLine.isNotEmpty()) {
+                                    lines.add(currentLine)
+                                    currentLine = mutableListOf()
+                                    currentLineWidth = 0f
+                                }
+                                currentLine.add(word)
+                                currentLineWidth += word.width
+                            }
+                            if (currentLine.isNotEmpty()) {
+                                lines.add(currentLine)
+                            }
+
+                            // Bullet glyph placement
+                            var drawnBullet = false
+                            val firstLineText = allWords.take(3).joinToString("") { it.text }
+                            val alreadyHasBullet = firstLineText.trimStart().startsWith("\u00B7") ||
+                                    firstLineText.trimStart().startsWith("-") ||
+                                    firstLineText.trimStart().startsWith("*")
+
+                            for ((lineIdx, line) in lines.withIndex()) {
+                                val lineMaxFontSize = line.maxOfOrNull { it.fontSize } ?: firstRunSize
+                                val lineLeading = lineMaxFontSize * 1.15f
+
+                                if (yPosition - lineLeading < marginBottom) {
+                                    contentStream?.close()
+                                    currentPage = PDPage(pageBounds)
+                                    pdf.addPage(currentPage)
+                                    contentStream = PDPageContentStream(pdf, currentPage)
+                                    yPosition = pageBounds.height - marginTop
+                                }
+
+                                // Bullet dot on first line of list if not present
+                                if (isList && !alreadyHasBullet && !drawnBullet && lineIdx == 0) {
+                                    val bulletX = (lineStartX - hangingIndent).coerceAtLeast(marginLeft)
+                                    contentStream?.beginText()
+                                    contentStream?.setNonStrokingColor(60, 60, 60)
+                                    contentStream?.setFont(PDType1Font.HELVETICA_BOLD, lineMaxFontSize)
+                                    contentStream?.newLineAtOffset(bulletX, yPosition)
+                                    contentStream?.showText("\u00B7")
+                                    contentStream?.endText()
+                                    drawnBullet = true
+                                }
+
+                                val totalLineWidth = line.sumOf { it.width.toDouble() }.toFloat()
+                                val startX = when {
+                                    isCenter -> lineStartX + ((effectiveWidth - totalLineWidth) / 2f).coerceAtLeast(0f)
+                                    isRight -> effectiveMaxX - totalLineWidth
+                                    else -> lineStartX
+                                }
+
+                                var wordX = startX
+                                for (item in line) {
+                                    if (item.text.trim().isNotEmpty()) {
+                                        contentStream?.beginText()
+                                        contentStream?.setNonStrokingColor(item.color.first, item.color.second, item.color.third)
+                                        contentStream?.setFont(item.font, item.fontSize)
+                                        contentStream?.newLineAtOffset(wordX, yPosition)
+                                        contentStream?.showText(item.text)
+                                        contentStream?.endText()
+                                    }
+                                    wordX += item.width
+                                }
+
+                                yPosition -= lineLeading
+                            }
+
+                            yPosition -= spacingAfterPt
                         }
                     }
 
-                    val lastLeading = (if (isHeading) fontSizeHeading else fontSizeNormal) * 1.4f
-                    yPosition -= (lastLeading + 6f)
+                    // Render paragraph bottom divider if present
+                    if (hasBottomBorder) {
+                        val lineY = yPosition - 1.5f
+                        contentStream?.setStrokingColor(180, 180, 180)
+                        contentStream?.setLineWidth(0.5f)
+                        contentStream?.moveTo(lineStartX, lineY)
+                        contentStream?.lineTo(effectiveMaxX, lineY)
+                        contentStream?.stroke()
+                        yPosition -= 4f
+                    }
                 }
             }
 
@@ -1607,6 +1902,7 @@ class OfficeConverter @Inject constructor(
                     '‘', '’' -> sb.append('\'')
                     '“', '”' -> sb.append('"')
                     '–', '—' -> sb.append('-')
+                    '•', '·', '◦', '▪', '▫' -> sb.append('\u00B7')
                     else -> sb.append(' ')
                 }
             }
