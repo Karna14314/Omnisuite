@@ -102,24 +102,14 @@ fun TxtViewerScreen(
     )
 
     LaunchedEffect(fileUri) {
-        withContext(Dispatchers.IO) {
-            val file = File(fileUri)
-            if (file.exists()) {
-                val encoding = EncodingDetector.detectEncoding(file)
-                val encodingName = when (encoding.charset) {
-                    StandardCharsets.UTF_8 -> "UTF-8"
-                    StandardCharsets.UTF_16LE -> "UTF-16LE"
-                    StandardCharsets.UTF_16BE -> "UTF-16BE"
-                    StandardCharsets.US_ASCII -> "ASCII"
-                    StandardCharsets.ISO_8859_1 -> "ISO-8859-1"
-                    else -> encoding.charset.name()
-                }
-                detectedEncoding = encodingName
-                currentEncoding = encodingName
-                val content = EncodingDetector.readTextWithEncoding(file, encoding.charset)
-                textFieldValue = TextFieldValue(content)
-                isInitialized = true
-            }
+        viewModel.loadTextFile(fileUri)
+    }
+
+    LaunchedEffect(loadState) {
+        if (loadState is TxtLoadState.Success && !isInitialized) {
+            val content = (loadState as TxtLoadState.Success).content
+            textFieldValue = TextFieldValue(content)
+            isInitialized = true
         }
     }
 
@@ -581,6 +571,10 @@ fun TxtViewerScreen(
                         androidx.compose.ui.text.AnnotatedString(textFieldValue.text)
                     }
 
+                    val lineNumbersString = remember(lines.size) {
+                        (1..lines.size).joinToString("\n")
+                    }
+
                     if (wordWrap) {
                         Column(
                             modifier = Modifier
@@ -594,16 +588,16 @@ fun TxtViewerScreen(
                                         modifier = Modifier.width(gutterWidth),
                                         horizontalAlignment = Alignment.End
                                     ) {
-                                        lines.forEachIndexed { index, _ ->
-                                            Text(
-                                                text = "${index + 1}",
-                                                style = textStyle.copy(
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                    fontSize = (fontSize * 0.85f).sp
-                                                ),
-                                                modifier = Modifier.padding(end = 8.dp)
-                                            )
-                                        }
+                                        Text(
+                                            text = lineNumbersString,
+                                            style = textStyle.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                fontSize = (fontSize * 0.85f).sp,
+                                                lineHeight = (fontSize * 1.5f).sp,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                            ),
+                                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp)
+                                        )
                                     }
                                     BasicTextField(
                                         value = textFieldValue,
@@ -642,15 +636,16 @@ fun TxtViewerScreen(
                                         .padding(end = 8.dp),
                                     horizontalAlignment = Alignment.End
                                 ) {
-                                    lines.forEachIndexed { index, _ ->
-                                        Text(
-                                            text = "${index + 1}",
-                                            style = textStyle.copy(
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                fontSize = (fontSize * 0.85f).sp
-                                            )
-                                        )
-                                    }
+                                    Text(
+                                        text = lineNumbersString,
+                                        style = textStyle.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            fontSize = (fontSize * 0.85f).sp,
+                                            lineHeight = (fontSize * 1.5f).sp,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                 }
                                 HorizontalDivider(
                                     modifier = Modifier.fillMaxHeight().width(1.dp),

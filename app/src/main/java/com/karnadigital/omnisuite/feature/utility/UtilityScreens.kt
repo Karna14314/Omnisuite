@@ -3,7 +3,9 @@ package com.karnadigital.omnisuite.feature.utility
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
+import android.graphics.Path as AndroidPath
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
 import android.widget.Toast
@@ -30,9 +32,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -404,6 +410,245 @@ fun ColorPickerScreen(onBack: () -> Unit, viewModel: UtilityToolsViewModel = hil
     }
 }
 
+data class CollageSlot(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    val width: Float get() = (right - left).coerceAtLeast(0f)
+    val height: Float get() = (bottom - top).coerceAtLeast(0f)
+}
+
+enum class CollageAspectRatio(val label: String, val ratio: Float) {
+    SQUARE("1:1 (Square)", 1f),
+    PORTRAIT("4:5 (Post)", 4f / 5f),
+    STORY("9:16 (Story)", 9f / 16f),
+    LANDSCAPE("16:9 (Wide)", 16f / 9f)
+}
+
+private fun getCollageLabels(count: Int): List<String> = when (count) {
+    1 -> listOf("Single")
+    2 -> listOf("Split Columns", "Stacked Rows")
+    3 -> listOf("Hero Top", "Hero Left", "3 Columns", "3 Rows")
+    4 -> listOf("2×2 Grid", "Hero Top", "Hero Left", "4 Columns")
+    5 -> listOf("2 Top + 3 Bot", "Hero Left", "Hero Top", "3 Top + 2 Bot")
+    else -> listOf("3×2 Grid", "2×3 Grid", "2 Top + 4 Bot", "4 Top + 2 Bot")
+}
+
+private fun getCollageSlots(
+    count: Int,
+    layoutIndex: Int,
+    width: Float,
+    height: Float,
+    gap: Float
+): List<CollageSlot> {
+    if (count <= 0) return emptyList()
+    if (count == 1) return listOf(CollageSlot(0f, 0f, width, height))
+
+    return when (count) {
+        2 -> {
+            if (layoutIndex % 2 == 0) {
+                val colW = (width - gap) / 2f
+                listOf(
+                    CollageSlot(0f, 0f, colW, height),
+                    CollageSlot(colW + gap, 0f, width, height)
+                )
+            } else {
+                val rowH = (height - gap) / 2f
+                listOf(
+                    CollageSlot(0f, 0f, width, rowH),
+                    CollageSlot(0f, rowH + gap, width, height)
+                )
+            }
+        }
+        3 -> {
+            when (layoutIndex % 4) {
+                0 -> {
+                    val topH = (height - gap) / 2f
+                    val botW = (width - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, width, topH),
+                        CollageSlot(0f, topH + gap, botW, height),
+                        CollageSlot(botW + gap, topH + gap, width, height)
+                    )
+                }
+                1 -> {
+                    val leftW = (width - gap) / 2f
+                    val rightH = (height - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, leftW, height),
+                        CollageSlot(leftW + gap, 0f, width, rightH),
+                        CollageSlot(leftW + gap, rightH + gap, width, height)
+                    )
+                }
+                2 -> {
+                    val colW = (width - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, colW, height),
+                        CollageSlot(colW + gap, 0f, 2 * colW + gap, height),
+                        CollageSlot(2 * (colW + gap), 0f, width, height)
+                    )
+                }
+                else -> {
+                    val rowH = (height - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, width, rowH),
+                        CollageSlot(0f, rowH + gap, width, 2 * rowH + gap),
+                        CollageSlot(0f, 2 * (rowH + gap), width, height)
+                    )
+                }
+            }
+        }
+        4 -> {
+            when (layoutIndex % 4) {
+                0 -> {
+                    val cellW = (width - gap) / 2f
+                    val cellH = (height - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, cellW, cellH),
+                        CollageSlot(cellW + gap, 0f, width, cellH),
+                        CollageSlot(0f, cellH + gap, cellW, height),
+                        CollageSlot(cellW + gap, cellH + gap, width, height)
+                    )
+                }
+                1 -> {
+                    val topH = (height - gap) * 0.58f
+                    val botW = (width - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, width, topH),
+                        CollageSlot(0f, topH + gap, botW, height),
+                        CollageSlot(botW + gap, topH + gap, 2 * botW + gap, height),
+                        CollageSlot(2 * (botW + gap), topH + gap, width, height)
+                    )
+                }
+                2 -> {
+                    val leftW = (width - gap) * 0.58f
+                    val rightH = (height - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, leftW, height),
+                        CollageSlot(leftW + gap, 0f, width, rightH),
+                        CollageSlot(leftW + gap, rightH + gap, width, 2 * rightH + gap),
+                        CollageSlot(leftW + gap, 2 * (rightH + gap), width, height)
+                    )
+                }
+                else -> {
+                    val colW = (width - 3 * gap) / 4f
+                    listOf(
+                        CollageSlot(0f, 0f, colW, height),
+                        CollageSlot(colW + gap, 0f, 2 * colW + gap, height),
+                        CollageSlot(2 * (colW + gap), 0f, 3 * colW + 2 * gap, height),
+                        CollageSlot(3 * (colW + gap), 0f, width, height)
+                    )
+                }
+            }
+        }
+        5 -> {
+            when (layoutIndex % 4) {
+                0 -> {
+                    val halfH = (height - gap) / 2f
+                    val topW = (width - gap) / 2f
+                    val botW = (width - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, topW, halfH),
+                        CollageSlot(topW + gap, 0f, width, halfH),
+                        CollageSlot(0f, halfH + gap, botW, height),
+                        CollageSlot(botW + gap, halfH + gap, 2 * botW + gap, height),
+                        CollageSlot(2 * (botW + gap), halfH + gap, width, height)
+                    )
+                }
+                1 -> {
+                    val leftW = (width - gap) / 2f
+                    val rightW = (width - gap) / 2f
+                    val subW = (rightW - gap) / 2f
+                    val subH = (height - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, leftW, height),
+                        CollageSlot(leftW + gap, 0f, leftW + gap + subW, subH),
+                        CollageSlot(leftW + 2 * gap + subW, 0f, width, subH),
+                        CollageSlot(leftW + gap, subH + gap, leftW + gap + subW, height),
+                        CollageSlot(leftW + 2 * gap + subW, subH + gap, width, height)
+                    )
+                }
+                2 -> {
+                    val topH = (height - gap) / 2f
+                    val botH = (height - gap) / 2f
+                    val subW = (width - gap) / 2f
+                    val subH = (botH - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, width, topH),
+                        CollageSlot(0f, topH + gap, subW, topH + gap + subH),
+                        CollageSlot(subW + gap, topH + gap, width, topH + gap + subH),
+                        CollageSlot(0f, topH + 2 * gap + subH, subW, height),
+                        CollageSlot(subW + gap, topH + 2 * gap + subH, width, height)
+                    )
+                }
+                else -> {
+                    val halfH = (height - gap) / 2f
+                    val topW = (width - 2 * gap) / 3f
+                    val botW = (width - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, topW, halfH),
+                        CollageSlot(topW + gap, 0f, 2 * topW + gap, halfH),
+                        CollageSlot(2 * (topW + gap), 0f, width, halfH),
+                        CollageSlot(0f, halfH + gap, botW, height),
+                        CollageSlot(botW + gap, halfH + gap, width, height)
+                    )
+                }
+            }
+        }
+        else -> {
+            when (layoutIndex % 4) {
+                0 -> {
+                    val colW = (width - 2 * gap) / 3f
+                    val rowH = (height - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, colW, rowH),
+                        CollageSlot(colW + gap, 0f, 2 * colW + gap, rowH),
+                        CollageSlot(2 * (colW + gap), 0f, width, rowH),
+                        CollageSlot(0f, rowH + gap, colW, height),
+                        CollageSlot(colW + gap, rowH + gap, 2 * colW + gap, height),
+                        CollageSlot(2 * (colW + gap), rowH + gap, width, height)
+                    )
+                }
+                1 -> {
+                    val colW = (width - gap) / 2f
+                    val rowH = (height - 2 * gap) / 3f
+                    listOf(
+                        CollageSlot(0f, 0f, colW, rowH),
+                        CollageSlot(colW + gap, 0f, width, rowH),
+                        CollageSlot(0f, rowH + gap, colW, 2 * rowH + gap),
+                        CollageSlot(colW + gap, rowH + gap, width, 2 * rowH + gap),
+                        CollageSlot(0f, 2 * (rowH + gap), colW, height),
+                        CollageSlot(colW + gap, 2 * (rowH + gap), width, height)
+                    )
+                }
+                2 -> {
+                    val halfH = (height - gap) / 2f
+                    val topW = (width - gap) / 2f
+                    val botW = (width - 3 * gap) / 4f
+                    listOf(
+                        CollageSlot(0f, 0f, topW, halfH),
+                        CollageSlot(topW + gap, 0f, width, halfH),
+                        CollageSlot(0f, halfH + gap, botW, height),
+                        CollageSlot(botW + gap, halfH + gap, 2 * botW + gap, height),
+                        CollageSlot(2 * (botW + gap), halfH + gap, 3 * botW + 2 * gap, height),
+                        CollageSlot(3 * (botW + gap), halfH + gap, width, height)
+                    )
+                }
+                else -> {
+                    val halfH = (height - gap) / 2f
+                    val topW = (width - 3 * gap) / 4f
+                    val botW = (width - gap) / 2f
+                    listOf(
+                        CollageSlot(0f, 0f, topW, halfH),
+                        CollageSlot(topW + gap, 0f, 2 * topW + gap, halfH),
+                        CollageSlot(2 * (topW + gap), 0f, 3 * topW + 2 * gap, halfH),
+                        CollageSlot(3 * (topW + gap), 0f, width, halfH),
+                        CollageSlot(0f, halfH + gap, botW, height),
+                        CollageSlot(botW + gap, halfH + gap, width, height)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollageMakerScreen(onBack: () -> Unit) {
@@ -411,8 +656,10 @@ fun CollageMakerScreen(onBack: () -> Unit) {
     val fileOutputManager = coreEntryPoint(context).fileOutputManager()
 
     var selectedBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var selectedRatio by remember { mutableStateOf(CollageAspectRatio.SQUARE) }
     var layoutMode by remember { mutableIntStateOf(0) }
     var spacingDp by remember { mutableFloatStateOf(8f) }
+    var cornerRadiusDp by remember { mutableFloatStateOf(8f) }
     var bgColor by remember { mutableStateOf(Color.White) }
 
     var showResultSheet by remember { mutableStateOf(false) }
@@ -427,6 +674,32 @@ fun CollageMakerScreen(onBack: () -> Unit) {
         if (uris.isNotEmpty()) {
             val list = mutableListOf<Bitmap>()
             for (uri in uris.take(6)) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val bmp = BitmapFactory.decodeStream(stream)
+                        if (bmp != null) {
+                            val maxDim = 800
+                            val scale = min(1f, maxDim.toFloat() / max(bmp.width, bmp.height))
+                            val scaled = if (scale < 1f) {
+                                Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
+                            } else bmp
+                            list.add(scaled)
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+            selectedBitmaps = list
+            layoutMode = 0
+        }
+    }
+
+    val appendPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            val remaining = 6 - selectedBitmaps.size
+            val list = selectedBitmaps.toMutableList()
+            for (uri in uris.take(remaining)) {
                 try {
                     context.contentResolver.openInputStream(uri)?.use { stream ->
                         val bmp = BitmapFactory.decodeStream(stream)
@@ -485,125 +758,240 @@ fun CollageMakerScreen(onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(Icons.Default.DashboardCustomize, contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text("Select 2 to 6 Photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("Combine multiple photos into beautiful grid and split collage designs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                        Text("Select 1 to 6 Photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Combine up to 6 photos into aesthetic modern collage templates with custom borders, rounded corners, and aspect ratios", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                     }
                 }
             } else {
-                Text("${selectedBitmaps.size} photos selected", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Canvas(modifier = Modifier.fillMaxSize().background(bgColor)) {
-                        val w = size.width
-                        val h = size.height
-                        val pad = spacingDp.dp.toPx()
+                    Text("${selectedBitmaps.size} / 6 photos selected", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = { selectedBitmaps = emptyList() }) {
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                    }
+                }
 
-                        when (selectedBitmaps.size) {
-                            1 -> {
-                                drawImage(selectedBitmaps[0].asImageBitmap(), dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt()))
+                // Thumbnails strip
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(selectedBitmaps.size) { idx ->
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                        ) {
+                            Image(
+                                bitmap = selectedBitmaps[idx].asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            IconButton(
+                                onClick = {
+                                    selectedBitmaps = selectedBitmaps.toMutableList().also { it.removeAt(idx) }
+                                },
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .align(Alignment.TopEnd)
+                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(14.dp))
                             }
-                            2 -> {
-                                if (layoutMode == 0) {
-                                    val cellW = (w - pad) / 2
-                                    drawImage(selectedBitmaps[0].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, 0), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), h.toInt()))
-                                    drawImage(selectedBitmaps[1].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset((cellW + pad).toInt(), 0), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), h.toInt()))
-                                } else {
-                                    val cellH = (h - pad) / 2
-                                    drawImage(selectedBitmaps[0].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, 0), dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), cellH.toInt()))
-                                    drawImage(selectedBitmaps[1].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, (cellH + pad).toInt()), dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), cellH.toInt()))
-                                }
-                            }
-                            3 -> {
-                                val topH = (h - pad) / 2
-                                val botH = (h - pad) / 2
-                                val botW = (w - pad) / 2
-                                drawImage(selectedBitmaps[0].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, 0), dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), topH.toInt()))
-                                drawImage(selectedBitmaps[1].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, (topH + pad).toInt()), dstSize = androidx.compose.ui.unit.IntSize(botW.toInt(), botH.toInt()))
-                                drawImage(selectedBitmaps[2].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset((botW + pad).toInt(), (topH + pad).toInt()), dstSize = androidx.compose.ui.unit.IntSize(botW.toInt(), botH.toInt()))
-                            }
-                            else -> {
-                                val cellW = (w - pad) / 2
-                                val cellH = (h - pad) / 2
-                                drawImage(selectedBitmaps[0].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, 0), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), cellH.toInt()))
-                                drawImage(selectedBitmaps[1].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset((cellW + pad).toInt(), 0), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), cellH.toInt()))
-                                if (selectedBitmaps.size > 2) {
-                                    drawImage(selectedBitmaps[2].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(0, (cellH + pad).toInt()), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), cellH.toInt()))
-                                }
-                                if (selectedBitmaps.size > 3) {
-                                    drawImage(selectedBitmaps[3].asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset((cellW + pad).toInt(), (cellH + pad).toInt()), dstSize = androidx.compose.ui.unit.IntSize(cellW.toInt(), cellH.toInt()))
+                        }
+                    }
+                    if (selectedBitmaps.size < 6) {
+                        item {
+                            OutlinedButton(
+                                onClick = { appendPicker.launch("image/*") },
+                                modifier = Modifier.size(64.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Photo", modifier = Modifier.size(20.dp))
+                                    Text("Add", fontSize = 10.sp)
                                 }
                             }
                         }
                     }
                 }
 
-                Text("Layout Preset", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = layoutMode == 0, onClick = { layoutMode = 0 }, label = { Text("Split / Grid") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = layoutMode == 1, onClick = { layoutMode = 1 }, label = { Text("Stacked") }, modifier = Modifier.weight(1f))
-                }
+                // Interactive Collage Preview Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(selectedRatio.ratio)
+                        .clip(RoundedCornerShape(16.dp)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize().background(bgColor)) {
+                        val w = size.width
+                        val h = size.height
+                        val pad = spacingDp.dp.toPx()
+                        val cornerPx = cornerRadiusDp.dp.toPx()
+                        val slots = getCollageSlots(selectedBitmaps.size, layoutMode, w, h, pad)
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Padding: ${spacingDp.toInt()}dp", style = MaterialTheme.typography.bodyMedium)
-                    Slider(value = spacingDp, onValueChange = { spacingDp = it }, valueRange = 0f..24f, modifier = Modifier.weight(1f).padding(start = 12.dp))
-                }
+                        for (i in selectedBitmaps.indices) {
+                            val slot = slots.getOrNull(i) ?: continue
+                            val bmp = selectedBitmaps[i]
+                            val srcW = bmp.width.toFloat()
+                            val srcH = bmp.height.toFloat()
+                            val dstW = slot.width
+                            val dstH = slot.height
+                            if (dstW <= 0f || dstH <= 0f || srcW <= 0f || srcH <= 0f) continue
 
-                Text("Background Color", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(Color.White to "White", Color.Black to "Black", Color(0xFFE2E8F0) to "Light Gray", Color(0xFF1E293B) to "Dark Slate").forEach { (col, label) ->
-                        FilterChip(selected = bgColor == col, onClick = { bgColor = col }, label = { Text(label) })
+                            val scale = maxOf(dstW / srcW, dstH / srcH)
+                            val cropW = (dstW / scale).toInt().coerceIn(1, bmp.width)
+                            val cropH = (dstH / scale).toInt().coerceIn(1, bmp.height)
+                            val cropX = ((bmp.width - cropW) / 2).coerceIn(0, bmp.width - cropW)
+                            val cropY = ((bmp.height - cropH) / 2).coerceIn(0, bmp.height - cropH)
+
+                            val roundRect = RoundRect(
+                                left = slot.left,
+                                top = slot.top,
+                                right = slot.right,
+                                bottom = slot.bottom,
+                                cornerRadius = CornerRadius(cornerPx, cornerPx)
+                            )
+                            val path = Path().apply { addRoundRect(roundRect) }
+
+                            clipPath(path) {
+                                drawImage(
+                                    image = bmp.asImageBitmap(),
+                                    srcOffset = androidx.compose.ui.unit.IntOffset(cropX, cropY),
+                                    srcSize = androidx.compose.ui.unit.IntSize(cropW, cropH),
+                                    dstOffset = androidx.compose.ui.unit.IntOffset(slot.left.toInt(), slot.top.toInt()),
+                                    dstSize = androidx.compose.ui.unit.IntSize(dstW.toInt(), dstH.toInt())
+                                )
+                            }
+                        }
                     }
                 }
 
+                // Aspect Ratio Selector
+                Text("Canvas Ratio", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(CollageAspectRatio.values()) { ratio ->
+                        FilterChip(
+                            selected = selectedRatio == ratio,
+                            onClick = { selectedRatio = ratio },
+                            label = { Text(ratio.label) }
+                        )
+                    }
+                }
+
+                // Layout Presets
+                val layoutLabels = getCollageLabels(selectedBitmaps.size)
+                Text("Layout Preset", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(layoutLabels.indices.toList()) { index ->
+                        FilterChip(
+                            selected = (layoutMode % layoutLabels.size) == index,
+                            onClick = { layoutMode = index },
+                            label = { Text(layoutLabels[index]) }
+                        )
+                    }
+                }
+
+                // Spacing & Corner Radius Sliders
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Spacing: ${spacingDp.toInt()}dp", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(110.dp))
+                    Slider(value = spacingDp, onValueChange = { spacingDp = it }, valueRange = 0f..24f, modifier = Modifier.weight(1f))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Corners: ${cornerRadiusDp.toInt()}dp", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(110.dp))
+                    Slider(value = cornerRadiusDp, onValueChange = { cornerRadiusDp = it }, valueRange = 0f..24f, modifier = Modifier.weight(1f))
+                }
+
+                // Background Color
+                Text("Background Color", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                val bgColors = listOf(
+                    Color.White to "White",
+                    Color.Black to "Black",
+                    Color(0xFFFBF8F3) to "Cream",
+                    Color(0xFFE2E8F0) to "Light Gray",
+                    Color(0xFF1E293B) to "Dark Slate",
+                    Color(0xFFE0E7FF) to "Pastel Blue",
+                    Color(0xFFFFE4E6) to "Soft Rose"
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(bgColors) { (col, label) ->
+                        FilterChip(
+                            selected = bgColor == col,
+                            onClick = { bgColor = col },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .background(col, CircleShape)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                )
+                            },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+
+                // Save Collage Button
                 Button(
                     onClick = {
                         isSaving = true
                         try {
-                            val canvasSize = 1080
-                            val outBmp = Bitmap.createBitmap(canvasSize, canvasSize, Bitmap.Config.ARGB_8888)
+                            val baseDim = 1080
+                            val canvasW: Int
+                            val canvasH: Int
+                            if (selectedRatio.ratio >= 1f) {
+                                canvasW = (baseDim * selectedRatio.ratio).toInt()
+                                canvasH = baseDim
+                            } else {
+                                canvasW = baseDim
+                                canvasH = (baseDim / selectedRatio.ratio).toInt()
+                            }
+
+                            val outBmp = Bitmap.createBitmap(canvasW, canvasH, Bitmap.Config.ARGB_8888)
                             val canvas = android.graphics.Canvas(outBmp)
                             canvas.drawColor(bgColor.toArgb())
 
-                            val pad = spacingDp * (canvasSize / 360f)
-                            when (selectedBitmaps.size) {
-                                1 -> {
-                                    canvas.drawBitmap(selectedBitmaps[0], null, Rect(0, 0, canvasSize, canvasSize), null)
-                                }
-                                2 -> {
-                                    if (layoutMode == 0) {
-                                        val cellW = ((canvasSize - pad) / 2).toInt()
-                                        canvas.drawBitmap(selectedBitmaps[0], null, Rect(0, 0, cellW, canvasSize), null)
-                                        canvas.drawBitmap(selectedBitmaps[1], null, Rect((cellW + pad).toInt(), 0, canvasSize, canvasSize), null)
-                                    } else {
-                                        val cellH = ((canvasSize - pad) / 2).toInt()
-                                        canvas.drawBitmap(selectedBitmaps[0], null, Rect(0, 0, canvasSize, cellH), null)
-                                        canvas.drawBitmap(selectedBitmaps[1], null, Rect(0, (cellH + pad).toInt(), canvasSize, canvasSize), null)
+                            val scaleFactor = canvasW / 360f
+                            val exportGap = spacingDp * scaleFactor
+                            val exportCornerPx = cornerRadiusDp * scaleFactor
+                            val slots = getCollageSlots(selectedBitmaps.size, layoutMode, canvasW.toFloat(), canvasH.toFloat(), exportGap)
+
+                            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                            for (i in selectedBitmaps.indices) {
+                                val slot = slots.getOrNull(i) ?: continue
+                                val bmp = selectedBitmaps[i]
+                                val srcW = bmp.width.toFloat()
+                                val srcH = bmp.height.toFloat()
+                                val dstW = slot.width
+                                val dstH = slot.height
+                                if (dstW <= 0f || dstH <= 0f || srcW <= 0f || srcH <= 0f) continue
+
+                                val scale = maxOf(dstW / srcW, dstH / srcH)
+                                val cropW = (dstW / scale).toInt().coerceIn(1, bmp.width)
+                                val cropH = (dstH / scale).toInt().coerceIn(1, bmp.height)
+                                val cropX = ((bmp.width - cropW) / 2).coerceIn(0, bmp.width - cropW)
+                                val cropY = ((bmp.height - cropH) / 2).coerceIn(0, bmp.height - cropH)
+
+                                val srcRect = Rect(cropX, cropY, cropX + cropW, cropY + cropH)
+                                val dstRectF = RectF(slot.left, slot.top, slot.right, slot.bottom)
+
+                                canvas.save()
+                                if (exportCornerPx > 0f) {
+                                    val path = AndroidPath().apply {
+                                        addRoundRect(dstRectF, exportCornerPx, exportCornerPx, AndroidPath.Direction.CW)
                                     }
+                                    canvas.clipPath(path)
                                 }
-                                3 -> {
-                                    val topH = ((canvasSize - pad) / 2).toInt()
-                                    val botW = ((canvasSize - pad) / 2).toInt()
-                                    canvas.drawBitmap(selectedBitmaps[0], null, Rect(0, 0, canvasSize, topH), null)
-                                    canvas.drawBitmap(selectedBitmaps[1], null, Rect(0, (topH + pad).toInt(), botW, canvasSize), null)
-                                    canvas.drawBitmap(selectedBitmaps[2], null, Rect((botW + pad).toInt(), (topH + pad).toInt(), canvasSize, canvasSize), null)
-                                }
-                                else -> {
-                                    val cellW = ((canvasSize - pad) / 2).toInt()
-                                    val cellH = ((canvasSize - pad) / 2).toInt()
-                                    canvas.drawBitmap(selectedBitmaps[0], null, Rect(0, 0, cellW, cellH), null)
-                                    canvas.drawBitmap(selectedBitmaps[1], null, Rect((cellW + pad).toInt(), 0, canvasSize, cellH), null)
-                                    if (selectedBitmaps.size > 2) {
-                                        canvas.drawBitmap(selectedBitmaps[2], null, Rect(0, (cellH + pad).toInt(), cellW, canvasSize), null)
-                                    }
-                                    if (selectedBitmaps.size > 3) {
-                                        canvas.drawBitmap(selectedBitmaps[3], null, Rect((cellW + pad).toInt(), (cellH + pad).toInt(), canvasSize, canvasSize), null)
-                                    }
-                                }
+                                canvas.drawBitmap(bmp, srcRect, dstRectF, paint)
+                                canvas.restore()
                             }
 
                             val stream = ByteArrayOutputStream()

@@ -29,6 +29,14 @@ import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class RedactionBox(
+    val pageIndex: Int,
+    val normX: Float,      // normalized 0f..1f relative to page width
+    val normY: Float,      // normalized 0f..1f relative to page height (from top)
+    val normWidth: Float,  // normalized 0f..1f
+    val normHeight: Float  // normalized 0f..1f
+)
+
 @Singleton
 class PdfToolsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -626,16 +634,45 @@ class PdfToolsRepository @Inject constructor(
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
                 ?: throw Exception("Could not open source file.")
             val textBuilder = StringBuilder()
-            java.io.FileInputStream(tempInputFile).use { fis ->
-                org.apache.poi.xwpf.usermodel.XWPFDocument(fis).use { document ->
-                    for (para in document.paragraphs) textBuilder.append(para.text).append("\n")
-                    for (table in document.tables) {
-                        for (row in table.rows) {
-                            textBuilder.append(row.tableCells.joinToString("\t") { it.text }).append("\n")
+            val filename = (getFileNameFromUri(inputUri) ?: tempInputFile.name).lowercase()
+            val isLegacyDoc = filename.endsWith(".doc") && !filename.endsWith(".docx")
+
+            if (isLegacyDoc) {
+                try {
+                    java.io.FileInputStream(tempInputFile).use { fis ->
+                        val doc = org.apache.poi.hwpf.HWPFDocument(fis)
+                        val extractor = org.apache.poi.hwpf.extractor.WordExtractor(doc)
+                        for (p in extractor.paragraphText) {
+                            val trimmed = p.trimEnd()
+                            if (trimmed.isNotEmpty()) textBuilder.append(trimmed).append("\n\n")
                         }
+                        extractor.close()
+                        doc.close()
+                    }
+                } catch (_: Throwable) {
+                    extractFromXwpf(tempInputFile, textBuilder)
+                }
+            } else {
+                try {
+                    extractFromXwpf(tempInputFile, textBuilder)
+                } catch (_: Throwable) {
+                    try {
+                        java.io.FileInputStream(tempInputFile).use { fis ->
+                            val doc = org.apache.poi.hwpf.HWPFDocument(fis)
+                            val extractor = org.apache.poi.hwpf.extractor.WordExtractor(doc)
+                            for (p in extractor.paragraphText) {
+                                val trimmed = p.trimEnd()
+                                if (trimmed.isNotEmpty()) textBuilder.append(trimmed).append("\n\n")
+                            }
+                            extractor.close()
+                            doc.close()
+                        }
+                    } catch (inner: Exception) {
+                        throw Exception("Unable to parse Word document: ${inner.localizedMessage}")
                     }
                 }
             }
+
             val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".docx").removeSuffix(".doc")
             val outName = "${originalName}_text.txt"
             val bytes = textBuilder.toString().toByteArray(Charsets.UTF_8)
@@ -646,6 +683,33 @@ class PdfToolsRepository @Inject constructor(
             Result.success(savedUri)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun extractFromXwpf(file: File, textBuilder: StringBuilder) {
+        java.io.FileInputStream(file).use { fis ->
+            org.apache.poi.xwpf.usermodel.XWPFDocument(fis).use { document ->
+                for (element in document.bodyElements) {
+                    if (element is org.apache.poi.xwpf.usermodel.XWPFParagraph) {
+                        val text = element.text.trimEnd()
+                        if (text.isNotEmpty()) {
+                            val isHeading = element.style?.contains("Heading", ignoreCase = true) == true
+                            if (isHeading) {
+                                textBuilder.append("\n## ").append(text).append("\n\n")
+                            } else {
+                                textBuilder.append(text).append("\n\n")
+                            }
+                        }
+                    } else if (element is org.apache.poi.xwpf.usermodel.XWPFTable) {
+                        textBuilder.append("\n")
+                        for (row in element.rows) {
+                            val rowCells = row.tableCells.joinToString(" \t| ") { it.text.trim() }
+                            textBuilder.append(rowCells).append("\n")
+                        }
+                        textBuilder.append("\n")
+                    }
+                }
+            }
         }
     }
 
@@ -1533,19 +1597,37 @@ class PdfToolsRepository @Inject constructor(
         }
     }
 
-    suspend fun redactPdf(inputUri: Uri, pageNumber: Int, x: Float, y: Float, width: Float, height: Float, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun redactPdfBoxes(inputUri: Uri, redactionBoxes: List<RedactionBox>, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
         try {
             val tempInputFile = uriCacheUtils.cacheUriToFile(inputUri)
                 ?: throw Exception("Could not open source PDF file.")
             val tempOutputFile = File(context.cacheDir, "redacted_${System.currentTimeMillis()}.pdf")
             PDDocument.load(tempInputFile).use { document ->
-                if (pageNumber < 0 || pageNumber >= document.numberOfPages) throw Exception("Invalid page number.")
-                val page = document.getPage(pageNumber)
-                val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page, com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND, true)
-                contentStream.setNonStrokingColor(0f, 0f, 0f)
-                contentStream.addRect(x, y, width, height)
-                contentStream.fill()
-                contentStream.close()
+                val boxesByPage = redactionBoxes.groupBy { it.pageIndex }
+                for ((pageIdx, boxes) in boxesByPage) {
+                    if (pageIdx in 0 until document.numberOfPages) {
+                        val page = document.getPage(pageIdx)
+                        val pageWidth = page.mediaBox.width
+                        val pageHeight = page.mediaBox.height
+                        val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
+                            document,
+                            page,
+                            com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
+                            true
+                        )
+                        contentStream.setNonStrokingColor(0f, 0f, 0f)
+                        for (box in boxes) {
+                            val pdfX = box.normX * pageWidth
+                            val pdfW = box.normWidth * pageWidth
+                            val pdfH = box.normHeight * pageHeight
+                            // PDF coordinates have (0,0) at bottom-left: flip Y from screen (top-left) to PDF (bottom-left)
+                            val pdfY = pageHeight - (box.normY * pageHeight + pdfH)
+                            contentStream.addRect(pdfX, pdfY, pdfW, pdfH)
+                        }
+                        contentStream.fill()
+                        contentStream.close()
+                    }
+                }
                 FileOutputStream(tempOutputFile).use { document.save(it) }
             }
             val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
@@ -1560,6 +1642,11 @@ class PdfToolsRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun redactPdf(inputUri: Uri, pageNumber: Int, x: Float, y: Float, width: Float, height: Float, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        val boxes = listOf(RedactionBox(pageNumber, x / 595f, y / 842f, width / 595f, height / 842f))
+        redactPdfBoxes(inputUri, boxes, customFilename)
     }
 
 

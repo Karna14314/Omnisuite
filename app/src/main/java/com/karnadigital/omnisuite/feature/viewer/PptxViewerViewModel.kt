@@ -79,7 +79,9 @@ data class PptxParagraph(
     val fontSizePt: Float get() = runs.firstOrNull()?.fontSizePt ?: 14f
 }
 
-enum class ShapeGeometryType { RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, NONE }
+enum class ShapeGeometryType {
+    RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, HEXAGON, TRIANGLE, DIAMOND, CHEVRON, NONE
+}
 
 data class ShapeBorder(
     val strokeColorHex: String? = null,
@@ -98,6 +100,7 @@ data class PptxTextShape(
     val shapeHeight: Float = 0.15f,
     val backgroundColorHex: String? = null,
     val zOrder: Int = 0,
+    val rotationDegrees: Float = 0f,
     /** Text-box / cell padding from `<a:bodyPr>` (fraction of slide w/h). */
     val insets: Insets = Insets(),
     /** Autofit mode from `<a:bodyPr>`. */
@@ -122,7 +125,8 @@ data class PptxImage(
     val top: Float,
     val width: Float,
     val height: Float,
-    val zOrder: Int = 0
+    val zOrder: Int = 0,
+    val id: String = ""
 )
 
 data class PptxSlide(
@@ -960,7 +964,8 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     /**
-     * Extracts shape preset geometry (ellipse, roundRect, etc.), border outline, and fill color.
+     * Extracts shape preset geometry (ellipse, roundRect, hexagon, etc.), border outline, and fill color.
+     * Supports solidFill, gradFill, and theme style fillRef (<p:style>).
      */
     private fun extractShapeGeometryAndBorder(shape: Any): Triple<ShapeGeometryType, ShapeBorder?, String?> {
         var geometry = ShapeGeometryType.RECTANGLE
@@ -977,6 +982,14 @@ class PptxViewerViewModel @Inject constructor(
                         geometry = ShapeGeometryType.ELLIPSE
                     } else if (stName.contains("round") && stName.contains("rect")) {
                         geometry = ShapeGeometryType.ROUNDED_RECTANGLE
+                    } else if (stName.contains("hexagon")) {
+                        geometry = ShapeGeometryType.HEXAGON
+                    } else if (stName.contains("triangle")) {
+                        geometry = ShapeGeometryType.TRIANGLE
+                    } else if (stName.contains("diamond")) {
+                        geometry = ShapeGeometryType.DIAMOND
+                    } else if (stName.contains("chevron")) {
+                        geometry = ShapeGeometryType.CHEVRON
                     }
                 }
             }
@@ -995,6 +1008,14 @@ class PptxViewerViewModel @Inject constructor(
                                 geometry = ShapeGeometryType.ELLIPSE
                             } else if (prst.contains("roundrect")) {
                                 geometry = ShapeGeometryType.ROUNDED_RECTANGLE
+                            } else if (prst.contains("hexagon")) {
+                                geometry = ShapeGeometryType.HEXAGON
+                            } else if (prst.contains("triangle")) {
+                                geometry = ShapeGeometryType.TRIANGLE
+                            } else if (prst.contains("diamond")) {
+                                geometry = ShapeGeometryType.DIAMOND
+                            } else if (prst.contains("chevron")) {
+                                geometry = ShapeGeometryType.CHEVRON
                             }
                         }
                     }
@@ -1003,6 +1024,22 @@ class PptxViewerViewModel @Inject constructor(
                     val solidFill = try { spPr.javaClass.getMethod("getSolidFill").invoke(spPr) } catch (_: Throwable) { null }
                     if (solidFill != null) {
                         bgColor = extractColorFromSolidFill(solidFill)
+                    }
+
+                    // Check gradFill (gradient fill)
+                    if (bgColor == null) {
+                        val gradFill = try { spPr.javaClass.getMethod("getGradFill").invoke(spPr) } catch (_: Throwable) { null }
+                        if (gradFill != null && gradFill is org.apache.xmlbeans.XmlObject) {
+                            val gsLst = try { gradFill.javaClass.getMethod("getGsLst").invoke(gradFill) } catch (_: Throwable) { null }
+                            if (gsLst is org.apache.xmlbeans.XmlObject) {
+                                val gsArray = try { gsLst.selectChildren(javax.xml.namespace.QName("http://schemas.openxmlformats.org/drawingml/2006/main", "gs")) } catch (_: Throwable) { null }
+                                if (gsArray != null && gsArray.isNotEmpty()) {
+                                    val firstGs = gsArray[0]
+                                    val sf = try { firstGs.javaClass.getMethod("getSolidFill").invoke(firstGs) } catch (_: Throwable) { null }
+                                    if (sf != null) bgColor = extractColorFromSolidFill(sf)
+                                }
+                            }
+                        }
                     }
 
                     // Check line outline: ln
@@ -1024,10 +1061,82 @@ class PptxViewerViewModel @Inject constructor(
                         border = ShapeBorder(strokeColorHex = strokeHex, strokeWidthDp = 0.75f)
                     }
                 }
+
+                // 3. Check shape style (<p:style><a:fillRef> & <a:lnRef>) for theme accents
+                val style = try { xml.javaClass.getMethod("getStyle").invoke(xml) } catch (_: Throwable) { null }
+                if (style != null) {
+                    if (bgColor == null) {
+                        val fillRef = try { style.javaClass.getMethod("getFillRef").invoke(style) } catch (_: Throwable) { null }
+                        if (fillRef != null) {
+                            val schemeClr = try { fillRef.javaClass.getMethod("getSchemeClr").invoke(fillRef) } catch (_: Throwable) { null }
+                            if (schemeClr != null) {
+                                val valObj = try { schemeClr.javaClass.getMethod("getVal").invoke(schemeClr) } catch (_: Throwable) { null }
+                                bgColor = resolveSchemeColor(valObj?.toString() ?: "")
+                            }
+                            if (bgColor == null) {
+                                val srgb = try { fillRef.javaClass.getMethod("getSrgbClr").invoke(fillRef) } catch (_: Throwable) { null }
+                                if (srgb != null) {
+                                    val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (_: Throwable) { null }
+                                    val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
+                                    if (!hex.isNullOrBlank()) bgColor = "#$hex"
+                                }
+                            }
+                            if (bgColor == null) {
+                                val idx = try { fillRef.javaClass.getMethod("getIdx").invoke(fillRef) as? Number } catch (_: Throwable) { null }
+                                if (idx != null && idx.toInt() > 0) {
+                                    bgColor = resolveSchemeColor("accent1")
+                                }
+                            }
+                        }
+                    }
+                    if (border == null) {
+                        val lnRef = try { style.javaClass.getMethod("getLnRef").invoke(style) } catch (_: Throwable) { null }
+                        if (lnRef != null) {
+                            val schemeClr = try { lnRef.javaClass.getMethod("getSchemeClr").invoke(lnRef) } catch (_: Throwable) { null }
+                            val lnColor = if (schemeClr != null) {
+                                val valObj = try { schemeClr.javaClass.getMethod("getVal").invoke(schemeClr) } catch (_: Throwable) { null }
+                                resolveSchemeColor(valObj?.toString() ?: "")
+                            } else null
+                            if (lnColor != null) {
+                                border = ShapeBorder(strokeColorHex = lnColor, strokeWidthDp = 1f)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback for geometric shapes to prevent invisible transparent shapes
+            if (geometry in listOf(ShapeGeometryType.HEXAGON, ShapeGeometryType.TRIANGLE, ShapeGeometryType.DIAMOND, ShapeGeometryType.CHEVRON)) {
+                if (bgColor == null) {
+                    bgColor = resolveSchemeColor("accent1") ?: "#3B82F6"
+                }
+                if (border == null) {
+                    border = ShapeBorder(strokeColorHex = resolveSchemeColor("accent2") ?: "#1E40AF", strokeWidthDp = 1.2f)
+                }
             }
         } catch (_: Throwable) {}
 
         return Triple(geometry, border, bgColor)
+    }
+
+    /**
+     * Extracts rotation in degrees (0..359) from shape XML xfrm.getRot().
+     */
+    private fun extractShapeRotationDegrees(shape: Any): Float {
+        try {
+            val xml = getXmlObjectReflection(shape) ?: return 0f
+            val xfrm = tryGetXfrm(xml, "getSpPr")
+                ?: tryGetXfrm(xml, "getGrpSpPr")
+                ?: try { xml.javaClass.getMethod("getXfrm").invoke(xml) } catch (_: Throwable) { null }
+            if (xfrm != null) {
+                val rot = try { xfrm.javaClass.getMethod("getRot").invoke(xfrm) } catch (_: Throwable) { null }
+                val rotVal = extractLongValue(rot)
+                if (rotVal != null && rotVal != 0L) {
+                    return ((rotVal / 60000f) % 360f + 360f) % 360f
+                }
+            }
+        } catch (_: Throwable) {}
+        return 0f
     }
 
     private fun extractParagraphRunsWithLineBreaks(
@@ -1131,9 +1240,19 @@ class PptxViewerViewModel @Inject constructor(
         return runs
     }
 
-    private fun setRunProperties(r: XSLFTextRun, textColorHex: String?, fontSizePt: Float) {
+    private fun setRunProperties(
+        r: XSLFTextRun,
+        textColorHex: String?,
+        fontSizePt: Float,
+        isBold: Boolean? = null,
+        isItalic: Boolean? = null,
+        isUnderline: Boolean? = null
+    ) {
         try {
             r.fontSize = fontSizePt.toDouble()
+            if (isBold != null) r.isBold = isBold
+            if (isItalic != null) r.isItalic = isItalic
+            if (isUnderline != null) r.isUnderlined = isUnderline
         } catch (t: Throwable) {}
 
         val xmlRun = getXmlObjectReflection(r) ?: return
@@ -1146,6 +1265,26 @@ class PptxViewerViewModel @Inject constructor(
             }
 
             if (rPr != null) {
+                if (isBold != null) {
+                    try { rPr.javaClass.getMethod("setB", Boolean::class.javaPrimitiveType).invoke(rPr, isBold) } catch (_: Throwable) {}
+                }
+                if (isItalic != null) {
+                    try { rPr.javaClass.getMethod("setI", Boolean::class.javaPrimitiveType).invoke(rPr, isItalic) } catch (_: Throwable) {}
+                }
+                if (isUnderline != null) {
+                    try {
+                        val method = rPr.javaClass.methods.firstOrNull { it.name == "setU" && it.parameterTypes.size == 1 }
+                        if (method != null) {
+                            val paramType = method.parameterTypes[0]
+                            val enumVal = if (paramType.isEnum) {
+                                paramType.enumConstants.firstOrNull { it.toString().equals(if (isUnderline) "sng" else "none", ignoreCase = true) }
+                            } else null
+                            if (enumVal != null) {
+                                method.invoke(rPr, enumVal)
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
                 if (textColorHex != null) {
                     try { rPr.javaClass.getMethod("unsetSolidFill").invoke(rPr) } catch (t: Throwable) {}
                     val solidFill = rPr.javaClass.getMethod("addNewSolidFill").invoke(rPr)
@@ -1363,163 +1502,171 @@ class PptxViewerViewModel @Inject constructor(
                         val isBackground = imageArea >= 0.85f && left <= 0.05f && top <= 0.05f
 
                         val imgZOrder = shapeZOrder
+                        val imgId = "img_${index}_${images.size}"
                         if (isBackground && backgroundImage == null) {
-                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder)
+                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
                         } else {
-                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder))
+                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId))
                         }
                     }
 
-                    // 2. Process text shape if present
-                    if (shape is org.apache.poi.sl.usermodel.TextShape<*, *>) {
-                        val shapeText = try { shape.text ?: "" } catch (t: Throwable) { "" }
-                        if (shapeText.isNotBlank()) {
-                            val isTitle = try {
-                                shape.placeholder == Placeholder.TITLE || shape.placeholder == Placeholder.CENTERED_TITLE
+                    // 2. Process text or geometric shape (including decorative/background shapes with no text)
+                    val isTextShape = shape is org.apache.poi.sl.usermodel.TextShape<*, *>
+                    val shapeText = if (isTextShape) try { (shape as org.apache.poi.sl.usermodel.TextShape<*, *>).text ?: "" } catch (t: Throwable) { "" } else ""
+                    val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
+                    val hasVisualPresence = shapeBg != null || shapeBorder != null || shapeGeom != ShapeGeometryType.RECTANGLE
+
+                    if (shape !is org.apache.poi.sl.usermodel.TableShape<*, *> && (shapeText.isNotBlank() || hasVisualPresence)) {
+                        val isTitle = if (isTextShape) {
+                            val ts = shape as org.apache.poi.sl.usermodel.TextShape<*, *>
+                            try {
+                                ts.placeholder == Placeholder.TITLE || ts.placeholder == Placeholder.CENTERED_TITLE
                             } catch (t: Throwable) {
-                                shape.shapeName.lowercase().contains("title")
+                                ts.shapeName.lowercase().contains("title")
                             }
+                        } else false
 
-                            val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                            val shapeLeft = bounds?.get(0) ?: 0.05f
-                            val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
-                            val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                            val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.35f)
+                        val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                        val shapeLeft = bounds?.get(0) ?: 0.05f
+                        val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
+                        val shapeWidthVal = bounds?.get(2) ?: 0.9f
+                        val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.35f)
 
-                            val paragraphs = try { shape.textParagraphs } catch (t: Throwable) { emptyList() }
-                            val shapeParagraphs = mutableListOf<PptxParagraph>()
+                        val paragraphs = if (isTextShape) try { (shape as org.apache.poi.sl.usermodel.TextShape<*, *>).textParagraphs } catch (t: Throwable) { emptyList() } else emptyList()
+                        val shapeParagraphs = mutableListOf<PptxParagraph>()
 
-                            if (paragraphs.isNotEmpty()) {
-                                for (p in paragraphs) {
-                                    val paragraphRuns = extractParagraphRunsWithLineBreaks(p, isTitle)
+                        if (paragraphs.isNotEmpty()) {
+                            for (p in paragraphs) {
+                                val paragraphRuns = extractParagraphRunsWithLineBreaks(p, isTitle)
 
-                                    if (paragraphRuns.isNotEmpty()) {
-                                        val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
-                                        val rawBulletChar = try {
-                                            if (p is XSLFTextParagraph) p.bulletCharacter
-                                            else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
-                                        } catch (_: Throwable) { null }
+                                if (paragraphRuns.isNotEmpty()) {
+                                    val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
+                                    val rawBulletChar = try {
+                                        if (p is XSLFTextParagraph) p.bulletCharacter
+                                        else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
+                                    } catch (_: Throwable) { null }
 
-                                        val defaultFontSize = if (isTitle) 26f else 14f
-                                        val refFontPt = paragraphRuns.maxOfOrNull {
-                                            if (it.fontSizePt > 0) it.fontSizePt else defaultFontSize
-                                        } ?: defaultFontSize
+                                    val defaultFontSize = if (isTitle) 26f else 14f
+                                    val refFontPt = paragraphRuns.maxOfOrNull {
+                                        if (it.fontSizePt > 0) it.fontSizePt else defaultFontSize
+                                    } ?: defaultFontSize
 
-                                        val pPr = try {
-                                            val xmlPara = getXmlObjectReflection(p)
-                                            if (xmlPara != null) {
-                                                try { xmlPara.javaClass.getMethod("getPPr").invoke(xmlPara) } catch (_: Throwable) { null }
-                                            } else null
-                                        } catch (_: Throwable) { null }
+                                    val pPr = try {
+                                        val xmlPara = getXmlObjectReflection(p)
+                                        if (xmlPara != null) {
+                                            try { xmlPara.javaClass.getMethod("getPPr").invoke(xmlPara) } catch (_: Throwable) { null }
+                                        } else null
+                                    } catch (_: Throwable) { null }
 
-                                        val hasBulletFromXml = if (rawBulletChar.isNullOrBlank() && bulletLevel == 0) {
-                                            try {
-                                                if (pPr != null) {
-                                                    val autoNumScheme = try {
-                                                        pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr)
-                                                    } catch (_: Throwable) { null }
-                                                    val buChar = try {
-                                                        pPr.javaClass.getMethod("getBuChar").invoke(pPr)
-                                                    } catch (_: Throwable) { null }
-                                                    autoNumScheme != null || buChar != null
-                                                } else false
-                                            } catch (_: Throwable) { false }
-                                        } else false
+                                    val hasBulletFromXml = if (rawBulletChar.isNullOrBlank() && bulletLevel == 0) {
+                                        try {
+                                            if (pPr != null) {
+                                                val autoNumScheme = try {
+                                                    pPr.javaClass.getMethod("getBuAutoNum").invoke(pPr)
+                                                } catch (_: Throwable) { null }
+                                                val buChar = try {
+                                                    pPr.javaClass.getMethod("getBuChar").invoke(pPr)
+                                                } catch (_: Throwable) { null }
+                                                autoNumScheme != null || buChar != null
+                                            } else false
+                                        } catch (_: Throwable) { false }
+                                    } else false
 
-                                        val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
-                                        val numberingType = extractNumberingType(pPr)
-                                        val bulletChar = when {
-                                            numberingType != null -> ""
-                                            rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
-                                            rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
-                                            rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
-                                            else -> "•"
+                                    val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
+                                    val numberingType = extractNumberingType(pPr)
+                                    val bulletChar = when {
+                                        numberingType != null -> ""
+                                        rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
+                                        rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
+                                        rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
+                                        else -> "•"
+                                    }
+                                    val alignment = try {
+                                        when (p.textAlign) {
+                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
+                                            else -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
                                         }
-                                        val alignment = try {
-                                            when (p.textAlign) {
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
-                                                org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
-                                                else -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
-                                            }
-                                        } catch (t: Throwable) { if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT" }
+                                    } catch (t: Throwable) { if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT" }
 
-                                         val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
-                                         val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
-                                         val lineSpacingMul = extractLineSpacingMul(pPr, refFontPt)
+                                     val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
+                                     val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
+                                     val lineSpacingMul = extractLineSpacingMul(pPr, refFontPt)
 
-                                         shapeParagraphs.add(
-                                             PptxParagraph(
-                                                 runs = paragraphRuns,
-                                                 bulletLevel = bulletLevel,
-                                                 hasBullet = hasBullet,
-                                                 bulletChar = bulletChar,
-                                                 alignment = alignment,
-                                                 spaceBeforePt = spaceBefore,
-                                                 spaceAfterPt = spaceAfter,
-                                                 lineSpacingMul = lineSpacingMul,
-                                                 numberingType = numberingType
-                                             )
+                                     shapeParagraphs.add(
+                                         PptxParagraph(
+                                             runs = paragraphRuns,
+                                             bulletLevel = bulletLevel,
+                                             hasBullet = hasBullet,
+                                             bulletChar = bulletChar,
+                                             alignment = alignment,
+                                             spaceBeforePt = spaceBefore,
+                                             spaceAfterPt = spaceAfter,
+                                             lineSpacingMul = lineSpacingMul,
+                                             numberingType = numberingType
                                          )
-                                     }
+                                     )
                                  }
                              }
+                         }
 
-                            // If no paragraphs parsed but shape has text
-                            if (shapeParagraphs.isEmpty() &&
-                                !shapeText.startsWith("org.apache.poi") &&
-                                !shapeText.startsWith("org.apache.xmlbeans") &&
-                                !(shapeText.startsWith("<") && shapeText.endsWith(">"))
-                            ) {
-                                shapeParagraphs.add(
-                                    PptxParagraph(
-                                        runs = listOf(
-                                            PptxTextRun(
-                                                text = cleanTextRunString(shapeText).trim(),
-                                                isBold = isTitle,
-                                                fontSizePt = if (isTitle) 24f else 14f
-                                            )
-                                        ),
-                                        bulletLevel = 0,
-                                        hasBullet = false,
-                                        bulletChar = "",
-                                        alignment = "LEFT"
-                                    )
+                        // If no paragraphs parsed but shape has text
+                        if (shapeParagraphs.isEmpty() &&
+                            shapeText.isNotBlank() &&
+                            !shapeText.startsWith("org.apache.poi") &&
+                            !shapeText.startsWith("org.apache.xmlbeans") &&
+                            !(shapeText.startsWith("<") && shapeText.endsWith(">"))
+                        ) {
+                            shapeParagraphs.add(
+                                PptxParagraph(
+                                    runs = listOf(
+                                        PptxTextRun(
+                                            text = cleanTextRunString(shapeText).trim(),
+                                            isBold = isTitle,
+                                            fontSizePt = if (isTitle) 24f else 14f
+                                        )
+                                    ),
+                                    bulletLevel = 0,
+                                    hasBullet = false,
+                                    bulletChar = "",
+                                    alignment = "LEFT"
                                 )
-                            }
+                            )
+                        }
 
-                            if (shapeParagraphs.isNotEmpty()) {
-                                val isDistinctTitle = isTitle && titleShape == null
-                                val textZOrder = shapeZOrder
-                                val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
-                                val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
-                                val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
-                                val sId = try { (shape as? XSLFShape)?.shapeId } catch (_: Throwable) { null }
-                                val parsedShape = PptxTextShape(
-                                    id = if (isDistinctTitle) "title" else (if (sId != null) "shape_$sId" else "body_$bodyCount"),
-                                    isTitle = isTitle,
-                                    paragraphs = shapeParagraphs,
-                                    shapeGeometry = shapeGeom,
-                                    shapeBorder = shapeBorder,
-                                    shapeLeft = shapeLeft,
-                                    shapeTop = shapeTop,
-                                    shapeWidth = clampedWidth,
-                                    shapeHeight = shapeHeightVal,
-                                    backgroundColorHex = shapeBg,
-                                    zOrder = textZOrder,
-                                    insets = bodyPr.insets,
-                                    autoFit = bodyPr.autoFit,
-                                    fontScale = bodyPr.fontScale,
-                                    lnSpcReduction = bodyPr.lnSpcReduction
-                                )
+                        if (shapeParagraphs.isNotEmpty() || hasVisualPresence) {
+                            val isDistinctTitle = isTitle && titleShape == null
+                            val textZOrder = shapeZOrder
+                            val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
+                            val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
+                            val sId = try { (shape as? XSLFShape)?.shapeId } catch (_: Throwable) { null }
+                            val rotDeg = extractShapeRotationDegrees(shape)
+                            val parsedShape = PptxTextShape(
+                                id = if (isDistinctTitle) "title" else (if (sId != null) "shape_$sId" else "body_$bodyCount"),
+                                isTitle = isTitle,
+                                paragraphs = shapeParagraphs,
+                                shapeGeometry = shapeGeom,
+                                shapeBorder = shapeBorder,
+                                shapeLeft = shapeLeft,
+                                shapeTop = shapeTop,
+                                shapeWidth = clampedWidth,
+                                shapeHeight = shapeHeightVal,
+                                backgroundColorHex = shapeBg,
+                                zOrder = textZOrder,
+                                rotationDegrees = rotDeg,
+                                insets = bodyPr.insets,
+                                autoFit = bodyPr.autoFit,
+                                fontScale = bodyPr.fontScale,
+                                lnSpcReduction = bodyPr.lnSpcReduction
+                            )
 
-                                if (isDistinctTitle) {
-                                    titleShape = parsedShape
-                                } else {
-                                    textShapes.add(parsedShape)
-                                    bodyCount++
-                                }
+                            if (isDistinctTitle) {
+                                titleShape = parsedShape
+                            } else {
+                                textShapes.add(parsedShape)
+                                bodyCount++
                             }
                         }
                     } else if (shape is org.apache.poi.sl.usermodel.TableShape<*, *>) {
@@ -2042,51 +2189,94 @@ class PptxViewerViewModel @Inject constructor(
                     }
                 }
 
-                val pictureData = ppt.addPicture(imageBytes, picType)
-                val pictureShape = slide.createPicture(pictureData)
+                val pictureData = ppt.addPicture(imageBytes, picType) as? XSLFPictureData
+                    ?: throw IllegalStateException("Could not add picture data to presentation")
 
-                // Calculate centered bounds (50% slide width, 50% slide height)
+                val picPart = pictureData.packagePart
+                val rel = slide.packagePart.addRelationship(
+                    picPart.partName,
+                    org.apache.poi.openxml4j.opc.TargetMode.INTERNAL,
+                    org.apache.poi.xslf.usermodel.XSLFRelation.IMAGES.relation
+                )
+                val relId = rel.id
+
+                // Calculate centered bounds preserving exact aspect ratio (max 48% slide width, 48% slide height)
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, opts)
+                val bmpW = if (opts.outWidth > 0) opts.outWidth else 1
+                val bmpH = if (opts.outHeight > 0) opts.outHeight else 1
+                val aspect = bmpW.toFloat() / bmpH.toFloat()
+
                 val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
-                val imgWidthEmu = (slideWidthEmu * 0.5f).toLong().coerceAtLeast(914400L)
-                val imgHeightEmu = (slideHeightEmu * 0.5f).toLong().coerceAtLeast(914400L)
+                val maxWEmu = (slideWidthEmu * 0.48f).toLong().coerceAtLeast(914400L)
+                val maxHEmu = (slideHeightEmu * 0.48f).toLong().coerceAtLeast(914400L)
+                val (imgWidthEmu, imgHeightEmu) = if (aspect >= (maxWEmu.toFloat() / maxHEmu.toFloat())) {
+                    val w = maxWEmu
+                    val h = (maxWEmu / aspect).toLong().coerceAtLeast(457200L)
+                    w to h
+                } else {
+                    val h = maxHEmu
+                    val w = (maxHEmu * aspect).toLong().coerceAtLeast(457200L)
+                    w to h
+                }
                 val imgLeftEmu = ((slideWidthEmu - imgWidthEmu) / 2L).coerceAtLeast(0L)
                 val imgTopEmu = ((slideHeightEmu - imgHeightEmu) / 2L).coerceAtLeast(0L)
+                val picShapeId = (System.currentTimeMillis() % 100000 + 100).toInt()
 
-                // Safely configure bounds via XmlCursor to avoid NoClassDefFoundError: CTExtensionListModify
-                val xmlObj = try {
-                    pictureShape.javaClass.getMethod("getXmlObject").invoke(pictureShape) as? org.apache.xmlbeans.XmlObject
-                } catch (_: Throwable) {
-                    getXmlObjectReflection(pictureShape) as? org.apache.xmlbeans.XmlObject
-                }
+                val picXml = """
+                    <p:pic xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                      <p:nvPicPr>
+                        <p:cNvPr id="$picShapeId" name="Picture $picShapeId"/>
+                        <p:cNvPicPr>
+                          <a:picLocks noChangeAspect="1"/>
+                        </p:cNvPicPr>
+                        <p:nvPr/>
+                      </p:nvPicPr>
+                      <p:blipFill>
+                        <a:blip r:embed="$relId"/>
+                        <a:stretch>
+                          <a:fillRect/>
+                        </a:stretch>
+                      </p:blipFill>
+                      <p:spPr>
+                        <a:xfrm>
+                          <a:off x="$imgLeftEmu" y="$imgTopEmu"/>
+                          <a:ext cx="$imgWidthEmu" cy="$imgHeightEmu"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="rect">
+                          <a:avLst/>
+                        </a:prstGeom>
+                      </p:spPr>
+                    </p:pic>
+                """.trimIndent()
 
-                if (xmlObj != null) {
-                    val cursor = xmlObj.newCursor()
-                    val dmlNs = "http://schemas.openxmlformats.org/drawingml/2006/main"
-                    val pmlNs = "http://schemas.openxmlformats.org/presentationml/2006/main"
-                    val hasSpPr = if (cursor.toChild(javax.xml.namespace.QName(pmlNs, "spPr"))) true
-                                  else { cursor.toEndToken(); cursor.insertElement(javax.xml.namespace.QName(pmlNs, "spPr")); cursor.toPrevSibling() }
-                    if (hasSpPr) {
-                        val hasXfrm = if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "xfrm"))) true
-                                      else { cursor.insertElement(javax.xml.namespace.QName(dmlNs, "xfrm")); cursor.toChild(javax.xml.namespace.QName(dmlNs, "xfrm")) }
-                        if (hasXfrm) {
-                            val hasOff = if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "off"))) true
-                                         else { cursor.insertElement(javax.xml.namespace.QName(dmlNs, "off")); cursor.toChild(javax.xml.namespace.QName(dmlNs, "off")) }
-                            if (hasOff) {
-                                cursor.setAttributeText(javax.xml.namespace.QName("x"), imgLeftEmu.toString())
-                                cursor.setAttributeText(javax.xml.namespace.QName("y"), imgTopEmu.toString())
-                                cursor.toParent()
-                            }
-                            val hasExt = if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "ext"))) true
-                                         else { cursor.insertElement(javax.xml.namespace.QName(dmlNs, "ext")); cursor.toChild(javax.xml.namespace.QName(dmlNs, "ext")) }
-                            if (hasExt) {
-                                cursor.setAttributeText(javax.xml.namespace.QName("cx"), imgWidthEmu.toString())
-                                cursor.setAttributeText(javax.xml.namespace.QName("cy"), imgHeightEmu.toString())
-                                cursor.toParent()
-                            }
+                val ctSlide = getXmlObjectReflection(slide) ?: throw IllegalStateException("Cannot access slide XML")
+                val cSld = ctSlide.javaClass.getMethod("getCSld").invoke(ctSlide) ?: throw IllegalStateException("Cannot access cSld XML")
+                val spTree = cSld.javaClass.getMethod("getSpTree").invoke(cSld) ?: throw IllegalStateException("Cannot access spTree XML")
+
+                val parsedObj = org.apache.xmlbeans.XmlObject.Factory.parse(picXml)
+                val targetCursor = (spTree as org.apache.xmlbeans.XmlObject).newCursor()
+                targetCursor.toEndToken()
+                val srcCursor = parsedObj.newCursor()
+                srcCursor.copyXml(targetCursor)
+                srcCursor.dispose()
+                targetCursor.dispose()
+
+                // Invalidate cached _shapes list on slide so POI re-parses spTree and finds the new Picture shape
+                try {
+                    var clazz: Class<*>? = slide.javaClass
+                    while (clazz != null && clazz != Any::class.java) {
+                        val f = clazz.declaredFields.firstOrNull { it.name == "_shapes" }
+                        if (f != null) {
+                            f.isAccessible = true
+                            f.set(slide, null)
+                            break
                         }
+                        clazz = clazz.superclass
                     }
-                    cursor.dispose()
-                }
+                } catch (_: Throwable) {}
 
                 val refreshedSlides = parseAllSlides(ppt)
                 _loadState.value = PptxLoadState.Success(
@@ -2105,6 +2295,126 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
+    fun scaleImage(slideIndex: Int, imageId: String, factor: Float) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) return
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex !in slides.indices) return
+
+        val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
+        pushUndoState()
+        val slide = slides[slideIndex]
+        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+        var picIdx = 0
+        for (shape in slide.shapes) {
+            val picData = extractPictureDataFromShape(shape, slide)
+            if (picData != null && picData.first.isNotEmpty()) {
+                val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
+                if (!isBg) {
+                    if (picIdx == imageIndex) {
+                        val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
+                            ?: getXmlObjectReflection(shape)
+                        if (xmlObj is org.apache.xmlbeans.XmlObject) {
+                            updateShapeExt(xmlObj, factor)
+                        }
+                        break
+                    }
+                    picIdx++
+                }
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath ?: "presentation.pptx").name
+            )
+        }
+    }
+
+    fun deleteImage(slideIndex: Int, imageId: String) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) return
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex !in slides.indices) return
+
+        val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
+        pushUndoState()
+        val slide = slides[slideIndex]
+        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+        var picIdx = 0
+        for (shape in slide.shapes) {
+            val picData = extractPictureDataFromShape(shape, slide)
+            if (picData != null && picData.first.isNotEmpty()) {
+                val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
+                if (!isBg) {
+                    if (picIdx == imageIndex) {
+                        try {
+                            slide.removeShape(shape as XSLFShape)
+                        } catch (t: Throwable) {
+                            try {
+                                val m = slide.javaClass.getMethod("removeShape", Shape::class.java)
+                                m.invoke(slide, shape)
+                            } catch (t2: Throwable) {
+                                t2.printStackTrace()
+                            }
+                        }
+                        break
+                    }
+                    picIdx++
+                }
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath ?: "presentation.pptx").name
+            )
+        }
+    }
+
+    private fun updateShapeExt(xmlObj: org.apache.xmlbeans.XmlObject, factor: Float) {
+        try {
+            val cursor = xmlObj.newCursor()
+            val dmlNs = "http://schemas.openxmlformats.org/drawingml/2006/main"
+            val pmlNs = "http://schemas.openxmlformats.org/presentationml/2006/main"
+            val foundSpPr = cursor.toChild(javax.xml.namespace.QName(pmlNs, "spPr")) || cursor.toChild(javax.xml.namespace.QName(dmlNs, "spPr"))
+            if (foundSpPr && cursor.toChild(javax.xml.namespace.QName(dmlNs, "xfrm"))) {
+                var curX = 0L
+                var curY = 0L
+                var curCx = 0L
+                var curCy = 0L
+                if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "off"))) {
+                    curX = cursor.getAttributeText(javax.xml.namespace.QName("x"))?.toLongOrNull() ?: 0L
+                    curY = cursor.getAttributeText(javax.xml.namespace.QName("y"))?.toLongOrNull() ?: 0L
+                    cursor.toParent()
+                }
+                if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "ext"))) {
+                    curCx = cursor.getAttributeText(javax.xml.namespace.QName("cx"))?.toLongOrNull() ?: 0L
+                    curCy = cursor.getAttributeText(javax.xml.namespace.QName("cy"))?.toLongOrNull() ?: 0L
+                    val newCx = (curCx * factor).toLong().coerceAtLeast(100000L)
+                    val newCy = (curCy * factor).toLong().coerceAtLeast(100000L)
+                    cursor.setAttributeText(javax.xml.namespace.QName("cx"), newCx.toString())
+                    cursor.setAttributeText(javax.xml.namespace.QName("cy"), newCy.toString())
+                    cursor.toParent()
+                    if (cursor.toChild(javax.xml.namespace.QName(dmlNs, "off"))) {
+                        val newX = (curX - (newCx - curCx) / 2).coerceAtLeast(0L)
+                        val newY = (curY - (newCy - curCy) / 2).coerceAtLeast(0L)
+                        cursor.setAttributeText(javax.xml.namespace.QName("x"), newX.toString())
+                        cursor.setAttributeText(javax.xml.namespace.QName("y"), newY.toString())
+                        cursor.toParent()
+                    }
+                }
+            }
+            cursor.dispose()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
     fun addSlide(afterIndex: Int) {
         if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
             viewModelScope.launch {
@@ -2113,16 +2423,30 @@ class PptxViewerViewModel @Inject constructor(
             return
         }
         val ppt = activePresentation as? XMLSlideShow ?: return
-        val layoutsList = try {
-            ppt.javaClass.getMethod("getSlideLayouts").invoke(ppt) as? List<*>
-        } catch (t: Throwable) {
-            null
-        }
-        val layout = layoutsList?.firstOrNull() ?: return
         pushUndoState()
         try {
-            val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout)
-            ppt.setSlideOrder(newSlide as? XSLFSlide, (afterIndex + 1).coerceIn(0, ppt.slides.size))
+            val layout = try {
+                ppt.slides.getOrNull(afterIndex)?.slideLayout
+                    ?: ppt.slideMasters.firstOrNull()?.slideLayouts?.firstOrNull()
+            } catch (_: Throwable) { null }
+
+            val newSlide = if (layout != null) {
+                try {
+                    ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as? XSLFSlide
+                } catch (_: Throwable) {
+                    ppt.createSlide()
+                }
+            } else {
+                ppt.createSlide()
+            }
+
+            if (newSlide != null) {
+                try {
+                    ppt.setSlideOrder(newSlide, (afterIndex + 1).coerceIn(0, ppt.slides.size - 1))
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
+            }
         } catch (t: Throwable) {
             t.printStackTrace()
         }
@@ -2130,7 +2454,7 @@ class PptxViewerViewModel @Inject constructor(
         viewModelScope.launch {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
-                fileName = File(activeFilePath!!).name
+                fileName = File(activeFilePath ?: "presentation.pptx").name
             )
         }
     }
@@ -2417,15 +2741,33 @@ class PptxViewerViewModel @Inject constructor(
         val shape = findShapeById(slide, shapeId)
         if (shape is XSLFTextShape) {
             val lines = newText.split("\n")
-            // Sample existing formatting
+
+            // Look up existing shape from currently rendered UI presentation state to preserve rendered font size & styles
+            val currentUiPresentation = (_loadState.value as? PptxLoadState.Success)?.presentation
+            val currentSlide = currentUiPresentation?.slides?.getOrNull(slideIndex)
+            val currentUiShape = if (shapeId == "title") {
+                currentSlide?.title
+            } else {
+                currentSlide?.textShapes?.firstOrNull { it.id == shapeId }
+            }
+
+            val fallbackDefaultSize = if (shapeId == "title" || currentUiShape?.isTitle == true) 28f else 18f
+            val uiFontSize = currentUiShape?.fontSizePt?.takeIf { it > 6f } ?: fallbackDefaultSize
+            val uiBold = currentUiShape?.isBold ?: false
+            val uiItalic = currentUiShape?.isItalic ?: false
+            val uiUnderline = currentUiShape?.isUnderline ?: false
+            val uiColorHex = currentUiShape?.textColorHex
+
+            // Sample existing formatting from POI run if present, falling back to UI rendered attributes
             val firstPara = shape.textParagraphs.firstOrNull()
             val sampleRun = firstPara?.textRuns?.firstOrNull()
-            val sampleFontSize = sampleRun?.let {
-                try { it.fontSize?.toFloat() } catch (_: Throwable) { null }
-            } ?: 14f
-            val sampleBold = sampleRun?.isBold ?: false
-            val sampleItalic = sampleRun?.isItalic ?: false
-            val sampleColorHex = sampleRun?.let { extractTextRunColorHex(it) }
+            val actualFontSize = sampleRun?.let {
+                try { it.fontSize?.toFloat()?.takeIf { s -> s > 6f } } catch (_: Throwable) { null }
+            } ?: uiFontSize
+            val actualBold = sampleRun?.isBold ?: uiBold
+            val actualItalic = sampleRun?.isItalic ?: uiItalic
+            val actualUnderline = sampleRun?.isUnderlined ?: uiUnderline
+            val actualColorHex = sampleRun?.let { extractTextRunColorHex(it) } ?: uiColorHex
 
             // 1. Update existing paragraphs or add new ones for each line
             for (i in lines.indices) {
@@ -2442,11 +2784,8 @@ class PptxViewerViewModel @Inject constructor(
                 }
                 val r = p.textRuns.firstOrNull() ?: p.addNewTextRun()
                 r.setText(lineText)
-                if (p.textRuns.size == 1 && r.fontSize == null) {
-                    setRunProperties(r, sampleColorHex, sampleFontSize)
-                    r.isBold = sampleBold
-                    r.isItalic = sampleItalic
-                }
+                setRunProperties(r, actualColorHex, actualFontSize, actualBold, actualItalic, actualUnderline)
+
                 while (p.textRuns.size > 1) {
                     val prevRunSize = p.textRuns.size
                     try {
@@ -2526,7 +2865,7 @@ class PptxViewerViewModel @Inject constructor(
                     if (isItalic != null) r.isItalic = isItalic
                     if (isUnderline != null) r.isUnderlined = isUnderline
                     val currentFontSize = fontSizePt ?: (try { r.fontSize?.toFloat() } catch (_: Throwable) { null } ?: 14f)
-                    setRunProperties(r, textColorHex, currentFontSize)
+                    setRunProperties(r, textColorHex, currentFontSize, isBold, isItalic, isUnderline)
                 }
             }
         }
@@ -2667,18 +3006,24 @@ class PptxViewerViewModel @Inject constructor(
             _isSaving.value = true
             var savedSuccessfully = false
             withContext(Dispatchers.IO) {
-                var fileOutputStream: FileOutputStream? = null
+                var tempFile: File? = null
                 try {
-                    val file = File(filePath)
-                    fileOutputStream = FileOutputStream(file)
-                    ppt.write(fileOutputStream)
-                    fileOutputStream.flush()
+                    val targetFile = File(filePath)
+                    val parentDir = targetFile.parentFile ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+                    tempFile = File.createTempFile("pptx_save_", ".pptx", parentDir)
+                    FileOutputStream(tempFile).use { fos ->
+                        ppt.write(fos)
+                        fos.flush()
+                    }
+                    tempFile.copyTo(targetFile, overwrite = true)
+                    tempFile.delete()
+
                     recentFileRepository.insertRecentFile(
                         com.karnadigital.omnisuite.core.model.RecentFile(
-                            fileUri = android.net.Uri.fromFile(file).toString(),
-                            fileName = file.name,
+                            fileUri = android.net.Uri.fromFile(targetFile).toString(),
+                            fileName = targetFile.name,
                             mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            fileSize = file.length(),
+                            fileSize = targetFile.length(),
                             lastOpened = System.currentTimeMillis(),
                             isOperation = true
                         )
@@ -2690,10 +3035,8 @@ class PptxViewerViewModel @Inject constructor(
                     _saveStatus.emit("Failed to save changes: ${t.localizedMessage}")
                 } finally {
                     try {
-                        fileOutputStream?.close()
-                    } catch (t: Throwable) {
-                        t.printStackTrace()
-                    }
+                        tempFile?.let { if (it.exists()) it.delete() }
+                    } catch (_: Throwable) {}
                 }
             }
             _isSaving.value = false

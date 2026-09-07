@@ -834,7 +834,7 @@ private fun getAllToolsList(
         ToolItem("scan_to_pdf", "📷", "Scan to PDF", "Compile camera scans to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToScanToPdf) }, "PDF"),
         ToolItem("txt_to_pdf", "📄", "TXT to PDF", "Convert text file to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "PDF"),
         ToolItem("csv_to_pdf", "📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToCsvToPdf) }, "PDF"),
-        ToolItem("html_to_pdf", "<html>", "HTML to PDF", "Compile custom HTML to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }, "PDF"),
+        ToolItem("html_to_pdf", "🌐", "HTML to PDF", "Compile custom HTML to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToHtmlToPdf) }, "PDF"),
         ToolItem("web_to_pdf", "🌐", "Web to PDF", "Render URL layouts to PDF offline", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToWebToPdf) }, "PDF"),
         ToolItem("markdown_to_pdf", "✍️", "Markdown to PDF", "Format Markdown text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }, "PDF"),
         ToolItem("pdf_to_images", "🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }, "PDF"),
@@ -845,19 +845,26 @@ private fun getAllToolsList(
 
         // ================= WORD TOOLS =================
         ToolItem("word_viewer", "📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
-        ToolItem("text_editor", "📄", "Text Editor", "Read and edit local TXT files", Color(0xFF6B7280), { onSelectFileForType("text") }, "Word"),
-        ToolItem("word_count", "🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }, "Word"),
+        ToolItem("word_doc_to_pdf", "📑", "Word to PDF", "Transcode Word files to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocToPdf) }, "Word"),
+        ToolItem("word_pdf_to_word", "🔄", "PDF to Word", "Convert PDF to editable DOCX", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "Word"),
         ToolItem("docx_to_txt", "📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }, "Word"),
+        ToolItem("word_txt_to_pdf", "📄", "TXT to PDF", "Convert text file to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "Word"),
+        ToolItem("text_editor", "✏️", "Text Editor", "Read and edit local TXT files", OmniColors.DocBlue, { onSelectFileForType("text") }, "Word"),
+        ToolItem("word_count", "🧮", "Word Count", "Analyze document metrics", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToAdvancedWordCount) }, "Word"),
         ToolItem("text_compare", "🔍", "Text Compare", "Compare text diffs offline", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToTextCompare) }, "Word"),
 
         // ================= EXCEL TOOLS =================
         ToolItem("excel_viewer", "📊", "Excel Viewer", "View spreadsheet XLSX cells", OmniColors.XlsGreen, { onSelectFileForType("excel") }, "Excel"),
-        ToolItem("csv_editor", "📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }, "Excel"),
+        ToolItem("excel_to_pdf", "📑", "Excel to PDF", "Transcode Excel sheets to PDF", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsToPdf) }, "Excel"),
         ToolItem("csv_to_xlsx", "📤", "CSV to Excel", "Import CSV records to Excel", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToXlsx) }, "Excel"),
         ToolItem("xlsx_to_csv", "📥", "Excel to CSV", "Export sheet cells to CSV", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToXlsxToCsv) }, "Excel"),
+        ToolItem("csv_editor", "📅", "CSV Editor", "Edit and parse CSV grids", OmniColors.XlsGreen, { onSelectFileForType("csv") }, "Excel"),
+        ToolItem("excel_csv_to_pdf", "📊", "CSV to PDF", "Convert CSV data to PDF table", OmniColors.XlsGreen, { onEvent(NavigationEvent.NavigateToCsvToPdf) }, "Excel"),
 
         // ================= SLIDES TOOLS =================
         ToolItem("slides_viewer", "🖼️", "Slides Viewer", "Launch PPTX presentation", Color(0xFFF59E0B), { onSelectFileForType("slides") }, "Slides"),
+        ToolItem("slides_ppt_to_pdf", "📑", "Slides to PDF", "Transcode PPTX files to PDF", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptToPdf) }, "Slides"),
+        ToolItem("slides_pdf_to_ppt", "🔄", "PDF to Slides", "Convert PDF to Presentation", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPdfToPpt) }, "Slides"),
         ToolItem("pptx_to_txt", "📄", "PPTX to TXT", "Extract presentation text to TXT", Color(0xFFF59E0B), { onEvent(NavigationEvent.NavigateToPptxToTxt) }, "Slides"),
 
         // ================= IMAGE TOOLS =================

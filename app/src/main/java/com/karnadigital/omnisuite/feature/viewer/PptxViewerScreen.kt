@@ -54,6 +54,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -154,6 +155,7 @@ fun PptxViewerScreen(
     var showNotesPanel by remember { mutableStateOf(false) }
 
     var selectedShapeId by remember { mutableStateOf<String?>(null) }
+    var selectedImageId by remember { mutableStateOf<String?>(null) }
     var quickEditText by remember { mutableStateOf("") }
     var ribbonTab by remember { mutableStateOf("HOME") }
     var currentFontSizePt by remember { mutableFloatStateOf(18f) }
@@ -167,6 +169,7 @@ fun PptxViewerScreen(
     LaunchedEffect(isEditMode) {
         if (!isEditMode) {
             selectedShapeId = null
+            selectedImageId = null
             quickEditText = ""
         }
     }
@@ -598,6 +601,81 @@ fun PptxViewerScreen(
                                 }
                             }
 
+                            // Quick Image Editor Strip (appears when an image is selected)
+                            if (selectedImageId != null) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    tonalElevation = 6.dp,
+                                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Image,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Image Selected",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    selectedImageId?.let { id ->
+                                                        viewModel.scaleImage(currentSlideIndex, id, 0.9f)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.ZoomOut, contentDescription = "Shrink -10%", modifier = Modifier.size(20.dp))
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    selectedImageId?.let { id ->
+                                                        viewModel.scaleImage(currentSlideIndex, id, 1.1f)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.ZoomIn, contentDescription = "Enlarge +10%", modifier = Modifier.size(20.dp))
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    selectedImageId?.let { id ->
+                                                        viewModel.deleteImage(currentSlideIndex, id)
+                                                        selectedImageId = null
+                                                    }
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete Image", tint = MaterialTheme.colorScheme.error)
+                                            }
+                                            IconButton(
+                                                onClick = { selectedImageId = null },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Deselect Image")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Microsoft 365 Ribbon Toolbar
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -636,6 +714,15 @@ fun PptxViewerScreen(
                                     // Ribbon Tab Body
                                     when (ribbonTab) {
                                         "HOME" -> {
+                                            val currentSlideForFormatting = (state as? PptxLoadState.Success)?.presentation?.slides?.getOrNull(currentSlideIndex)
+                                            val selectedTextShape = currentSlideForFormatting?.let { s ->
+                                                if (s.title.id == selectedShapeId) s.title
+                                                else s.textShapes.firstOrNull { it.id == selectedShapeId }
+                                            }
+                                            val currentBold = selectedTextShape?.isBold ?: false
+                                            val currentItalic = selectedTextShape?.isItalic ?: false
+                                            val currentUnderline = selectedTextShape?.isUnderline ?: false
+
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -670,31 +757,31 @@ fun PptxViewerScreen(
 
                                                 FormatRibbonToggleButton(
                                                     label = "B",
-                                                    isSelected = false,
+                                                    isSelected = currentBold,
                                                     fontWeight = FontWeight.Bold,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isBold = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isBold = !currentBold)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
                                                 FormatRibbonToggleButton(
                                                     label = "I",
-                                                    isSelected = false,
+                                                    isSelected = currentItalic,
                                                     fontStyle = FontStyle.Italic,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isItalic = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isItalic = !currentItalic)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
                                                 FormatRibbonToggleButton(
                                                     label = "U",
-                                                    isSelected = false,
+                                                    isSelected = currentUnderline,
                                                     textDecoration = TextDecoration.Underline,
                                                     onClick = {
                                                         selectedShapeId?.let { id ->
-                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isUnderline = true)
+                                                            viewModel.applyShapeFormatting(currentSlideIndex, id, isUnderline = !currentUnderline)
                                                         } ?: Toast.makeText(context, "Select a text box first", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -1148,8 +1235,9 @@ fun PptxViewerScreen(
                                 presentation = presentation,
                                 isEditMode = isEditMode,
                                 selectedShapeId = selectedShapeId,
+                                selectedImageId = selectedImageId,
                                 onVisibleSlideChange = { idx ->
-                                    if (selectedShapeId == null) {
+                                    if (selectedShapeId == null && selectedImageId == null) {
                                         activeIndexToEdit = idx
                                     }
                                 },
@@ -1159,8 +1247,14 @@ fun PptxViewerScreen(
                                     isTitleEdit = isTitle
                                     blockIndexToEdit = blockIdx
                                     selectedShapeId = textBlock.id
+                                    selectedImageId = null
                                     quickEditText = textBlock.fullText
                                     currentFontSizePt = textBlock.fontSizePt
+                                },
+                                onImageClick = { slideIdx, img ->
+                                    activeIndexToEdit = slideIdx
+                                    selectedImageId = img.id
+                                    selectedShapeId = null
                                 }
                             )
                         } else if (viewMode == PptxViewMode.GRID) {
@@ -1261,14 +1355,21 @@ fun PptxViewerScreen(
                                                 slide = slide,
                                                 isEditMode = isEditMode,
                                                 selectedShapeId = selectedShapeId,
+                                                selectedImageId = selectedImageId,
                                                 onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                                     blockToEdit = textBlock
                                                     activeIndexToEdit = pageIndex
                                                     isTitleEdit = isTitle
                                                     blockIndexToEdit = blockIdx
                                                     selectedShapeId = textBlock.id
+                                                    selectedImageId = null
                                                     quickEditText = textBlock.fullText
                                                     currentFontSizePt = textBlock.fontSizePt
+                                                },
+                                                onImageClick = { img ->
+                                                    selectedImageId = img.id
+                                                    selectedShapeId = null
+                                                    activeIndexToEdit = pageIndex
                                                 }
                                             )
                                         }
@@ -1744,8 +1845,10 @@ fun ContinuousSlideView(
     presentation: PptxPresentation,
     isEditMode: Boolean,
     selectedShapeId: String? = null,
+    selectedImageId: String? = null,
     onVisibleSlideChange: (Int) -> Unit = {},
     onTextBlockClick: (slideIndex: Int, PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
+    onImageClick: ((slideIndex: Int, PptxImage) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -1776,8 +1879,12 @@ fun ContinuousSlideView(
                             slide = slide,
                             isEditMode = isEditMode,
                             selectedShapeId = selectedShapeId,
+                            selectedImageId = selectedImageId,
                             onTextBlockClick = { textBlock, isTitle, blockIdx ->
                                 onTextBlockClick(index, textBlock, isTitle, blockIdx)
+                            },
+                            onImageClick = { img ->
+                                onImageClick?.invoke(index, img)
                             }
                         )
                         // Page number badge on bottom right of slide card
@@ -1827,7 +1934,9 @@ fun SlideCardItem(
     slide: PptxSlide,
     isEditMode: Boolean = false,
     selectedShapeId: String? = null,
-    onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit
+    selectedImageId: String? = null,
+    onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
+    onImageClick: ((PptxImage) -> Unit)? = null
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1890,6 +1999,7 @@ fun SlideCardItem(
             allElements.forEach { element ->
                 when (element) {
                     is SlideElement.ImageElement -> {
+                        val isImgSelected = isEditMode && (element.image.id.isNotEmpty() && element.image.id == selectedImageId)
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(File(element.image.filePath))
@@ -1900,7 +2010,16 @@ fun SlideCardItem(
                             modifier = Modifier
                                 .offset(x = (element.image.left * slideW).dp, y = (element.image.top * slideH).dp)
                                 .size(width = (element.image.width * slideW).dp, height = (element.image.height * slideH).dp)
-                                .clip(RoundedCornerShape(4.dp)),
+                                .clip(RoundedCornerShape(4.dp))
+                                .then(
+                                    if (isImgSelected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
+                                    else if (isEditMode) Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    else Modifier
+                                )
+                                .then(
+                                    if (isEditMode) Modifier.clickable { onImageClick?.invoke(element.image) }
+                                    else Modifier
+                                ),
                             contentScale = ContentScale.Fit
                         )
                     }
@@ -1931,6 +2050,53 @@ private sealed class SlideElement(val zOrder: Int) {
 /** True geometric ellipse shape matching PowerPoint's oval geometry */
 private val EllipseShape = GenericShape { size, _ ->
     addOval(Rect(0f, 0f, size.width, size.height))
+}
+
+/** True geometric hexagon shape matching PowerPoint's hexagon geometry */
+private val HexagonShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    moveTo(w * 0.25f, 0f)
+    lineTo(w * 0.75f, 0f)
+    lineTo(w, h * 0.5f)
+    lineTo(w * 0.75f, h)
+    lineTo(w * 0.25f, h)
+    lineTo(0f, h * 0.5f)
+    close()
+}
+
+/** True geometric triangle shape */
+private val TriangleShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    moveTo(w * 0.5f, 0f)
+    lineTo(w, h)
+    lineTo(0f, h)
+    close()
+}
+
+/** True geometric diamond shape */
+private val DiamondShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    moveTo(w * 0.5f, 0f)
+    lineTo(w, h * 0.5f)
+    lineTo(w * 0.5f, h)
+    lineTo(0f, h * 0.5f)
+    close()
+}
+
+/** True geometric chevron shape */
+private val ChevronShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    moveTo(0f, 0f)
+    lineTo(w * 0.75f, 0f)
+    lineTo(w, h * 0.5f)
+    lineTo(w * 0.75f, h)
+    lineTo(0f, h)
+    lineTo(w * 0.25f, h * 0.5f)
+    close()
 }
 
 /**
@@ -2007,12 +2173,23 @@ fun TextShapeItem(
 ) {
     val shapeGeom = shape.shapeGeometry
     val shapeBorder = shape.shapeBorder
-    val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) } ?: Color.Transparent
+    val isGeometricShape = shapeGeom in listOf(
+        ShapeGeometryType.HEXAGON,
+        ShapeGeometryType.TRIANGLE,
+        ShapeGeometryType.DIAMOND,
+        ShapeGeometryType.CHEVRON
+    )
+    val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) }
+        ?: if (isGeometricShape) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Transparent
     val isEllipseBadge = shapeGeom == ShapeGeometryType.ELLIPSE
     val isTableCell = shape.id.startsWith("table_cell_")
 
     val shapeShape = when (shapeGeom) {
         ShapeGeometryType.ELLIPSE -> EllipseShape
+        ShapeGeometryType.HEXAGON -> HexagonShape
+        ShapeGeometryType.TRIANGLE -> TriangleShape
+        ShapeGeometryType.DIAMOND -> DiamondShape
+        ShapeGeometryType.CHEVRON -> ChevronShape
         ShapeGeometryType.ROUNDED_RECTANGLE -> RoundedCornerShape(8.dp)
         else -> RoundedCornerShape(if (isTableCell) 0.dp else 2.dp)
     }
@@ -2020,6 +2197,7 @@ fun TextShapeItem(
     val borderWidth = when {
         isSelected -> 2.dp
         shapeBorder != null && shapeBorder.strokeColorHex != null -> shapeBorder.strokeWidthDp.dp
+        isGeometricShape -> 1.dp
         isTableCell -> 1.dp
         isEditMode -> 1.dp
         else -> 0.dp
@@ -2028,6 +2206,7 @@ fun TextShapeItem(
     val borderColor = when {
         isSelected -> MaterialTheme.colorScheme.primary
         shapeBorder != null && shapeBorder.strokeColorHex != null -> safeParseColor(shapeBorder.strokeColorHex, MaterialTheme.colorScheme.primary)
+        isGeometricShape -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
         isTableCell -> MaterialTheme.colorScheme.outlineVariant
         isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
         isEditMode -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
@@ -2125,7 +2304,7 @@ fun TextShapeItem(
                     color = runColor,
                     fontSize = sizeSp.sp,
                     fontFamily = runFontFamily,
-                    fontWeight = if (run.isBold || (isTitle && !run.isBold)) FontWeight.Bold else (if (isEllipseBadge) FontWeight.Normal else FontWeight.Normal),
+                    fontWeight = if (run.isBold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (run.isItalic) FontStyle.Italic else FontStyle.Normal,
                     textDecoration = if (run.isUnderline) TextDecoration.Underline else TextDecoration.None
                 )
@@ -2196,14 +2375,16 @@ fun TextShapeItem(
         modifier = Modifier
             .offset(x = (shape.shapeLeft * slideW).dp, y = (shape.shapeTop * slideH).dp)
             .size(width = (shape.shapeWidth * slideW).dp, height = finalHeightDp)
+            .then(if (shape.rotationDegrees != 0f) Modifier.rotate(shape.rotationDegrees) else Modifier)
             .clip(shapeShape)
             .clickable(enabled = isEditMode, onClick = onClick)
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else if (shapeBgColor != Color.Transparent) shapeBgColor
                 else if (isEditMode) {
                     if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                     else MaterialTheme.colorScheme.secondary.copy(alpha = 0.06f)
-                } else shapeBgColor
+                } else Color.Transparent
             )
             .border(
                 width = borderWidth,

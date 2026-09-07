@@ -17,6 +17,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
+import android.content.Context
+import android.net.Uri
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.karnadigital.omnisuite.core.engine.EncodingDetector
+
 sealed class TxtLoadState {
     object Loading : TxtLoadState()
     data class Success(val content: String, val fileName: String) : TxtLoadState()
@@ -24,9 +29,19 @@ sealed class TxtLoadState {
 }
 
 @HiltViewModel
-class TxtViewerViewModel @Inject constructor(
-    private val recentFileRepository: RecentFileRepository
+class TxtViewerViewModel internal constructor(
+    private val recentFileRepository: RecentFileRepository,
+    private val context: Context?
 ) : ViewModel() {
+
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        recentFileRepository: RecentFileRepository
+    ) : this(recentFileRepository, context)
+
+    // Overload for testing without an Android environment
+    constructor(recentFileRepository: RecentFileRepository) : this(recentFileRepository, null)
 
     private val _loadState = MutableStateFlow<TxtLoadState>(TxtLoadState.Loading)
     val loadState: StateFlow<TxtLoadState> = _loadState.asStateFlow()
@@ -88,28 +103,42 @@ class TxtViewerViewModel @Inject constructor(
             _loadState.value = TxtLoadState.Loading
             withContext(Dispatchers.IO) {
                 try {
-                    val file = File(filePath)
-                    if (!file.exists() || !file.isFile) {
-                        _loadState.value = TxtLoadState.Error("Target text file does not exist or is invalid.")
-                        return@withContext
+                    var content: String? = null
+                    var name = "Document.txt"
+
+                    val isContentUri = filePath.startsWith("content://")
+                    val isFileUri = filePath.startsWith("file://")
+
+                    if (isContentUri) {
+                        val uri = Uri.parse(filePath)
+                        context?.contentResolver?.openInputStream(uri)?.use { stream ->
+                            content = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        }
+                        name = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.txt"
+                    } else {
+                        val cleanPath = if (isFileUri) filePath.removePrefix("file://") else filePath
+                        val file = File(cleanPath)
+                        if (file.exists() && file.isFile) {
+                            currentFile = file
+                            name = file.name
+                            if (file.length() > maxTextFileSize) {
+                                _loadState.value = TxtLoadState.Error("File is too large to edit (${file.length() / (1024 * 1024)} MB).")
+                                return@withContext
+                            }
+                            content = try {
+                                val encoding = EncodingDetector.detectEncoding(file)
+                                EncodingDetector.readTextWithEncoding(file, encoding.charset)
+                            } catch (_: Throwable) {
+                                file.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                            }
+                        }
                     }
-                    currentFile = file
 
-                    if (file.length() > maxTextFileSize) {
-                        _loadState.value = TxtLoadState.Error(
-                            "File is too large to edit (${file.length() / (1024 * 1024)} MB). " +
-                            "Maximum supported size is ${maxTextFileSize / (1024 * 1024)} MB."
-                        )
-                        return@withContext
+                    if (content != null) {
+                        _loadState.value = TxtLoadState.Success(content = content!!, fileName = name)
+                    } else {
+                        _loadState.value = TxtLoadState.Error("Target text file could not be opened or is empty.")
                     }
-
-                    val content = file.bufferedReader().use { it.readText() }
-
-                    _loadState.value = TxtLoadState.Success(
-                        content = content,
-                        fileName = file.name
-                    )
-
                 } catch (e: Exception) {
                     e.printStackTrace()
                     _loadState.value = TxtLoadState.Error("Failed to read file: ${e.localizedMessage}")

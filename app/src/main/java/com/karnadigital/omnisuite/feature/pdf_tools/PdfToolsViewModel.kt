@@ -1240,6 +1240,18 @@ class PdfToolsViewModel @Inject constructor(
         }
     }
 
+    fun redactPdfWithBoxes(boxes: List<RedactionBox>, customFilename: String? = null) {
+        val inputUri = redactInputUri ?: run { errorMessage = "Please select a PDF file."; return }
+        if (boxes.isEmpty()) { errorMessage = "Please draw at least one redaction area on the document."; return }
+        isProcessing = true; resetStatus()
+        viewModelScope.launch {
+            val result = pdfToolsRepository.redactPdfBoxes(inputUri, boxes, customFilename)
+            result.onSuccess { uri -> successUri = uri; successMessage = "Content redacted successfully!"; redactInputUri = null }
+                .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
+            isProcessing = false
+        }
+    }
+
     fun comparePdf() {
         val uri1 = compareUri1 ?: run { errorMessage = "Please select first PDF."; return }
         val uri2 = compareUri2 ?: run { errorMessage = "Please select second PDF."; return }
@@ -1311,6 +1323,10 @@ class PdfToolsViewModel @Inject constructor(
                 .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
             isProcessing = false
         }
+    }
+
+    suspend fun readPdfBookmarks(uri: Uri): Result<List<Triple<String, Int, Int>>> {
+        return pdfToolsRepository.readPdfBookmarks(uri)
     }
 
     fun encryptFile(customFilename: String? = null) {
