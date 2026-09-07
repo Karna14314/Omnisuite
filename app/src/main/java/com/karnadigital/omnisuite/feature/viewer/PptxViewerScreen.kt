@@ -80,9 +80,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontFamily
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -200,11 +203,17 @@ fun PptxViewerScreen(
                     val cachedFile = uriCacheUtils.cacheUriToFile(it)
                     if (cachedFile != null) {
                         val slideIndex = currentSlideIndex
+                        val targetId = selectedShapeId
                         viewModel.insertImageIntoSlide(
                             slideIndex = slideIndex,
                             imagePath = cachedFile.absolutePath,
+                            targetShapeId = targetId,
                             onSuccess = {
-                                Toast.makeText(context, "Picture inserted on slide ${slideIndex + 1}!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    if (targetId != null) "Picture inserted into selected box!" else "Picture inserted on slide ${slideIndex + 1}!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             },
                             onError = { err ->
                                 Toast.makeText(context, "Failed to insert picture: $err", Toast.LENGTH_LONG).show()
@@ -515,87 +524,143 @@ fun PptxViewerScreen(
                                     shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        OutlinedTextField(
-                                            value = quickEditText,
-                                            onValueChange = {
-                                                quickEditText = it
-                                            },
-                                            placeholder = { Text("Type shape text...", fontSize = 13.sp) },
-                                            singleLine = false,
-                                            maxLines = 4,
-                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                            keyboardActions = KeyboardActions(
-                                                onDone = {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            OutlinedTextField(
+                                                value = quickEditText,
+                                                onValueChange = {
+                                                    quickEditText = it
+                                                },
+                                                placeholder = { Text("Type shape text...", fontSize = 13.sp) },
+                                                singleLine = false,
+                                                maxLines = 4,
+                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                                keyboardActions = KeyboardActions(
+                                                    onDone = {
+                                                        selectedShapeId?.let { id ->
+                                                            viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
+                                                        }
+                                                        selectedShapeId = null
+                                                    }
+                                                ),
+                                                modifier = Modifier.weight(1f),
+                                                textStyle = TextStyle(fontSize = 13.sp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            IconButton(
+                                                onClick = {
                                                     selectedShapeId?.let { id ->
                                                         viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
                                                     }
                                                     selectedShapeId = null
-                                                }
-                                            ),
-                                            modifier = Modifier.weight(1f),
-                                            textStyle = TextStyle(fontSize = 13.sp),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                                            )
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        IconButton(
-                                            onClick = {
-                                                selectedShapeId?.let { id ->
-                                                    viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
-                                                }
-                                                selectedShapeId = null
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(Icons.Default.Check, contentDescription = "Apply Text", tint = MaterialTheme.colorScheme.primary)
-                                        }
-                                        IconButton(
-                                            onClick = { showFormatter = true },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(Icons.Default.Tune, contentDescription = "Advanced Formatter", tint = MaterialTheme.colorScheme.primary)
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                selectedShapeId?.let { id ->
-                                                    viewModel.deleteShape(currentSlideIndex, id)
-                                                    selectedShapeId = null
-                                                    quickEditText = ""
-                                                }
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete Shape", tint = MaterialTheme.colorScheme.error)
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                selectedShapeId?.let { id ->
-                                                    if (quickEditText.isNotBlank()) {
-                                                        viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Check, contentDescription = "Apply Text", tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                            IconButton(
+                                                onClick = { showFormatter = true },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Tune, contentDescription = "Advanced Formatter", tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    selectedShapeId?.let { id ->
+                                                        viewModel.deleteShape(currentSlideIndex, id)
+                                                        selectedShapeId = null
+                                                        quickEditText = ""
                                                     }
-                                                }
-                                                selectedShapeId = null
-                                            },
-                                            modifier = Modifier.size(36.dp)
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete Shape", tint = MaterialTheme.colorScheme.error)
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    selectedShapeId?.let { id ->
+                                                        if (quickEditText.isNotBlank()) {
+                                                            viewModel.updateShapeText(currentSlideIndex, id, quickEditText)
+                                                        }
+                                                    }
+                                                    selectedShapeId = null
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Done Editing Shape")
+                                            }
+                                        }
+
+                                        // Shape Move & Resize Control Bar
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Done Editing Shape")
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Move", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.moveShape(currentSlideIndex, id, -0.02f, 0f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ArrowBack, contentDescription = "Move Left", modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.moveShape(currentSlideIndex, id, 0f, -0.02f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.moveShape(currentSlideIndex, id, 0f, 0.02f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.moveShape(currentSlideIndex, id, 0.02f, 0f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ArrowForward, contentDescription = "Move Right", modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Scale", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.resizeShape(currentSlideIndex, id, 0.9f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ZoomOut, contentDescription = "Scale Down", modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { selectedShapeId?.let { id -> viewModel.resizeShape(currentSlideIndex, id, 1.1f) } },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ZoomIn, contentDescription = "Scale Up", modifier = Modifier.size(16.dp))
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -632,17 +697,42 @@ fun PptxViewerScreen(
                                         }
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
+                                            IconButton(
+                                                onClick = { selectedImageId?.let { id -> viewModel.moveImage(currentSlideIndex, id, -0.02f, 0f) } },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ArrowBack, contentDescription = "Move Left", modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { selectedImageId?.let { id -> viewModel.moveImage(currentSlideIndex, id, 0f, -0.02f) } },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { selectedImageId?.let { id -> viewModel.moveImage(currentSlideIndex, id, 0f, 0.02f) } },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { selectedImageId?.let { id -> viewModel.moveImage(currentSlideIndex, id, 0.02f, 0f) } },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ArrowForward, contentDescription = "Move Right", modifier = Modifier.size(16.dp))
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             IconButton(
                                                 onClick = {
                                                     selectedImageId?.let { id ->
                                                         viewModel.scaleImage(currentSlideIndex, id, 0.9f)
                                                     }
                                                 },
-                                                modifier = Modifier.size(36.dp)
+                                                modifier = Modifier.size(32.dp)
                                             ) {
-                                                Icon(Icons.Default.ZoomOut, contentDescription = "Shrink -10%", modifier = Modifier.size(20.dp))
+                                                Icon(Icons.Default.ZoomOut, contentDescription = "Shrink -10%", modifier = Modifier.size(18.dp))
                                             }
                                             IconButton(
                                                 onClick = {
@@ -650,9 +740,9 @@ fun PptxViewerScreen(
                                                         viewModel.scaleImage(currentSlideIndex, id, 1.1f)
                                                     }
                                                 },
-                                                modifier = Modifier.size(36.dp)
+                                                modifier = Modifier.size(32.dp)
                                             ) {
-                                                Icon(Icons.Default.ZoomIn, contentDescription = "Enlarge +10%", modifier = Modifier.size(20.dp))
+                                                Icon(Icons.Default.ZoomIn, contentDescription = "Enlarge +10%", modifier = Modifier.size(18.dp))
                                             }
                                             IconButton(
                                                 onClick = {
@@ -661,13 +751,13 @@ fun PptxViewerScreen(
                                                         selectedImageId = null
                                                     }
                                                 },
-                                                modifier = Modifier.size(36.dp)
+                                                modifier = Modifier.size(32.dp)
                                             ) {
                                                 Icon(Icons.Default.Delete, contentDescription = "Delete Image", tint = MaterialTheme.colorScheme.error)
                                             }
                                             IconButton(
                                                 onClick = { selectedImageId = null },
-                                                modifier = Modifier.size(36.dp)
+                                                modifier = Modifier.size(32.dp)
                                             ) {
                                                 Icon(Icons.Default.Close, contentDescription = "Deselect Image")
                                             }
@@ -913,7 +1003,11 @@ fun PptxViewerScreen(
                                                     title = "New Slide",
                                                     subtitle = "Add blank",
                                                     onClick = {
-                                                        viewModel.addSlide(currentSlideIndex)
+                                                        viewModel.addSlide(currentSlideIndex) { newIdx ->
+                                                            coroutineScope.launch {
+                                                                pagerState.animateScrollToPage(newIdx)
+                                                            }
+                                                        }
                                                         Toast.makeText(context, "New slide added!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -922,7 +1016,11 @@ fun PptxViewerScreen(
                                                     title = "Duplicate",
                                                     subtitle = "Copy slide",
                                                     onClick = {
-                                                        viewModel.duplicateSlide(currentSlideIndex)
+                                                        viewModel.duplicateSlide(currentSlideIndex) { newIdx ->
+                                                            coroutineScope.launch {
+                                                                pagerState.animateScrollToPage(newIdx)
+                                                            }
+                                                        }
                                                         Toast.makeText(context, "Slide duplicated!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
@@ -1255,6 +1353,12 @@ fun PptxViewerScreen(
                                     activeIndexToEdit = slideIdx
                                     selectedImageId = img.id
                                     selectedShapeId = null
+                                },
+                                onShapeMove = { slideIdx, shapeId, dx, dy ->
+                                    viewModel.moveShape(slideIdx, shapeId, dx, dy)
+                                },
+                                onImageMove = { slideIdx, imgId, dx, dy ->
+                                    viewModel.moveImage(slideIdx, imgId, dx, dy)
                                 }
                             )
                         } else if (viewMode == PptxViewMode.GRID) {
@@ -1370,6 +1474,12 @@ fun PptxViewerScreen(
                                                     selectedImageId = img.id
                                                     selectedShapeId = null
                                                     activeIndexToEdit = pageIndex
+                                                },
+                                                onShapeMove = { shapeId, dx, dy ->
+                                                    viewModel.moveShape(pageIndex, shapeId, dx, dy)
+                                                },
+                                                onImageMove = { imgId, dx, dy ->
+                                                    viewModel.moveImage(pageIndex, imgId, dx, dy)
                                                 }
                                             )
                                         }
@@ -1849,6 +1959,8 @@ fun ContinuousSlideView(
     onVisibleSlideChange: (Int) -> Unit = {},
     onTextBlockClick: (slideIndex: Int, PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
     onImageClick: ((slideIndex: Int, PptxImage) -> Unit)? = null,
+    onShapeMove: ((slideIndex: Int, shapeId: String, deltaXFrac: Float, deltaYFrac: Float) -> Unit)? = null,
+    onImageMove: ((slideIndex: Int, imageId: String, deltaXFrac: Float, deltaYFrac: Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -1885,6 +1997,12 @@ fun ContinuousSlideView(
                             },
                             onImageClick = { img ->
                                 onImageClick?.invoke(index, img)
+                            },
+                            onShapeMove = { shapeId, dx, dy ->
+                                onShapeMove?.invoke(index, shapeId, dx, dy)
+                            },
+                            onImageMove = { imgId, dx, dy ->
+                                onImageMove?.invoke(index, imgId, dx, dy)
                             }
                         )
                         // Page number badge on bottom right of slide card
@@ -1936,7 +2054,9 @@ fun SlideCardItem(
     selectedShapeId: String? = null,
     selectedImageId: String? = null,
     onTextBlockClick: (PptxTextShape, isTitle: Boolean, blockIndex: Int) -> Unit,
-    onImageClick: ((PptxImage) -> Unit)? = null
+    onImageClick: ((PptxImage) -> Unit)? = null,
+    onShapeMove: ((shapeId: String, deltaXFrac: Float, deltaYFrac: Float) -> Unit)? = null,
+    onImageMove: ((imageId: String, deltaXFrac: Float, deltaYFrac: Float) -> Unit)? = null
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1956,6 +2076,7 @@ fun SlideCardItem(
         BoxWithConstraints(
             modifier = Modifier.fillMaxSize()
         ) {
+            val density = LocalDensity.current
             val slideW = maxWidth.value
             val slideH = maxHeight.value
             val title = slide.title
@@ -2000,6 +2121,9 @@ fun SlideCardItem(
                 when (element) {
                     is SlideElement.ImageElement -> {
                         val isImgSelected = isEditMode && (element.image.id.isNotEmpty() && element.image.id == selectedImageId)
+                        var dragOffsetX by remember(element.image.id, isImgSelected) { mutableFloatStateOf(0f) }
+                        var dragOffsetY by remember(element.image.id, isImgSelected) { mutableFloatStateOf(0f) }
+
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(File(element.image.filePath))
@@ -2009,6 +2133,7 @@ fun SlideCardItem(
                             contentDescription = "Slide Image",
                             modifier = Modifier
                                 .offset(x = (element.image.left * slideW).dp, y = (element.image.top * slideH).dp)
+                                .offset { IntOffset(dragOffsetX.roundToInt(), dragOffsetY.roundToInt()) }
                                 .size(width = (element.image.width * slideW).dp, height = (element.image.height * slideH).dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .then(
@@ -2017,23 +2142,84 @@ fun SlideCardItem(
                                     else Modifier
                                 )
                                 .then(
-                                    if (isEditMode) Modifier.clickable { onImageClick?.invoke(element.image) }
-                                    else Modifier
+                                    if (isImgSelected && isEditMode) {
+                                        Modifier.pointerInput(element.image.id) {
+                                            detectDragGestures(
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffsetX += dragAmount.x
+                                                    dragOffsetY += dragAmount.y
+                                                },
+                                                onDragEnd = {
+                                                    val densityDpi = density.density
+                                                    val deltaXFrac = dragOffsetX / (slideW * densityDpi)
+                                                    val deltaYFrac = dragOffsetY / (slideH * densityDpi)
+                                                    dragOffsetX = 0f
+                                                    dragOffsetY = 0f
+                                                    if (kotlin.math.abs(deltaXFrac) > 0.005f || kotlin.math.abs(deltaYFrac) > 0.005f) {
+                                                        onImageMove?.invoke(element.image.id, deltaXFrac, deltaYFrac)
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    dragOffsetX = 0f
+                                                    dragOffsetY = 0f
+                                                }
+                                            )
+                                        }
+                                    } else if (isEditMode) {
+                                        Modifier.clickable { onImageClick?.invoke(element.image) }
+                                    } else Modifier
                                 ),
                             contentScale = ContentScale.Fit
                         )
                     }
                     is SlideElement.TextElement -> {
-                        TextShapeItem(
-                            shape = element.shape,
-                            slideW = slideW,
-                            slideH = slideH,
-                            fontScale = fontScale,
-                            isTitle = element.isTitle,
-                            isEditMode = isEditMode,
-                            isSelected = isEditMode && (element.shape.id == selectedShapeId),
-                            onClick = { onTextBlockClick(element.shape, element.isTitle, element.index) }
-                        )
+                        val isSelected = isEditMode && (element.shape.id == selectedShapeId)
+                        var dragOffsetX by remember(element.shape.id, isSelected) { mutableFloatStateOf(0f) }
+                        var dragOffsetY by remember(element.shape.id, isSelected) { mutableFloatStateOf(0f) }
+
+                        Box(
+                            modifier = Modifier
+                                .offset { IntOffset(dragOffsetX.roundToInt(), dragOffsetY.roundToInt()) }
+                                .then(
+                                    if (isSelected && isEditMode) {
+                                        Modifier.pointerInput(element.shape.id) {
+                                            detectDragGestures(
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffsetX += dragAmount.x
+                                                    dragOffsetY += dragAmount.y
+                                                },
+                                                onDragEnd = {
+                                                    val densityDpi = density.density
+                                                    val deltaXFrac = dragOffsetX / (slideW * densityDpi)
+                                                    val deltaYFrac = dragOffsetY / (slideH * densityDpi)
+                                                    dragOffsetX = 0f
+                                                    dragOffsetY = 0f
+                                                    if (kotlin.math.abs(deltaXFrac) > 0.005f || kotlin.math.abs(deltaYFrac) > 0.005f) {
+                                                        onShapeMove?.invoke(element.shape.id, deltaXFrac, deltaYFrac)
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    dragOffsetX = 0f
+                                                    dragOffsetY = 0f
+                                                }
+                                            )
+                                        }
+                                    } else Modifier
+                                )
+                        ) {
+                            TextShapeItem(
+                                shape = element.shape,
+                                slideW = slideW,
+                                slideH = slideH,
+                                fontScale = fontScale,
+                                isTitle = element.isTitle,
+                                isEditMode = isEditMode,
+                                isSelected = isSelected,
+                                onClick = { onTextBlockClick(element.shape, element.isTitle, element.index) }
+                            )
+                        }
                     }
                 }
             }
@@ -2096,6 +2282,94 @@ private val ChevronShape = GenericShape { size, _ ->
     lineTo(w * 0.75f, h)
     lineTo(0f, h)
     lineTo(w * 0.25f, h * 0.5f)
+    close()
+}
+
+/** True geometric 5-point star shape */
+private val StarShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    val cx = w / 2f
+    val cy = h / 2f
+    val outerR = min(cx, cy)
+    val innerR = outerR * 0.42f
+    for (i in 0 until 10) {
+        val r = if (i % 2 == 0) outerR else innerR
+        val angle = Math.toRadians((i * 36 - 90).toDouble())
+        val x = cx + (r * kotlin.math.cos(angle)).toFloat()
+        val y = cy + (r * kotlin.math.sin(angle)).toFloat()
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
+}
+
+/** True geometric regular pentagon shape */
+private val PentagonShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    val cx = w / 2f
+    val cy = h / 2f
+    val r = min(cx, cy)
+    for (i in 0 until 5) {
+        val angle = Math.toRadians((i * 72 - 90).toDouble())
+        val x = cx + (r * kotlin.math.cos(angle)).toFloat()
+        val y = cy + (r * kotlin.math.sin(angle)).toFloat()
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
+}
+
+/** True geometric right arrow shape */
+private val RightArrowShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    moveTo(0f, h * 0.25f)
+    lineTo(w * 0.6f, h * 0.25f)
+    lineTo(w * 0.6f, 0f)
+    lineTo(w, h * 0.5f)
+    lineTo(w * 0.6f, h)
+    lineTo(w * 0.6f, h * 0.75f)
+    lineTo(0f, h * 0.75f)
+    close()
+}
+
+/** True geometric rectangular callout with bottom tail */
+private val CalloutShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    val bodyH = h * 0.8f
+    moveTo(0f, 0f)
+    lineTo(w, 0f)
+    lineTo(w, bodyH)
+    lineTo(w * 0.45f, bodyH)
+    lineTo(w * 0.25f, h)
+    lineTo(w * 0.3f, bodyH)
+    lineTo(0f, bodyH)
+    close()
+}
+
+/** True geometric parallelogram shape */
+private val ParallelogramShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    val shift = w * 0.2f
+    moveTo(shift, 0f)
+    lineTo(w, 0f)
+    lineTo(w - shift, h)
+    lineTo(0f, h)
+    close()
+}
+
+/** True geometric line/divider shape */
+private val LineShape = GenericShape { size, _ ->
+    val w = size.width
+    val h = size.height
+    val midY = h / 2f
+    val thickness = (h * 0.2f).coerceIn(2f, 8f)
+    moveTo(0f, midY - thickness / 2f)
+    lineTo(w, midY - thickness / 2f)
+    lineTo(w, midY + thickness / 2f)
+    lineTo(0f, midY + thickness / 2f)
     close()
 }
 
@@ -2177,7 +2451,13 @@ fun TextShapeItem(
         ShapeGeometryType.HEXAGON,
         ShapeGeometryType.TRIANGLE,
         ShapeGeometryType.DIAMOND,
-        ShapeGeometryType.CHEVRON
+        ShapeGeometryType.CHEVRON,
+        ShapeGeometryType.STAR,
+        ShapeGeometryType.PENTAGON,
+        ShapeGeometryType.RIGHT_ARROW,
+        ShapeGeometryType.CALLOUT,
+        ShapeGeometryType.PARALLELOGRAM,
+        ShapeGeometryType.LINE
     )
     val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) }
         ?: if (isGeometricShape) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Transparent
@@ -2190,11 +2470,18 @@ fun TextShapeItem(
         ShapeGeometryType.TRIANGLE -> TriangleShape
         ShapeGeometryType.DIAMOND -> DiamondShape
         ShapeGeometryType.CHEVRON -> ChevronShape
+        ShapeGeometryType.STAR -> StarShape
+        ShapeGeometryType.PENTAGON -> PentagonShape
+        ShapeGeometryType.RIGHT_ARROW -> RightArrowShape
+        ShapeGeometryType.CALLOUT -> CalloutShape
+        ShapeGeometryType.PARALLELOGRAM -> ParallelogramShape
+        ShapeGeometryType.LINE -> LineShape
         ShapeGeometryType.ROUNDED_RECTANGLE -> RoundedCornerShape(8.dp)
         else -> RoundedCornerShape(if (isTableCell) 0.dp else 2.dp)
     }
 
     val borderWidth = when {
+        shape.isBackgroundShape -> 0.dp
         isSelected -> 2.dp
         shapeBorder != null && shapeBorder.strokeColorHex != null -> shapeBorder.strokeWidthDp.dp
         isGeometricShape -> 1.dp
@@ -2204,6 +2491,7 @@ fun TextShapeItem(
     }
 
     val borderColor = when {
+        shape.isBackgroundShape -> Color.Transparent
         isSelected -> MaterialTheme.colorScheme.primary
         shapeBorder != null && shapeBorder.strokeColorHex != null -> safeParseColor(shapeBorder.strokeColorHex, MaterialTheme.colorScheme.primary)
         isGeometricShape -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
@@ -2213,7 +2501,7 @@ fun TextShapeItem(
         else -> Color.Transparent
     }
 
-    val defaultFontSizePt = if (isTitle) 24f else (if (isEllipseBadge) 12f else 14f)
+    val defaultFontSizePt = if (isTitle) 24f else (if (isEllipseBadge) 12f else 18f)
     val defaultColor = if (isTitle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
 
     val density = LocalDensity.current
@@ -2337,32 +2625,36 @@ fun TextShapeItem(
         return total
     }
 
-    // Determine shrink scale: binary search to guarantee fit within available height.
+    // Determine shrink scale: binary search to guarantee fit within available height ONLY if normAutofit is set.
     val shrinkScale = remember(shape, contentWidthPx, contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)) {
-        val availableHeightPx = contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)
-        val baked = shape.fontScale?.let { (it / 100000f).coerceIn(0.6f, 1f) } ?: 1f
-        if (availableHeightPx <= 0f) {
-            baked
+        if (shape.autoFit != AutoFitMode.NORM_AUTOFIT) {
+            1.0f
         } else {
-            val minScale = 0.65f
-            if (measureTotalHeight(baked) <= availableHeightPx) {
+            val availableHeightPx = contentHeightPx(shapeHeightPx, insetTopPx, insetBottomPx, isTitle)
+            val baked = shape.fontScale?.let { (it / 100000f).coerceIn(0.6f, 1f) } ?: 1f
+            if (availableHeightPx <= 0f) {
                 baked
             } else {
-                var lo = minScale
-                var hi = baked
-                repeat(6) {
-                    val mid = (lo + hi) / 2f
-                    if (measureTotalHeight(mid) > availableHeightPx) hi = mid else lo = mid
+                val minScale = 0.65f
+                if (measureTotalHeight(baked) <= availableHeightPx) {
+                    baked
+                } else {
+                    var lo = minScale
+                    var hi = baked
+                    repeat(6) {
+                        val mid = (lo + hi) / 2f
+                        if (measureTotalHeight(mid) > availableHeightPx) hi = mid else lo = mid
+                    }
+                    lo
                 }
-                lo
             }
         }
     }
 
-    // For titles without autofit, allow the box to grow to the measured wrapped content height
+    // For non-autofit shapes, allow the box to grow to the measured wrapped content height
     val finalHeightDp = with(density) {
         val baseHeightPx = (shape.shapeHeight * slideH).dp.toPx()
-        val extraPx = if (isTitle && shape.autoFit != AutoFitMode.NORM_AUTOFIT) {
+        val extraPx = if (shape.autoFit != AutoFitMode.NORM_AUTOFIT) {
             val scale = shape.fontScale?.let { (it / 100000f).coerceIn(0.6f, 1f) } ?: 1f
             val needed = measureTotalHeight(scale)
             val contentH = contentHeightPx(baseHeightPx, insetTopPx, insetBottomPx, isTitle)
@@ -2377,11 +2669,11 @@ fun TextShapeItem(
             .size(width = (shape.shapeWidth * slideW).dp, height = finalHeightDp)
             .then(if (shape.rotationDegrees != 0f) Modifier.rotate(shape.rotationDegrees) else Modifier)
             .clip(shapeShape)
-            .clickable(enabled = isEditMode, onClick = onClick)
+            .clickable(enabled = isEditMode && !shape.isBackgroundShape, onClick = onClick)
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 else if (shapeBgColor != Color.Transparent) shapeBgColor
-                else if (isEditMode) {
+                else if (isEditMode && !shape.isBackgroundShape) {
                     if (isTitle) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                     else MaterialTheme.colorScheme.secondary.copy(alpha = 0.06f)
                 } else Color.Transparent

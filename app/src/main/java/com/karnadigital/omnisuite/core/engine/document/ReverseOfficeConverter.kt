@@ -9,6 +9,13 @@ import com.tom_roush.pdfbox.pdmodel.interactive.form.PDAcroForm
 import com.tom_roush.pdfbox.rendering.PDFRenderer
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.android.gms.tasks.Tasks
+import com.tom_roush.pdfbox.contentstream.operator.Operator
+import com.tom_roush.pdfbox.cos.COSBase
+import com.tom_roush.pdfbox.cos.COSName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.xwpf.usermodel.BreakType
@@ -48,9 +55,61 @@ class ReverseOfficeConverter @Inject constructor(
                 stripper.startPage = pageNum
                 stripper.endPage = pageNum
                 stripper.getText(doc)
-                val lines = orderPageLines(stripper.lines)
+                var rawLines = stripper.lines
+
+                // 1. OCR Fallback for Scanned / Image-Only Pages
+                if (rawLines.sumOf { it.lineText.trim().length } < 30) {
+                    try {
+                        val renderer = PDFRenderer(doc)
+                        val pageBmp = renderer.renderImageWithDPI(pageNum - 1, 150f)
+                        if (pageBmp != null) {
+                            val inputImg = InputImage.fromBitmap(pageBmp, 0)
+                            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                            val task = recognizer.process(inputImg)
+                            val visionText = Tasks.await(task)
+                            val ocrLines = mutableListOf<DocxPageTextStripper.ExtractedLine>()
+                            val allBoxes = visionText.textBlocks.flatMap { it.lines }.mapNotNull { it.boundingBox }
+                            val avgH = if (allBoxes.isNotEmpty()) allBoxes.map { it.height() }.average().toFloat() else 22f
+
+                            for (block in visionText.textBlocks) {
+                                for (line in block.lines) {
+                                    val box = line.boundingBox ?: continue
+                                    val text = line.text.trim()
+                                    if (text.isEmpty()) continue
+                                    val isBold = box.height() > avgH * 1.28f || (text.length < 45 && text.uppercase() == text && text.any { it.isLetter() })
+                                    val fontSize = (box.height().toFloat() * 0.72f).coerceIn(9f, 32f)
+                                    val chunk = DocxPageTextStripper.StyledChunk(
+                                        text = text,
+                                        fontFamily = "Calibri",
+                                        fontSizePt = fontSize,
+                                        isBold = isBold,
+                                        isItalic = false,
+                                        x = box.left.toFloat() * (72f / 150f),
+                                        y = box.top.toFloat() * (72f / 150f)
+                                    )
+                                    ocrLines.add(
+                                        DocxPageTextStripper.ExtractedLine(
+                                            chunks = listOf(chunk),
+                                            y = box.top.toFloat() * (72f / 150f),
+                                            minX = box.left.toFloat() * (72f / 150f),
+                                            maxX = box.right.toFloat() * (72f / 150f),
+                                            lineText = text
+                                        )
+                                    )
+                                }
+                            }
+                            if (ocrLines.isNotEmpty()) {
+                                rawLines = ocrLines
+                            }
+                            pageBmp.recycle()
+                        }
+                    } catch (_: Throwable) {}
+                }
+
+                val lines = orderPageLines(rawLines)
 
                 // 2. Extract embedded images, diagrams, and formulas from PDF resources
+                val pageImages = mutableListOf<ExtractedDocxImage>()
                 try {
                     val page = doc.getPage(pageNum - 1)
                     val resources = page.resources
@@ -69,20 +128,20 @@ class ReverseOfficeConverter @Inject constructor(
                                             bmp.compress(Bitmap.CompressFormat.PNG, 95, stream)
                                             val imgBytes = stream.toByteArray()
                                             if (imgBytes.isNotEmpty()) {
-                                                val imgP = docx.createParagraph()
-                                                imgP.alignment = org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
-                                                imgP.spacingBefore = 120
-                                                imgP.spacingAfter = 120
-                                                val imgR = imgP.createRun()
                                                 val maxW = 460f
                                                 val wPt = bmp.width.toFloat().coerceAtMost(maxW)
                                                 val hPt = (wPt / bmp.width.toFloat()) * bmp.height.toFloat()
-                                                imgR.addPicture(
-                                                    java.io.ByteArrayInputStream(imgBytes),
-                                                    org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG,
-                                                    "page_${pageNum}_${name.name}.png",
-                                                    org.apache.poi.util.Units.toEMU(wPt.toDouble()),
-                                                    org.apache.poi.util.Units.toEMU(hPt.toDouble())
+                                                val recordedY = stripper.imagePositions[name.name]
+                                                val defaultY = if (lines.isNotEmpty()) lines.last().y + 20f else 50f
+                                                val imgY = recordedY ?: defaultY
+                                                pageImages.add(
+                                                    ExtractedDocxImage(
+                                                        filename = "page_${pageNum}_${name.name}.png",
+                                                        bytes = imgBytes,
+                                                        widthPt = wPt,
+                                                        heightPt = hPt,
+                                                        y = imgY
+                                                    )
                                                 )
                                             }
                                         }
@@ -94,34 +153,30 @@ class ReverseOfficeConverter @Inject constructor(
                     }
                 } catch (_: Throwable) {}
 
-                val minPageX = lines.map { it.minX }.filter { it > 10f }.minOrNull() ?: 54f
-
-                var currentParagraph: org.apache.poi.xwpf.usermodel.XWPFParagraph? = null
-                var prevLineY = 0f
-                var prevLineMinX = minPageX
-                var prevLineHeight = 12f
-                var prevLineText = ""
-                var inCodeBlock = false
-
+                // 3. Assemble all page elements (tables, text lines, and images) object-wise
+                val pageElements = mutableListOf<DocxPageElement>()
                 var lineIdx = 0
                 while (lineIdx < lines.size) {
                     val line = lines[lineIdx]
                     val trimmed = line.lineText.trim()
 
                     if (trimmed.isEmpty()) {
-                        currentParagraph = null
-                        inCodeBlock = false
-                        prevLineText = ""
                         lineIdx++
                         continue
                     }
 
-                    // Check for multi-column table pattern (2+ columns separated by 2+ spaces or tabs)
+                    // Check for multi-column table pattern (2+ columns separated by 2+ spaces, tabs, or chunk gaps)
                     val tableLines = mutableListOf<List<String>>()
                     var lookahead = lineIdx
                     while (lookahead < lines.size) {
-                        val candidateText = lines[lookahead].lineText.trim()
-                        val cols = candidateText.split(Regex("\\s{2,}|\t")).map { it.trim() }.filter { it.isNotEmpty() }
+                        val candidate = lines[lookahead]
+                        val candidateText = candidate.lineText.trim()
+                        val regexCols = candidateText.split(Regex("\\s{2,}|\t")).map { it.trim() }.filter { it.isNotEmpty() }
+                        val chunkCols = if (candidate.chunks.size >= 2 && candidate.chunks.all { it.text.trim().isNotEmpty() }) {
+                            candidate.chunks.map { it.text.trim() }
+                        } else emptyList()
+
+                        val cols = if (regexCols.size >= 2) regexCols else if (chunkCols.size >= 2) chunkCols else emptyList()
                         if (cols.size >= 2) {
                             tableLines.add(cols)
                             lookahead++
@@ -131,116 +186,165 @@ class ReverseOfficeConverter @Inject constructor(
                     }
 
                     if (tableLines.size >= 2) {
-                        currentParagraph = null
-                        inCodeBlock = false
-                        val maxCols = tableLines.maxOf { it.size }
-                        val table = docx.createTable()
-                        for ((rIdx, rowCols) in tableLines.withIndex()) {
-                            val row = if (rIdx == 0) table.getRow(0) else table.createRow()
-                            for (cIdx in 0 until maxCols) {
-                                val cell = if (cIdx < row.tableCells.size) row.getCell(cIdx) else row.createCell()
-                                val cellText = rowCols.getOrNull(cIdx) ?: ""
-                                val cellP = if (cell.paragraphs.isNotEmpty()) cell.paragraphs[0] else cell.addParagraph()
-                                cellP.spacingBefore = 40
-                                cellP.spacingAfter = 40
-                                val r = cellP.createRun()
-                                r.fontSize = 10
-                                r.fontFamily = "Calibri"
-                                if (rIdx == 0) {
-                                    r.isBold = true
-                                    r.color = "1F4E79"
-                                }
-                                r.setText(cellText)
-                            }
-                        }
+                        val tableStartY = lines[lineIdx].y
+                        pageElements.add(DocxPageElement.Table(tableLines, tableStartY))
                         lineIdx = lookahead
-                        prevLineText = ""
                         continue
                     }
 
-                    val isHeading = (line.chunks.any { it.fontSizePt >= 14f } || isProbableHeading(trimmed)) &&
-                            (line.chunks.any { it.isBold } || line.chunks.any { it.fontSizePt >= 14f })
-                    val isCode = !isHeading && (line.chunks.all { it.fontFamily == "Consolas" } || isProbableCodeLine(line.lineText, trimmed))
-                    val isListItem = !isHeading && !isCode && (
-                            trimmed.startsWith("•") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
-                                    trimmed.startsWith("▪") || trimmed.startsWith("▫") ||
-                                    trimmed.matches(Regex("^[0-9]+[.)]\\s+.*")) ||
-                                    trimmed.matches(Regex("^[a-zA-Z][.)]\\s+.*"))
-                            )
-
-                    val indentInPt = (line.minX - minPageX).coerceAtLeast(0f)
-                    val indentTwips = if (indentInPt >= 8f) (indentInPt * 20).toInt() else 0
-
-                    val yGap = if (prevLineY > 0f) line.y - prevLineY else 0f
-                    val isBelowPrevLine = line.y > (prevLineY + 2f)
-                    val isSameCol = kotlin.math.abs(line.minX - prevLineMinX) < 35f
-                    val prevEndedSentence = prevLineText.endsWith(".") || prevLineText.endsWith(":") ||
-                            prevLineText.endsWith("?") || prevLineText.endsWith("!")
-                    val isShortLine = prevLineText.length < 45 && prevLineText.isNotEmpty()
-
-                    val isNewParagraphNeeded = isHeading || isListItem || (isCode != inCodeBlock) ||
-                            currentParagraph == null || !isBelowPrevLine || !isSameCol ||
-                            (yGap > (prevLineHeight * 1.55f)) ||
-                            (indentTwips > 0) || (prevEndedSentence && isShortLine)
-
-                    if (isNewParagraphNeeded) {
-                        currentParagraph = docx.createParagraph()
-                        when {
-                            isHeading -> {
-                                inCodeBlock = false
-                                currentParagraph.spacingBefore = 220
-                                currentParagraph.spacingAfter = 100
-                                if (indentTwips > 0) currentParagraph.indentationLeft = indentTwips
-                            }
-                            isCode -> {
-                                inCodeBlock = true
-                                currentParagraph.spacingBefore = 80
-                                currentParagraph.spacingAfter = 40
-                                currentParagraph.indentationLeft = maxOf(280, indentTwips)
-                            }
-                            isListItem -> {
-                                inCodeBlock = false
-                                currentParagraph.spacingBefore = 40
-                                currentParagraph.spacingAfter = 60
-                                currentParagraph.indentationLeft = maxOf(360, indentTwips)
-                                currentParagraph.indentationHanging = 280
-                            }
-                            else -> {
-                                inCodeBlock = false
-                                currentParagraph.spacingBefore = 60
-                                currentParagraph.spacingAfter = 60
-                                if (indentTwips > 0) currentParagraph.indentationLeft = indentTwips
-                            }
-                        }
-                    } else {
-                        if (inCodeBlock) {
-                            val r = currentParagraph!!.createRun()
-                            r.addBreak()
-                        } else {
-                            val r = currentParagraph!!.createRun()
-                            r.setText(" ")
-                        }
-                    }
-
-                    for (chunk in line.chunks) {
-                        val r = currentParagraph!!.createRun()
-                        r.fontFamily = if (isCode) "Consolas" else chunk.fontFamily
-                        r.fontSize = Math.round(chunk.fontSizePt).toInt().coerceIn(6, 72)
-                        r.isBold = chunk.isBold || isHeading
-                        r.isItalic = chunk.isItalic
-                        if (isHeading) {
-                            r.color = "1F4E79"
-                        } else if (isCode) {
-                            r.color = "24292E"
-                        }
-                        r.setText(chunk.text)
-                    }
-
-                    prevLineY = line.y
-                    prevLineMinX = line.minX
-                    prevLineHeight = line.chunks.maxOfOrNull { it.fontSizePt } ?: 12f
-                    prevLineText = trimmed
+                    pageElements.add(DocxPageElement.TextLine(line))
                     lineIdx++
+                }
+
+                for (img in pageImages) {
+                    pageElements.add(DocxPageElement.Image(img))
+                }
+
+                val sortedElements = pageElements.sortedBy { it.y }
+
+                val minPageX = lines.map { it.minX }.filter { it > 10f }.minOrNull() ?: 54f
+
+                var currentParagraph: org.apache.poi.xwpf.usermodel.XWPFParagraph? = null
+                var prevLineY = 0f
+                var prevLineMinX = minPageX
+                var prevLineHeight = 12f
+                var prevLineText = ""
+                var inCodeBlock = false
+
+                for (elem in sortedElements) {
+                    when (elem) {
+                        is DocxPageElement.Table -> {
+                            currentParagraph = null
+                            inCodeBlock = false
+                            prevLineText = ""
+                            val maxCols = elem.rows.maxOf { it.size }
+                            val table = docx.createTable()
+                            for ((rIdx, rowCols) in elem.rows.withIndex()) {
+                                val row = if (rIdx == 0) table.getRow(0) else table.createRow()
+                                for (cIdx in 0 until maxCols) {
+                                    val cell = if (cIdx < row.tableCells.size) row.getCell(cIdx) else row.createCell()
+                                    val cellText = rowCols.getOrNull(cIdx) ?: ""
+                                    val cellP = if (cell.paragraphs.isNotEmpty()) cell.paragraphs[0] else cell.addParagraph()
+                                    cellP.spacingBefore = 60
+                                    cellP.spacingAfter = 60
+                                    val r = cellP.createRun()
+                                    r.fontSize = 10
+                                    r.fontFamily = "Calibri"
+                                    if (rIdx == 0) {
+                                        r.isBold = true
+                                        r.color = "1F4E79"
+                                        cell.setColor("D9E1F2")
+                                    } else if (rIdx % 2 == 1) {
+                                        cell.setColor("F9FAFB")
+                                    }
+                                    r.setText(cellText)
+                                }
+                            }
+                        }
+                        is DocxPageElement.Image -> {
+                            currentParagraph = null
+                            inCodeBlock = false
+                            prevLineText = ""
+                            val imgP = docx.createParagraph()
+                            imgP.alignment = org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                            imgP.spacingBefore = 120
+                            imgP.spacingAfter = 120
+                            val imgR = imgP.createRun()
+                            imgR.addPicture(
+                                java.io.ByteArrayInputStream(elem.img.bytes),
+                                org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG,
+                                elem.img.filename,
+                                org.apache.poi.util.Units.toEMU(elem.img.widthPt.toDouble()),
+                                org.apache.poi.util.Units.toEMU(elem.img.heightPt.toDouble())
+                            )
+                        }
+                        is DocxPageElement.TextLine -> {
+                            val line = elem.line
+                            val trimmed = line.lineText.trim()
+                            val isHeading = (line.chunks.any { it.fontSizePt >= 14f } || isProbableHeading(trimmed)) &&
+                                    (line.chunks.any { it.isBold } || line.chunks.any { it.fontSizePt >= 14f })
+                            val isCode = !isHeading && (line.chunks.all { it.fontFamily == "Consolas" } || isProbableCodeLine(line.lineText, trimmed))
+                            val isListItem = !isHeading && !isCode && (
+                                    trimmed.startsWith("•") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
+                                            trimmed.startsWith("▪") || trimmed.startsWith("▫") ||
+                                            trimmed.matches(Regex("^[0-9]+[.)]\\s+.*")) ||
+                                            trimmed.matches(Regex("^[a-zA-Z][.)]\\s+.*"))
+                                    )
+
+                            val indentInPt = (line.minX - minPageX).coerceAtLeast(0f)
+                            val indentTwips = if (indentInPt >= 8f) (indentInPt * 20).toInt() else 0
+
+                            val yGap = if (prevLineY > 0f) line.y - prevLineY else 0f
+                            val isBelowPrevLine = line.y > (prevLineY + 2f)
+                            val isSameCol = kotlin.math.abs(line.minX - prevLineMinX) < 35f
+                            val prevEndedSentence = prevLineText.endsWith(".") || prevLineText.endsWith(":") ||
+                                    prevLineText.endsWith("?") || prevLineText.endsWith("!")
+                            val isShortLine = prevLineText.length < 45 && prevLineText.isNotEmpty()
+
+                            val isNewParagraphNeeded = isHeading || isListItem || (isCode != inCodeBlock) ||
+                                    currentParagraph == null || !isBelowPrevLine || !isSameCol ||
+                                    (yGap > (prevLineHeight * 1.55f)) ||
+                                    (indentTwips > 0) || (prevEndedSentence && isShortLine)
+
+                            if (isNewParagraphNeeded) {
+                                currentParagraph = docx.createParagraph()
+                                when {
+                                    isHeading -> {
+                                        inCodeBlock = false
+                                        currentParagraph.spacingBefore = 220
+                                        currentParagraph.spacingAfter = 100
+                                        if (indentTwips > 0) currentParagraph.indentationLeft = indentTwips
+                                    }
+                                    isCode -> {
+                                        inCodeBlock = true
+                                        currentParagraph.spacingBefore = 80
+                                        currentParagraph.spacingAfter = 40
+                                        currentParagraph.indentationLeft = maxOf(280, indentTwips)
+                                    }
+                                    isListItem -> {
+                                        inCodeBlock = false
+                                        currentParagraph.spacingBefore = 40
+                                        currentParagraph.spacingAfter = 60
+                                        currentParagraph.indentationLeft = maxOf(720, indentTwips)
+                                        currentParagraph.indentationHanging = 360
+                                    }
+                                    else -> {
+                                        inCodeBlock = false
+                                        currentParagraph.spacingBefore = 60
+                                        currentParagraph.spacingAfter = 60
+                                        if (indentTwips > 0) currentParagraph.indentationLeft = indentTwips
+                                    }
+                                }
+                            } else {
+                                if (inCodeBlock) {
+                                    val r = currentParagraph!!.createRun()
+                                    r.addBreak()
+                                } else {
+                                    val r = currentParagraph!!.createRun()
+                                    r.setText(" ")
+                                }
+                            }
+
+                            for (chunk in line.chunks) {
+                                val r = currentParagraph!!.createRun()
+                                r.fontFamily = if (isCode) "Consolas" else chunk.fontFamily
+                                r.fontSize = Math.round(chunk.fontSizePt).toInt().coerceIn(6, 72)
+                                r.isBold = chunk.isBold || isHeading
+                                r.isItalic = chunk.isItalic
+                                if (isHeading) {
+                                    r.color = "1F4E79"
+                                } else if (isCode) {
+                                    r.color = "24292E"
+                                }
+                                r.setText(chunk.text)
+                            }
+
+                            prevLineY = line.y
+                            prevLineMinX = line.minX
+                            prevLineHeight = line.chunks.maxOfOrNull { it.fontSizePt } ?: 12f
+                            prevLineText = trimmed
+                        }
+                    }
                 }
 
                 // Authentic hard page break between pages
@@ -269,9 +373,40 @@ class ReverseOfficeConverter @Inject constructor(
         }
     }
 
+    private data class ExtractedDocxImage(
+        val filename: String,
+        val bytes: ByteArray,
+        val widthPt: Float,
+        val heightPt: Float,
+        val y: Float
+    )
+
+    private sealed class DocxPageElement(val y: Float) {
+        data class TextLine(val line: DocxPageTextStripper.ExtractedLine) : DocxPageElement(line.y)
+        data class Table(val rows: List<List<String>>, val startY: Float) : DocxPageElement(startY)
+        data class Image(val img: ExtractedDocxImage) : DocxPageElement(img.y)
+    }
+
     private class DocxPageTextStripper : PDFTextStripper() {
         init {
             sortByPosition = true
+        }
+
+        val imagePositions = mutableMapOf<String, Float>()
+
+        override fun processOperator(operator: Operator, operands: MutableList<COSBase>) {
+            if (operator.name == "Do" && operands.isNotEmpty()) {
+                val nameObj = operands.firstOrNull() as? COSName
+                if (nameObj != null) {
+                    try {
+                        val ctm = graphicsState.currentTransformationMatrix
+                        val pageHeight = currentPage?.cropBox?.height ?: 792f
+                        val yPt = (pageHeight - ctm.translateY - kotlin.math.abs(ctm.scalingFactorY)).coerceAtLeast(0f)
+                        imagePositions[nameObj.name] = yPt
+                    } catch (_: Throwable) {}
+                }
+            }
+            super.processOperator(operator, operands)
         }
 
         data class StyledChunk(

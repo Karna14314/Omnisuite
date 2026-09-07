@@ -11,6 +11,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -480,6 +482,7 @@ fun PdfMetadataScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
 @Composable
 fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltViewModel()) {
     val context = LocalContext.current
+    val thumbnails = rememberPdfThumbnails(context, viewModel.bookmarkInputUri)
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentPage by remember { mutableIntStateOf(0) }
     var totalPages by remember { mutableIntStateOf(0) }
@@ -600,6 +603,7 @@ fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
+                        val effectivePageCount = if (totalPages > 0) totalPages else thumbnails.size
                         // Navigation strip
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -607,7 +611,7 @@ fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Preview: Page ${currentPage + 1} of ${totalPages.coerceAtLeast(1)}",
+                                text = "Preview: Page ${currentPage + 1} of ${effectivePageCount.coerceAtLeast(1)}",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -615,7 +619,7 @@ fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
                                 IconButton(onClick = { if (currentPage > 0) currentPage-- }, enabled = currentPage > 0) {
                                     Icon(Icons.Default.ChevronLeft, contentDescription = "Previous")
                                 }
-                                IconButton(onClick = { if (currentPage < totalPages - 1) currentPage++ }, enabled = currentPage < totalPages - 1) {
+                                IconButton(onClick = { if (currentPage < effectivePageCount - 1) currentPage++ }, enabled = currentPage < effectivePageCount - 1) {
                                     Icon(Icons.Default.ChevronRight, contentDescription = "Next")
                                 }
                             }
@@ -630,7 +634,7 @@ fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
                                 .background(Color(0xFFF1F5F9)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (isLoadingPage) {
+                            if (isLoadingPage && previewBitmap == null) {
                                 CircularProgressIndicator(modifier = Modifier.size(36.dp))
                             } else if (previewBitmap != null) {
                                 Image(
@@ -639,8 +643,108 @@ fun PdfBookmarkScreen(onBack: () -> Unit, viewModel: PdfToolsViewModel = hiltVie
                                     modifier = Modifier.fillMaxSize().padding(6.dp),
                                     contentScale = ContentScale.Fit
                                 )
+                            } else if (thumbnails.isNotEmpty() && currentPage in thumbnails.indices) {
+                                Image(
+                                    bitmap = thumbnails[currentPage].asImageBitmap(),
+                                    contentDescription = "PDF Page Preview",
+                                    modifier = Modifier.fillMaxSize().padding(6.dp),
+                                    contentScale = ContentScale.Fit
+                                )
                             } else {
                                 Text("Unable to render page preview", fontSize = 12.sp, color = Color.Gray)
+                            }
+
+                            // Visual Bookmark Indicator Ribbon
+                            val isCurrentPageBookmarked = bookmarkList.any { it.pageIndex == currentPage }
+                            if (isCurrentPageBookmarked) {
+                                Surface(
+                                    shape = RoundedCornerShape(bottomStart = 8.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Bookmark,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "Bookmarked",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Page Thumbnail Preview Carousel Strip
+                        if (thumbnails.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Pages (${thumbnails.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp)
+                            ) {
+                                itemsIndexed(thumbnails) { idx, bmp ->
+                                    val isSelected = idx == currentPage
+                                    val hasBookmark = bookmarkList.any { it.pageIndex == idx }
+                                    Card(
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        modifier = Modifier
+                                            .width(68.dp)
+                                            .clickable { currentPage = idx }
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxWidth().height(90.dp)) {
+                                            Image(
+                                                bitmap = bmp.asImageBitmap(),
+                                                contentDescription = "Page ${idx + 1}",
+                                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                            // Page number pill
+                                            Surface(
+                                                shape = RoundedCornerShape(bottomStart = 6.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.6f),
+                                                modifier = Modifier.align(Alignment.BottomEnd)
+                                            ) {
+                                                Text(
+                                                    text = "${idx + 1}",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            // Visual bookmark flag indicator
+                                            if (hasBookmark) {
+                                                Icon(
+                                                    Icons.Default.Bookmark,
+                                                    contentDescription = "Bookmarked",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(2.dp)
+                                                        .size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
