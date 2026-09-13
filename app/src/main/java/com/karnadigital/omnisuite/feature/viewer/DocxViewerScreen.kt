@@ -2319,9 +2319,13 @@ fun DocxWebView(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isPageLoaded by remember { mutableStateOf(false) }
 
-    // When layout mode changes (Print Layout vs Reflow) or docxBase64 is updated
+    // When layout mode changes (Print Layout vs Reflow) or docxBase64 is updated.
+    // Guard: huge Base64 payloads exceed the Binder/JS literal limit and crash —
+    // skip WebView render then (native Compose view still shows the document).
     LaunchedEffect(docxBase64, isPrintLayout, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
+        if (isPageLoaded && webViewInstance != null &&
+            docxBase64.length < 8_000_000
+        ) {
             webViewInstance?.evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
         }
     }
@@ -2384,7 +2388,9 @@ fun DocxWebView(
                         isPageLoaded = true
                         webViewInstance = this@apply
                         onWebViewReady(this@apply)
-                        evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
+                        if (docxBase64.length < 8_000_000) {
+                            evaluateJavascript("renderDocxBase64('$docxBase64', $isPrintLayout)", null)
+                        }
                     }
                 }
 

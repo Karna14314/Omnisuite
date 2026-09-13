@@ -839,14 +839,14 @@ private fun getAllToolsList(
         ToolItem("markdown_to_pdf", "✍️", "Markdown to PDF", "Format Markdown text to PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToMarkdownToPdf) }, "PDF"),
         ToolItem("pdf_to_images", "🖨️", "PDF to Images", "Extract PDF pages to PNGs", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToImages) }, "PDF"),
         ToolItem("pdf_extract_images", "🖼️", "Extract Images", "Extract embedded photos from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfExtractImages) }, "PDF"),
-        ToolItem("pdf_to_word", "📝", "PDF to Word", "Convert PDF to Word DOCX", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "PDF"),
+        ToolItem("pdf_to_word", "📝", "PDF to Word • Beta", "Convert PDF to Word DOCX (Beta)", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "PDF"),
         ToolItem("pdf_to_ppt", "🖼️", "PDF to PPT", "Convert PDF to Slides", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToPpt) }, "PDF"),
         ToolItem("pdf_to_txt", "📝", "PDF to TXT", "Extract plain text from PDF", OmniColors.PdfRed, { onEvent(NavigationEvent.NavigateToPdfToTxt) }, "PDF"),
 
         // ================= WORD TOOLS =================
         ToolItem("word_viewer", "📝", "Word Viewer", "Open and read DOCX files", OmniColors.DocBlue, { onSelectFileForType("word") }, "Word"),
         ToolItem("word_doc_to_pdf", "📑", "Word to PDF", "Transcode Word files to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocToPdf) }, "Word"),
-        ToolItem("word_pdf_to_word", "🔄", "PDF to Word", "Convert PDF to editable DOCX", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "Word"),
+        ToolItem("word_pdf_to_word", "🔄", "PDF to Word • Beta", "Convert PDF to editable DOCX (Beta)", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToPdfToWord) }, "Word"),
         ToolItem("docx_to_txt", "📄", "DOCX to TXT", "Extract text blocks to TXT file", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToDocxToTxt) }, "Word"),
         ToolItem("word_txt_to_pdf", "📄", "TXT to PDF", "Convert text file to PDF", OmniColors.DocBlue, { onEvent(NavigationEvent.NavigateToTxtToPdf) }, "Word"),
         ToolItem("text_editor", "✏️", "Text Editor", "Read and edit local TXT files", OmniColors.DocBlue, { onSelectFileForType("text") }, "Word"),

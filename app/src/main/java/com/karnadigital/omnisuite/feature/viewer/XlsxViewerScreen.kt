@@ -2091,7 +2091,11 @@ fun SpreadsheetWebView(
     }
 
     LaunchedEffect(workbookJson, xlsxBase64, isPageLoaded) {
-        if (isPageLoaded && webViewInstance != null) {
+        // Guard: huge payloads exceed Binder/JS limits — skip WebView render then
+        // (large files bypass WebView at the call site; native grid still renders).
+        if (isPageLoaded && webViewInstance != null &&
+            xlsxBase64.length < 8_000_000
+        ) {
             if (workbookJson != null) {
                 val escaped = workbookJson.replace("\\", "\\\\").replace("'", "\\'")
                 webViewInstance?.evaluateJavascript("renderSpreadsheetData('$escaped', '$xlsxBase64')", null)

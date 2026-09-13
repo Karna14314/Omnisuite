@@ -104,12 +104,15 @@ class UriCacheUtils @Inject constructor(
 
         val persistentBackup = getPersistentBackupFile(uri, null)
         val hash = Math.abs(uri.toString().hashCode())
-        val fileName = if (persistentBackup.exists() && persistentBackup.length() > 0) {
+        val rawName = if (persistentBackup.exists() && persistentBackup.length() > 0) {
             persistentBackup.name.substringAfter("${hash}_")
         } else {
             getFileName(uri) ?: "omnisuite_temp_${System.currentTimeMillis()}"
         }
-        val cacheFile = File(context.cacheDir, fileName)
+        // Sanitize DISPLAY_NAME (may contain ../ or separators) and prefix with hash
+        // to avoid traversal + collisions. Same lookup order as before.
+        val safeBase = rawName.replace(Regex("[^a-zA-Z0-9._-]"), "_").takeLast(60).ifBlank { "cached_file" }
+        val cacheFile = File(context.cacheDir, "${hash}_$safeBase")
 
         var streamCopied = false
         try {
@@ -184,7 +187,10 @@ class UriCacheUtils @Inject constructor(
      */
     private fun pruneCache(maxCacheSize: Long = 50 * 1024 * 1024L, keepFile: File? = null) {
         try {
-            val files = context.cacheDir.listFiles()?.filter { it.isFile && it.absolutePath != keepFile?.absolutePath } ?: return
+            // Never auto-prune decrypted viewer copies or the file being cached now.
+            val files = context.cacheDir.listFiles()?.filter {
+                it.isFile && it.absolutePath != keepFile?.absolutePath && !it.name.startsWith("unlocked_")
+            } ?: return
             var totalSize = files.sumOf { it.length() }
             if (totalSize <= maxCacheSize) return
 

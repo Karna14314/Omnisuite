@@ -272,6 +272,10 @@ class PdfToolsViewModel @Inject constructor(
             try {
                 val bytes = context.contentResolver.openInputStream(inputUri)?.use { it.readBytes() }
                     ?: throw Exception("Could not read Word document.")
+                // Guard: WebView JS-literal path can't handle huge files (Binder limit + OOM).
+                if (bytes.size > 15 * 1024 * 1024) {
+                    throw Exception("Document too large for conversion preview (>15MB). Try a smaller file.")
+                }
                 val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
                 withContext(Dispatchers.Main) {
@@ -832,13 +836,37 @@ class PdfToolsViewModel @Inject constructor(
         isProcessing = true
         resetStatus()
         viewModelScope.launch(Dispatchers.Main) {
+            var webView: android.webkit.WebView? = null
+            var timeoutJob: kotlinx.coroutines.Job? = null
+            var finished = false
+            fun destroyWebView() {
+                try { webView?.stopLoading() } catch (_: Exception) {}
+                try { webView?.destroy() } catch (_: Exception) {}
+                webView = null
+            }
+            fun finishOnce(block: () -> Unit) {
+                if (finished) return
+                finished = true
+                try { timeoutJob?.cancel() } catch (_: Exception) {}
+                block()
+                destroyWebView()
+            }
             try {
-                val webView = android.webkit.WebView(context)
-                webView.settings.javaScriptEnabled = true
-                webView.settings.domStorageEnabled = true
+                webView = android.webkit.WebView(context)
+                val wv = webView!!
+                wv.settings.javaScriptEnabled = true
+                wv.settings.domStorageEnabled = true
                 val tempOutputFile = java.io.File(context.cacheDir, "webview_printed_${System.currentTimeMillis()}.pdf")
+                timeoutJob = viewModelScope.launch {
+                    kotlinx.coroutines.delay(30_000)
+                    finishOnce {
+                        errorMessage = "Print timed out. Please try again."
+                        isProcessing = false
+                        if (tempOutputFile.exists()) tempOutputFile.delete()
+                    }
+                }
                 val onPageLoaded = {
-                    val printAdapter = webView.createPrintDocumentAdapter("Print")
+                    val printAdapter = wv.createPrintDocumentAdapter("Print")
                     val printAttributes = PrintAttributes.Builder()
                         .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
                         .setResolution(PrintAttributes.Resolution("pdf", "pdf", 300, 300))
@@ -853,42 +881,50 @@ class PdfToolsViewModel @Inject constructor(
                                     val bytes = tempOutputFile.readBytes()
                                     val savedUri = pdfToolsRepository.saveBytesAndRegister(bytes, filename, "application/pdf", "PDF")
                                     withContext(Dispatchers.Main) {
-                                        successUri = savedUri
-                                        successName = filename
-                                        lastOutputBytes = bytes
-                                        successMessage = "Web/HTML printed to PDF successfully!"
-                                        isProcessing = false
+                                        finishOnce {
+                                            successUri = savedUri
+                                            successName = filename
+                                            lastOutputBytes = bytes
+                                            successMessage = "Web/HTML printed to PDF successfully!"
+                                            isProcessing = false
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     withContext(Dispatchers.Main) {
-                                        errorMessage = "Print failed: ${e.localizedMessage}"
-                                        isProcessing = false
+                                        finishOnce {
+                                            errorMessage = "Print failed: ${e.localizedMessage}"
+                                            isProcessing = false
+                                        }
                                     }
                                 } finally {
                                     if (tempOutputFile.exists()) tempOutputFile.delete()
                                 }
                             }
                         } else {
-                            errorMessage = error ?: "Print execution failed"
-                            isProcessing = false
+                            finishOnce {
+                                errorMessage = error ?: "Print execution failed"
+                                isProcessing = false
+                            }
                             if (tempOutputFile.exists()) tempOutputFile.delete()
                         }
                     }
                 }
-                webView.webViewClient = object : android.webkit.WebViewClient() {
+                wv.webViewClient = object : android.webkit.WebViewClient() {
                     override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        webView.postDelayed({ onPageLoaded() }, 500)
+                        wv.postDelayed({ onPageLoaded() }, 500)
                     }
                 }
                 if (htmlContent != null) {
-                    webView.loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
+                    wv.loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
                 } else if (webUrl != null) {
-                    webView.loadUrl(webUrl)
+                    wv.loadUrl(webUrl)
                 }
             } catch (e: Exception) {
-                errorMessage = "WebView print initialization error: ${e.localizedMessage}"
-                isProcessing = false
+                finishOnce {
+                    errorMessage = "WebView print initialization error: ${e.localizedMessage}"
+                    isProcessing = false
+                }
             }
         }
     }
@@ -1234,7 +1270,7 @@ class PdfToolsViewModel @Inject constructor(
         isProcessing = true; resetStatus()
         viewModelScope.launch {
             val result = pdfToolsRepository.redactPdf(inputUri, redactPage, redactX, redactY, redactWidth, redactHeight, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Content redacted successfully!"; redactInputUri = null }
+            result.onSuccess { uri -> successUri = uri; successMessage = "Area covered (visual cover — underlying text is not securely removed)."; redactInputUri = null }
                 .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
             isProcessing = false
         }
@@ -1246,7 +1282,7 @@ class PdfToolsViewModel @Inject constructor(
         isProcessing = true; resetStatus()
         viewModelScope.launch {
             val result = pdfToolsRepository.redactPdfBoxes(inputUri, boxes, customFilename)
-            result.onSuccess { uri -> successUri = uri; successMessage = "Content redacted successfully!"; redactInputUri = null }
+            result.onSuccess { uri -> successUri = uri; successMessage = "Areas covered (visual cover — underlying text is not securely removed)."; redactInputUri = null }
                 .onFailure { e -> errorMessage = "Failed: ${e.localizedMessage}" }
             isProcessing = false
         }

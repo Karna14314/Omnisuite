@@ -106,6 +106,9 @@ class XlsxViewerViewModel @Inject constructor(
     private var activeWorkbook: org.apache.poi.ss.usermodel.Workbook? = null
     private var activeFilePath: String? = null
     private val tempImageCache = mutableMapOf<String, File>()
+    // POI caps workbooks at ~64k cell styles — cache by formatting key instead of
+    // createCellStyle()/createFont() per edit.
+    private val cellStyleCache = mutableMapOf<String, org.apache.poi.ss.usermodel.CellStyle>()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -142,8 +145,10 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    val rawBytes = file.readBytes()
-                    val base64Data = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                    // Guard: files >15MB skip Base64 (Binder/JS limit + OOM); parse still works.
+                    val base64Data = if (file.length() <= 15L * 1024L * 1024L) {
+                        Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                    } else null
 
                     val isCsv = SpreadsheetUtils.isCsvFile(file)
                     workbook = if (isCsv) {
@@ -246,8 +251,10 @@ class XlsxViewerViewModel @Inject constructor(
         val dataFormatter = org.apache.poi.ss.usermodel.DataFormatter()
         val evaluator = try { wb.creationHelper.createFormulaEvaluator() } catch (e: Exception) { null }
         val sheetList = mutableListOf<ExcelSheet>()
-        val EXTRA_ROWS = 50   // empty extension rows beyond data
-        val EXTRA_COLS = 10   // empty extension cols beyond data
+        // Padding is for UX only; on large sheets it materializes (rows+50)*(cols+10)
+        // cells and OOMs. Keep full padding for normal sheets, drop it when large.
+        var EXTRA_ROWS = 50   // empty extension rows beyond data
+        var EXTRA_COLS = 10   // empty extension cols beyond data
 
         for (s in 0 until wb.numberOfSheets) {
             val sheet = wb.getSheetAt(s)
@@ -261,7 +268,11 @@ class XlsxViewerViewModel @Inject constructor(
                 maxCols = maxOf(maxCols, row.lastCellNum.toInt())
             }
             maxCols = maxCols.coerceAtLeast(1)
-            val totalCols = maxCols + EXTRA_COLS
+            // Large-sheet guard: skip UX padding when it would explode cell count.
+            val extraRowsHere = if (lastRowNum > 1000) 0 else EXTRA_ROWS
+            val extraColsHere = if (maxCols > 50) 0 else EXTRA_COLS
+            val totalCols = (maxCols + extraColsHere).coerceAtMost(200)
+            val totalRowsCapped = (lastRowNum + 1 + extraRowsHere).coerceAtMost(5000)
 
             // POI column width is in 1/256th character units; 1 char ≈ 7px at 96dpi ≈ 5.25dp
             val columnWidthsDp = (0 until totalCols).map { c ->
@@ -303,7 +314,7 @@ class XlsxViewerViewModel @Inject constructor(
             val frozenCols = if (paneInfo?.isFreezePane == true) paneInfo.verticalSplitPosition.toInt() else 0
 
             // --- Row data ---
-            val totalRows = lastRowNum + 1 + EXTRA_ROWS
+            val totalRows = totalRowsCapped
             val rowList = mutableListOf<List<CellData>>()
             val rowHeightsDp = mutableListOf<Float>()
 
@@ -962,9 +973,14 @@ class XlsxViewerViewModel @Inject constructor(
             }
         }
 
-        // Create style or get existing to merge formatting
-        val style = wb.createCellStyle()
-        
+        // Reuse cached style (POI 64k style limit) keyed by full formatting.
+        val srcStyleIdx = try { cell.cellStyle?.index?.toInt() ?: -1 } catch (_: Throwable) { -1 }
+        val styleKey = "$srcStyleIdx|$colorHex|$isBold|$isItalic|$isUnderline|$textColorHex|$dataFormat"
+        val cachedStyle = cellStyleCache[styleKey]
+        val style = cachedStyle ?: wb.createCellStyle()
+        val isFreshStyle = cachedStyle == null
+
+        if (isFreshStyle) {
         // Background Color Fill
         if (colorHex != null) {
             style.fillPattern = org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND
@@ -1028,6 +1044,10 @@ class XlsxViewerViewModel @Inject constructor(
                 e.printStackTrace()
             }
         }
+        // Cache for reuse; evict oldest when approaching POI's ~64k style cap.
+        if (cellStyleCache.size > 4000) cellStyleCache.clear()
+        cellStyleCache[styleKey] = style
+        } // end if (isFreshStyle)
 
         cell.cellStyle = style
 
@@ -1479,8 +1499,17 @@ class XlsxViewerViewModel @Inject constructor(
                     var fileOutputStream: java.io.FileOutputStream? = null
                     try {
                         val xlsxFile = File(filePath)
-                        fileOutputStream = java.io.FileOutputStream(xlsxFile)
+                        // Atomic save: tmp + rename so a crash can't zero the original.
+                        val tmp = File("${xlsxFile.absolutePath}.tmp")
+                        fileOutputStream = java.io.FileOutputStream(tmp)
                         wb.write(fileOutputStream)
+                        fileOutputStream.flush()
+                        fileOutputStream.close()
+                        fileOutputStream = null
+                        if (!tmp.renameTo(xlsxFile)) {
+                            xlsxFile.delete()
+                            if (!tmp.renameTo(xlsxFile)) throw java.io.IOException("Atomic save rename failed")
+                        }
                         recentFileRepository.insertRecentFile(
                             com.karnadigital.omnisuite.core.model.RecentFile(
                                 fileUri = android.net.Uri.fromFile(xlsxFile).toString(),
@@ -1525,7 +1554,9 @@ class XlsxViewerViewModel @Inject constructor(
                 val tempPdfFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.pdf")
                 try {
                     officeConverter.convertXlsxToPdf(File(xlsxPath), tempPdfFile)
-                    context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
+                    val out = context.contentResolver.openOutputStream(outputUri)
+                        ?: throw java.io.IOException("Could not open destination for export")
+                    out.use { outputStream ->
                         tempPdfFile.inputStream().use { inputStream ->
                             inputStream.copyTo(outputStream)
                         }

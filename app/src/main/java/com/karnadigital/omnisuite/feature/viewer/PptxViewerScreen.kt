@@ -31,6 +31,8 @@ import androidx.compose.ui.text.input.ImeAction
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import com.karnadigital.omnisuite.core.util.CustomGeomPath
+import com.karnadigital.omnisuite.core.util.GeomCmd
 import com.karnadigital.omnisuite.core.util.ZoomableBox
 import com.karnadigital.omnisuite.di.coreEntryPoint
 
@@ -2123,6 +2125,10 @@ fun SlideCardItem(
                         val isImgSelected = isEditMode && (element.image.id.isNotEmpty() && element.image.id == selectedImageId)
                         var dragOffsetX by remember(element.image.id, isImgSelected) { mutableFloatStateOf(0f) }
                         var dragOffsetY by remember(element.image.id, isImgSelected) { mutableFloatStateOf(0f) }
+                        // Picture-fill of an AutoShape must keep that shape's outline;
+                        // a plain rect clip is what produced the "crude cube" look.
+                        val imgClip = element.image.customClip?.let { customGeomToShape(it) }
+                            ?: if (element.image.isShapeFill) geometryToShape(element.image.clipGeometry) else RoundedCornerShape(4.dp)
 
                         AsyncImage(
                             model = ImageRequest.Builder(context)
@@ -2135,10 +2141,10 @@ fun SlideCardItem(
                                 .offset(x = (element.image.left * slideW).dp, y = (element.image.top * slideH).dp)
                                 .offset { IntOffset(dragOffsetX.roundToInt(), dragOffsetY.roundToInt()) }
                                 .size(width = (element.image.width * slideW).dp, height = (element.image.height * slideH).dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(imgClip)
                                 .then(
-                                    if (isImgSelected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-                                    else if (isEditMode) Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    if (isImgSelected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, imgClip)
+                                    else if (isEditMode) Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f), imgClip)
                                     else Modifier
                                 )
                                 .then(
@@ -2170,7 +2176,7 @@ fun SlideCardItem(
                                         Modifier.clickable { onImageClick?.invoke(element.image) }
                                     } else Modifier
                                 ),
-                            contentScale = ContentScale.Fit
+                            contentScale = if (element.image.isShapeFill) ContentScale.Crop else ContentScale.Fit
                         )
                     }
                     is SlideElement.TextElement -> {
@@ -2434,37 +2440,27 @@ private fun resolveFontFamily(family: String?): FontFamily {
     }
 }
 
-@Composable
-fun TextShapeItem(
-    shape: PptxTextShape,
-    slideW: Float,
-    slideH: Float,
-    fontScale: Float,
-    isTitle: Boolean,
-    isEditMode: Boolean,
-    isSelected: Boolean = false,
-    onClick: () -> Unit
-) {
-    val shapeGeom = shape.shapeGeometry
-    val shapeBorder = shape.shapeBorder
-    val isGeometricShape = shapeGeom in listOf(
-        ShapeGeometryType.HEXAGON,
-        ShapeGeometryType.TRIANGLE,
-        ShapeGeometryType.DIAMOND,
-        ShapeGeometryType.CHEVRON,
-        ShapeGeometryType.STAR,
-        ShapeGeometryType.PENTAGON,
-        ShapeGeometryType.RIGHT_ARROW,
-        ShapeGeometryType.CALLOUT,
-        ShapeGeometryType.PARALLELOGRAM,
-        ShapeGeometryType.LINE
-    )
-    val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) }
-        ?: if (isGeometricShape) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Transparent
-    val isEllipseBadge = shapeGeom == ShapeGeometryType.ELLIPSE
-    val isTableCell = shape.id.startsWith("table_cell_")
+/** Builds a clip/fill Shape from a parsed DrawingML custom-geometry path. */
+private fun customGeomToShape(geom: CustomGeomPath): androidx.compose.ui.graphics.Shape {
+    return GenericShape { size, _ ->
+        val sx = if (geom.viewW > 0f) size.width / geom.viewW else 1f
+        val sy = if (geom.viewH > 0f) size.height / geom.viewH else 1f
+        for (cmd in geom.commands) {
+            when (cmd) {
+                is GeomCmd.MoveTo -> moveTo(cmd.x * sx, cmd.y * sy)
+                is GeomCmd.LineTo -> lineTo(cmd.x * sx, cmd.y * sy)
+                is GeomCmd.CubicTo -> cubicTo(
+                    cmd.x1 * sx, cmd.y1 * sy, cmd.x2 * sx, cmd.y2 * sy, cmd.x3 * sx, cmd.y3 * sy
+                )
+                is GeomCmd.QuadTo -> quadraticBezierTo(cmd.x1 * sx, cmd.y1 * sy, cmd.x2 * sx, cmd.y2 * sy)
+                is GeomCmd.Close -> close()
+            }
+        }
+    }
+}
 
-    val shapeShape = when (shapeGeom) {
+private fun geometryToShape(geom: ShapeGeometryType, isTableCell: Boolean = false): androidx.compose.ui.graphics.Shape {
+    return when (geom) {
         ShapeGeometryType.ELLIPSE -> EllipseShape
         ShapeGeometryType.HEXAGON -> HexagonShape
         ShapeGeometryType.TRIANGLE -> TriangleShape
@@ -2479,12 +2475,36 @@ fun TextShapeItem(
         ShapeGeometryType.ROUNDED_RECTANGLE -> RoundedCornerShape(8.dp)
         else -> RoundedCornerShape(if (isTableCell) 0.dp else 2.dp)
     }
+}
+
+@Composable
+fun TextShapeItem(
+    shape: PptxTextShape,
+    slideW: Float,
+    slideH: Float,
+    fontScale: Float,
+    isTitle: Boolean,
+    isEditMode: Boolean,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
+) {
+    val shapeGeom = shape.shapeGeometry
+    val shapeBorder = shape.shapeBorder
+    // Custom DrawingML outline wins over the preset-geometry fallback (hexagon/blob
+    // backdrops otherwise render as crude rectangles).
+    val shapeBgColor = shape.backgroundColorHex?.let { safeParseColor(it, Color.Transparent) }
+        ?: Color.Transparent
+    val isEllipseBadge = shapeGeom == ShapeGeometryType.ELLIPSE
+    val isTableCell = shape.id.startsWith("table_cell_")
+
+    // Custom DrawingML outline wins over the preset-geometry fallback (hexagon/blob
+    // backdrops otherwise render as crude rectangles).
+    val shapeShape = shape.customPath?.let { customGeomToShape(it) } ?: geometryToShape(shapeGeom, isTableCell)
 
     val borderWidth = when {
         shape.isBackgroundShape -> 0.dp
         isSelected -> 2.dp
         shapeBorder != null && shapeBorder.strokeColorHex != null -> shapeBorder.strokeWidthDp.dp
-        isGeometricShape -> 1.dp
         isTableCell -> 1.dp
         isEditMode -> 1.dp
         else -> 0.dp
@@ -2494,7 +2514,6 @@ fun TextShapeItem(
         shape.isBackgroundShape -> Color.Transparent
         isSelected -> MaterialTheme.colorScheme.primary
         shapeBorder != null && shapeBorder.strokeColorHex != null -> safeParseColor(shapeBorder.strokeColorHex, MaterialTheme.colorScheme.primary)
-        isGeometricShape -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
         isTableCell -> MaterialTheme.colorScheme.outlineVariant
         isEditMode && isTitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
         isEditMode -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)

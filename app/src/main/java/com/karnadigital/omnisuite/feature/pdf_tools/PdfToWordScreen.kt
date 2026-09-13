@@ -51,7 +51,7 @@ fun PdfToWordScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PDF to Word", fontWeight = FontWeight.Bold) },
+                title = { Text("PDF to Word • Beta", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Navigate back")
@@ -97,8 +97,8 @@ fun PdfToWordScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("PDF to Word Transcoder", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                            Text("Extract text layout structures offline and compile into editable Word .docx documents.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("PDF to Word Transcoder • Beta", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Text("Beta: layout reconstruction is heuristic and may need cleanup. Extract text layout structures offline into editable Word .docx documents.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

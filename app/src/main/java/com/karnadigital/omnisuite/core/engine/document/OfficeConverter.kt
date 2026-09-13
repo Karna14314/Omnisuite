@@ -12,6 +12,9 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.karnadigital.omnisuite.core.util.CustomGeomPath
+import com.karnadigital.omnisuite.core.util.parseCustomGeomPath
+import com.karnadigital.omnisuite.core.util.toAndroidPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.CellType
@@ -349,7 +352,14 @@ class OfficeConverter @Inject constructor(
                             for (pic in pictures) {
                                 try {
                                     val picData = pic.pictureData.data
-                                    val bitmap = BitmapFactory.decodeByteArray(picData, 0, picData.size)
+                                    // Downsample huge images to printable width before decode (OOM guard).
+                                    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                    BitmapFactory.decodeByteArray(picData, 0, picData.size, opts)
+                                    val sample = if (opts.outWidth > 0) {
+                                        (opts.outWidth / (printableWidth * 2f)).toInt().coerceIn(1, 8)
+                                    } else 1
+                                    val decOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+                                    val bitmap = BitmapFactory.decodeByteArray(picData, 0, picData.size, decOpts)
                                     if (bitmap != null) {
                                         val originalWidth = bitmap.width.toFloat()
                                         val originalHeight = bitmap.height.toFloat()
@@ -1024,8 +1034,17 @@ class OfficeConverter @Inject constructor(
             val slideWidthEmu = slideDimEmu.first
             val slideHeightEmu = slideDimEmu.second
 
-            // Calculate target height maintaining exact aspect ratio
-            val targetHeight = if (slideWidthEmu > 0) (targetWidth * slideHeightEmu / slideWidthEmu).toInt() else (targetWidth * 9 / 16)
+            // Calculate target height maintaining exact aspect ratio, capped so
+            // very wide decks can't request a >~4MP bitmap per slide (OOM guard).
+            var effWidth = targetWidth
+            var targetHeight = if (slideWidthEmu > 0) (effWidth * slideHeightEmu / slideWidthEmu).toInt() else (effWidth * 9 / 16)
+            val maxPixels = 4_000_000L
+            if (effWidth.toLong() * targetHeight.toLong() > maxPixels) {
+                val scale = kotlin.math.sqrt(maxPixels.toDouble() / (effWidth.toLong() * targetHeight.toLong()))
+                effWidth = (effWidth * scale).toInt().coerceAtLeast(640)
+                targetHeight = (targetHeight * scale).toInt().coerceAtLeast(360)
+            }
+            val targetWidth = effWidth
             val slideWidthPt = if (slideWidthEmu > 0) (slideWidthEmu / 12700f) else 720f
             val fontScale = targetWidth.toFloat() / slideWidthPt
 
@@ -1051,7 +1070,16 @@ class OfficeConverter @Inject constructor(
             }
 
             for ((slideIndex, slide) in ppt.slides.withIndex()) {
-                val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                val bitmap = try {
+                    Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                } catch (e: OutOfMemoryError) {
+                    e.printStackTrace()
+                    // Skip this slide rather than crashing the whole deck export.
+                    continue
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    continue
+                }
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawColor(android.graphics.Color.WHITE)
 
@@ -1115,7 +1143,10 @@ class OfficeConverter @Inject constructor(
                 for (shape in allSlideShapes) {
                     val normBounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
 
-                    // Priority: PictureShape / blipFill
+                    // Priority: PictureShape / blipFill, with fill-type awareness
+                    // (same approach as the viewer). True <p:pic> -> standalone bitmap.
+                    // AutoShape picture-fill -> bitmap clipped to the shape outline,
+                    // then fall through so any shape text still draws on top.
                     val picTriple = extractPictureDataFromShape(shape, slide)
                     if (picTriple != null && picTriple.first.isNotEmpty()) {
                         val fb = normBounds ?: floatArrayOf(0.05f, 0.3f, 0.6f, 0.4f)
@@ -1123,8 +1154,27 @@ class OfficeConverter @Inject constructor(
                             (fb[0] * targetWidth).toInt(), (fb[1] * targetHeight).toInt(),
                             ((fb[0] + fb[2]) * targetWidth).toInt(), ((fb[1] + fb[3]) * targetHeight).toInt()
                         )
-                        cropAndDrawBitmap(canvas, picTriple.first, picTriple.third, destRect)
-                        continue
+                        val isTruePic = shape is XSLFPictureShape ||
+                                shape is org.apache.poi.sl.usermodel.PictureShape<*, *>
+                        if (isTruePic) {
+                            cropAndDrawBitmap(canvas, picTriple.first, picTriple.third, destRect)
+                            continue
+                        }
+                        val fillClip = try {
+                            shapeXmlString(shape)?.let { parseCustomGeomPath(it) }?.toAndroidPath(
+                                fb[0] * targetWidth, fb[1] * targetHeight,
+                                fb[2] * targetWidth, fb[3] * targetHeight
+                            )
+                        } catch (_: Throwable) { null }
+                        if (fillClip != null) {
+                            canvas.save()
+                            canvas.clipPath(fillClip)
+                            cropAndDrawBitmap(canvas, picTriple.first, picTriple.third, destRect)
+                            canvas.restore()
+                        } else {
+                            cropAndDrawBitmap(canvas, picTriple.first, picTriple.third, destRect)
+                        }
+                        // Fall through: picture-filled shapes may still carry text.
                     }
 
                     if (normBounds == null) continue
@@ -1134,18 +1184,22 @@ class OfficeConverter @Inject constructor(
                     val ph = normBounds[3] * targetHeight.toFloat()
 
                     val geomType = getShapeGeometryType(shape)
+                    // True outline for custom geometry (parsed lazily, only for FREEFORM).
+                    val custPath = if (geomType == ShapeGeom.FREEFORM) {
+                        try { shapeXmlString(shape)?.let { parseCustomGeomPath(it) } } catch (_: Throwable) { null }
+                    } else null
 
                     // Draw geometry fill & stroke
                     if (shape is XSLFSimpleShape) {
                         val fillColor = getShapeFillColor(shape, themeColors)
                         if (fillColor != null) {
                             val fillPaint = Paint().apply { color = fillColor; style = Paint.Style.FILL; isAntiAlias = true }
-                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, fillPaint)
+                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, fillPaint, custPath)
                         }
                         val lineColor = getShapeLineColor(shape, themeColors)
                         if (lineColor != null) {
                             val strokePaint = Paint().apply { color = lineColor; style = Paint.Style.STROKE; strokeWidth = 2f * (targetWidth / 960f); isAntiAlias = true }
-                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, strokePaint)
+                            drawShapeGeometry(canvas, geomType, px, py, pw, ph, strokePaint, custPath)
                         } else if (geomType == ShapeGeom.ELLIPSE) {
                             val strokePaint = Paint().apply { color = android.graphics.Color.rgb(30, 41, 59); style = Paint.Style.STROKE; strokeWidth = 1.5f * (targetWidth / 960f); isAntiAlias = true }
                             drawShapeGeometry(canvas, geomType, px, py, pw, ph, strokePaint)
@@ -1547,11 +1601,20 @@ class OfficeConverter @Inject constructor(
         return ShapeGeom.RECTANGLE
     }
 
+    /** Shape XML text for custom-geometry parsing (null-safe). */
+    private fun shapeXmlString(shape: Any): String? {
+        return try {
+            val xmlObj = shape.javaClass.getMethod("getXmlObject").invoke(shape) ?: return null
+            xmlObj.toString()
+        } catch (_: Throwable) { null }
+    }
+
     private fun drawShapeGeometry(
         canvas: android.graphics.Canvas,
         geom: ShapeGeom,
         px: Float, py: Float, pw: Float, ph: Float,
-        paint: Paint
+        paint: Paint,
+        customPath: CustomGeomPath? = null
     ) {
         when (geom) {
             ShapeGeom.ELLIPSE -> {
@@ -1594,7 +1657,13 @@ class OfficeConverter @Inject constructor(
                 }
                 canvas.drawPath(path, paint)
             }
-            ShapeGeom.FREEFORM, ShapeGeom.RECTANGLE -> {
+            ShapeGeom.FREEFORM -> {
+                // True DrawingML outline (hexagon/blob backdrops); rect only if unparseable.
+                val path = try { customPath?.toAndroidPath(px, py, pw, ph) } catch (_: Throwable) { null }
+                if (path != null) canvas.drawPath(path, paint)
+                else canvas.drawRect(px, py, px + pw, py + ph, paint)
+            }
+            ShapeGeom.RECTANGLE -> {
                 canvas.drawRect(px, py, px + pw, py + ph, paint)
             }
         }

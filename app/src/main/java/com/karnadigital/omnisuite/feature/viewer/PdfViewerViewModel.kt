@@ -106,8 +106,19 @@ class PdfViewerViewModel @Inject constructor(
     // 5-item LRU Bitmap cache to prevent OutOfMemory crashes
     private val bitmapCache = object : android.util.LruCache<Int, Bitmap>(5) {
         override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
-            // Remove reference, standard GC cleans it up
+            if (evicted) {
+                try { oldValue?.recycle() } catch (_: Throwable) {}
+            }
         }
+    }
+
+    init {
+        // Best-effort sweep of stale decrypted copies leaked by a prior crash/kill.
+        try {
+            context.cacheDir.listFiles { f -> f.name.startsWith("unlocked_") }?.forEach {
+                try { it.delete() } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -260,8 +271,9 @@ class PdfViewerViewModel @Inject constructor(
     }
 
     private fun createUnlockedCopy(source: File, document: PDDocument): File {
-        decryptedRenderFile?.let { if (it.exists()) it.delete() }
-        val output = File(context.cacheDir, "unlocked_${System.currentTimeMillis()}_${source.name}")
+        decryptedRenderFile?.let { if (it.exists()) try { it.delete() } catch (_: Throwable) {} }
+        val safeName = source.name.replace(Regex("[^a-zA-Z0-9._-]"), "_").takeLast(40)
+        val output = File(context.cacheDir, "unlocked_${System.currentTimeMillis()}_$safeName")
         if (document.isEncrypted) {
             document.isAllSecurityToBeRemoved = true
         }
@@ -295,20 +307,32 @@ class PdfViewerViewModel @Inject constructor(
             synchronized(renderer) {
                 if (pageIndex < 0 || pageIndex >= renderer.pageCount) return@withContext null
                 val page = renderer.openPage(pageIndex)
-                
-                // Render at 1.5x scale for optimal sharpness vs memory consumption
-                val width = (page.width * 1.5f).toInt()
-                val height = (page.height * 1.5f).toInt()
-                
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(android.graphics.Color.WHITE) // Fill background
-                
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
+                try {
+                    // Render at 1.5x scale, capped so A0/300dpi pages can't OOM.
+                    var width = (page.width * 1.5f).toInt()
+                    var height = (page.height * 1.5f).toInt()
+                    val maxDim = 2048
+                    if (width > maxDim || height > maxDim) {
+                        val scale = maxDim.toFloat() / maxOf(width, height).toFloat()
+                        width = (width * scale).toInt().coerceAtLeast(1)
+                        height = (height * scale).toInt().coerceAtLeast(1)
+                    }
 
-                bitmapCache.put(pageIndex, bitmap)
-                bitmap
+                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE) // Fill background
+
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                    bitmapCache.put(pageIndex, bitmap)
+                    bitmap
+                } finally {
+                    try { page.close() } catch (_: Throwable) {}
+                }
             }
+        } catch (e: OutOfMemoryError) {
+            try { bitmapCache.evictAll() } catch (_: Throwable) {}
+            e.printStackTrace()
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -506,15 +530,21 @@ class PdfViewerViewModel @Inject constructor(
         }
         pdfRenderer = null
         parcelFileDescriptor = null
-        bitmapCache.evictAll()
+        try { bitmapCache.evictAll() } catch (_: Throwable) {}
         extractedTextCache.clear()
         val sourcePath = sourceFilePath
         decryptedRenderFile?.let { file ->
             if (file.absolutePath != sourcePath && file.exists()) {
-                file.delete()
+                try { file.delete() } catch (_: Throwable) {}
             }
         }
         decryptedRenderFile = null
+        // Sweep any other stale unlocked_* copies (previous crash may have orphaned them).
+        try {
+            context.cacheDir.listFiles { f -> f.name.startsWith("unlocked_") }?.forEach {
+                if (it.absolutePath != sourcePath) try { it.delete() } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     suspend fun extractTextFromPage(pageIndex: Int): String = withContext(Dispatchers.IO) {
@@ -540,7 +570,6 @@ class PdfViewerViewModel @Inject constructor(
             val cached = extractedTextCache[pageIndex]
             if (cached != null) return@withContext cached
 
-            val doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file)
             val textPositions = mutableListOf<TextPosition>()
             val stripper = object : PDFTextStripper() {
                 override fun processTextPosition(text: TextPosition) {
@@ -551,8 +580,9 @@ class PdfViewerViewModel @Inject constructor(
             stripper.sortByPosition = true
             stripper.startPage = pageIndex + 1
             stripper.endPage = pageIndex + 1
-            val pageText = withTimeoutOrNull(5000) { stripper.getText(doc) } ?: ""
-            doc.close()
+            val pageText = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
+                withTimeoutOrNull(5000) { stripper.getText(doc) } ?: ""
+            }
 
             val cleanedText = pageText.lines()
                 .map { it.trim() }
@@ -582,7 +612,7 @@ class PdfViewerViewModel @Inject constructor(
             val matches = mutableListOf<SearchMatchRect>()
             try {
                 val path = activeFilePath ?: return@launch
-                val doc = PDDocument.load(File(path))
+                PDDocument.load(File(path)).use { doc ->
                 val totalPages = doc.numberOfPages
                 for (pageIndex in 0 until totalPages) {
                     try {
@@ -633,7 +663,7 @@ class PdfViewerViewModel @Inject constructor(
                         // skip page
                     }
                 }
-                doc.close()
+                } // use{} closes doc even on timeout/exception
             } catch (e: Exception) {
                 // search failed
             }

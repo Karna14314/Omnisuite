@@ -246,10 +246,12 @@ class DocxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    // Read raw bytes for WebView rendering (DOCX files only)
-                    val rawBytes = file.readBytes()
-                    base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true)) {
-                        Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                    // Read raw bytes for WebView rendering (DOCX files only).
+                    // Guard: files >15MB skip Base64 (Binder/JS literal limit + OOM);
+                    // native parse below still works, WebView preview just disables.
+                    val maxBase64Bytes = 15L * 1024L * 1024L
+                    base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true) && file.length() <= maxBase64Bytes) {
+                        Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
                     } else null
 
                     fileInputStream = FileInputStream(file)
@@ -1305,9 +1307,17 @@ class DocxViewerViewModel @Inject constructor(
                     activeDocument = doc
 
                     val f = File(filePath)
-                    fileOutputStream = java.io.FileOutputStream(f)
+                    // Atomic save: write tmp first so a crash can't zero the original.
+                    val tmp = File("${f.absolutePath}.tmp")
+                    fileOutputStream = java.io.FileOutputStream(tmp)
                     doc.write(fileOutputStream)
                     fileOutputStream.flush()
+                    fileOutputStream.close()
+                    fileOutputStream = null
+                    if (!tmp.renameTo(f)) {
+                        f.delete()
+                        if (!tmp.renameTo(f)) throw java.io.IOException("Atomic save rename failed")
+                    }
 
                     recentFileRepository.insertRecentFile(
                         RecentFile(
@@ -1321,8 +1331,9 @@ class DocxViewerViewModel @Inject constructor(
                     )
 
                     // Re-encode Base64 so WebView instantly reflects edits when switching to View Mode
-                    val rawBytes = f.readBytes()
-                    val newBase64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                    val newBase64 = if (f.length() <= 15L * 1024L * 1024L) {
+                        Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)
+                    } else currentSuccess.docxBase64
                     withContext(Dispatchers.Main) {
                         _loadState.value = currentSuccess.copy(document = currentSuccess.document, docxBase64 = newBase64)
                     }
@@ -1374,7 +1385,9 @@ class DocxViewerViewModel @Inject constructor(
 
                 val fileSize = tempPdfFile.length()
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
+                    val out = context.contentResolver.openOutputStream(outputUri)
+                        ?: throw java.io.IOException("Could not open destination for export")
+                    out.use { outputStream ->
                         tempPdfFile.inputStream().use { inputStream ->
                             inputStream.copyTo(outputStream)
                             outputStream.flush()

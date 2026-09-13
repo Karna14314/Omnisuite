@@ -55,7 +55,8 @@ class ReverseOfficeConverter @Inject constructor(
                 stripper.startPage = pageNum
                 stripper.endPage = pageNum
                 stripper.getText(doc)
-                var rawLines = stripper.lines
+                // Char-level regrouping (own line formation, not PDFBox's).
+                var rawLines = stripper.finishGrouping()
 
                 // 1. OCR Fallback for Scanned / Image-Only Pages
                 if (rawLines.sumOf { it.lineText.trim().length } < 30) {
@@ -128,9 +129,11 @@ class ReverseOfficeConverter @Inject constructor(
                                             bmp.compress(Bitmap.CompressFormat.PNG, 95, stream)
                                             val imgBytes = stream.toByteArray()
                                             if (imgBytes.isNotEmpty()) {
-                                                val maxW = 460f
+                                                // Content width for 1in margins on A4 ≈ 451pt; cap at
+                                                // 440pt and never upscale tiny icons (keeps formal print clean).
+                                                val maxW = 440f
                                                 val wPt = bmp.width.toFloat().coerceAtMost(maxW)
-                                                val hPt = (wPt / bmp.width.toFloat()) * bmp.height.toFloat()
+                                                val hPt = ((wPt / bmp.width.toFloat()) * bmp.height.toFloat()).coerceAtMost(600f)
                                                 val recordedY = stripper.imagePositions[name.name]
                                                 val defaultY = if (lines.isNotEmpty()) lines.last().y + 20f else 50f
                                                 val imgY = recordedY ?: defaultY
@@ -165,19 +168,42 @@ class ReverseOfficeConverter @Inject constructor(
                         continue
                     }
 
-                    // Check for multi-column table pattern (2+ columns separated by 2+ spaces, tabs, or chunk gaps)
+                    // Code lines are never tables: aligned trailing comments look
+                    // tabular but must stay monospace paragraphs (TCS case).
+                    val lineIsMono = line.chunks.isNotEmpty() &&
+                            line.chunks.all { it.fontFamily == "Consolas" }
+
+                    // Table detection (strict): require 3+ consecutive rows with a
+                    // consistent column count, short cell text, and real column gaps.
+                    // The old >=2-row whitespace rule turned justified prose/TOC/code
+                    // into blue-header tables — the main "clutter" complaint.
                     val tableLines = mutableListOf<List<String>>()
                     var lookahead = lineIdx
-                    while (lookahead < lines.size) {
+                    while (lookahead < lines.size && !lineIsMono) {
                         val candidate = lines[lookahead]
                         val candidateText = candidate.lineText.trim()
+                        if (candidateText.isEmpty()) break
+                        // Monospace rows belong to code blocks, never to tables.
+                        if (candidate.chunks.isNotEmpty() &&
+                            candidate.chunks.all { it.fontFamily == "Consolas" }
+                        ) break
                         val regexCols = candidateText.split(Regex("\\s{2,}|\t")).map { it.trim() }.filter { it.isNotEmpty() }
-                        val chunkCols = if (candidate.chunks.size >= 2 && candidate.chunks.all { it.text.trim().isNotEmpty() }) {
-                            candidate.chunks.map { it.text.trim() }
+                        // Chunk-gap columns only count when chunks are physically separated
+                        // (>=30pt gap), not merely styled differently on one line.
+                        val chunkCols = if (candidate.chunks.size >= 2) {
+                            val sorted = candidate.chunks.sortedBy { it.x }
+                            var separated = true
+                            for (i in 1 until sorted.size) {
+                                val prev = sorted[i - 1]
+                                val prevEnd = prev.x + (prev.text.length * prev.fontSizePt * 0.55f)
+                                if ((sorted[i].x - prevEnd) < 30f) { separated = false; break }
+                            }
+                            if (separated) sorted.map { it.text.trim() }.filter { it.isNotEmpty() } else emptyList()
                         } else emptyList()
 
                         val cols = if (regexCols.size >= 2) regexCols else if (chunkCols.size >= 2) chunkCols else emptyList()
-                        if (cols.size >= 2) {
+                        // Reject prose-like rows: any cell >60 chars is almost never a table cell.
+                        if (cols.size >= 2 && cols.all { it.length <= 60 }) {
                             tableLines.add(cols)
                             lookahead++
                         } else {
@@ -185,7 +211,10 @@ class ReverseOfficeConverter @Inject constructor(
                         }
                     }
 
-                    if (tableLines.size >= 2) {
+                    val isConsistentTable = tableLines.size >= 3 &&
+                            tableLines.map { it.size }.toSet().size <= 2 &&
+                            tableLines.all { it.size >= 2 }
+                    if (isConsistentTable) {
                         val tableStartY = lines[lineIdx].y
                         pageElements.add(DocxPageElement.Table(tableLines, tableStartY))
                         lineIdx = lookahead
@@ -208,7 +237,9 @@ class ReverseOfficeConverter @Inject constructor(
                 var prevLineY = 0f
                 var prevLineMinX = minPageX
                 var prevLineHeight = 12f
-                var prevLineText = ""
+                var prevIndentTwips = 0
+                var prevDomSize = 0f
+                var prevDomBold = false
                 var inCodeBlock = false
 
                 for (elem in sortedElements) {
@@ -216,7 +247,9 @@ class ReverseOfficeConverter @Inject constructor(
                         is DocxPageElement.Table -> {
                             currentParagraph = null
                             inCodeBlock = false
-                            prevLineText = ""
+                            prevIndentTwips = 0
+                            prevDomSize = 0f
+                            prevDomBold = false
                             val maxCols = elem.rows.maxOf { it.size }
                             val table = docx.createTable()
                             for ((rIdx, rowCols) in elem.rows.withIndex()) {
@@ -244,7 +277,9 @@ class ReverseOfficeConverter @Inject constructor(
                         is DocxPageElement.Image -> {
                             currentParagraph = null
                             inCodeBlock = false
-                            prevLineText = ""
+                            prevIndentTwips = 0
+                            prevDomSize = 0f
+                            prevDomBold = false
                             val imgP = docx.createParagraph()
                             imgP.alignment = org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
                             imgP.spacingBefore = 120
@@ -261,9 +296,19 @@ class ReverseOfficeConverter @Inject constructor(
                         is DocxPageElement.TextLine -> {
                             val line = elem.line
                             val trimmed = line.lineText.trim()
-                            val isHeading = (line.chunks.any { it.fontSizePt >= 14f } || isProbableHeading(trimmed)) &&
-                                    (line.chunks.any { it.isBold } || line.chunks.any { it.fontSizePt >= 14f })
-                            val isCode = !isHeading && (line.chunks.all { it.fontFamily == "Consolas" } || isProbableCodeLine(line.lineText, trimmed))
+                            // Strict heading: needs BOTH size bump AND bold (or numbered/chapter
+                            // pattern with size bump). Old OR-logic bolded every large OR bold line.
+                            // 13pt covers section heads (body is ~9-11pt); cover titles are 18pt+.
+                            val hasSizeBump = line.chunks.any { it.fontSizePt >= 13f }
+                            val hasBold = line.chunks.any { it.isBold }
+                            val isHeading = (hasSizeBump && hasBold) ||
+                                    (hasSizeBump && isProbableHeading(trimmed))
+                            // Strict code: mono font wins; keyword guess only with indent/leading
+                            // whitespace to avoid flagging prose containing "if / for / =".
+                            val isMono = line.chunks.isNotEmpty() && line.chunks.all { it.fontFamily == "Consolas" }
+                            val isCode = !isHeading && (isMono ||
+                                    ((line.lineText.startsWith("    ") || line.lineText.startsWith("\t")) &&
+                                            isProbableCodeLine(line.lineText, trimmed)))
                             val isListItem = !isHeading && !isCode && (
                                     trimmed.startsWith("•") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
                                             trimmed.startsWith("▪") || trimmed.startsWith("▫") ||
@@ -277,14 +322,21 @@ class ReverseOfficeConverter @Inject constructor(
                             val yGap = if (prevLineY > 0f) line.y - prevLineY else 0f
                             val isBelowPrevLine = line.y > (prevLineY + 2f)
                             val isSameCol = kotlin.math.abs(line.minX - prevLineMinX) < 35f
-                            val prevEndedSentence = prevLineText.endsWith(".") || prevLineText.endsWith(":") ||
-                                    prevLineText.endsWith("?") || prevLineText.endsWith("!")
-                            val isShortLine = prevLineText.length < 45 && prevLineText.isNotEmpty()
+                            // Indent alone must not split a wrapped paragraph — only a real
+                            // indent JUMP (>36pt ≈ 0.5in) starts a new block (block-quote etc).
+                            val indentJump = kotlin.math.abs(indentTwips - prevIndentTwips) > 720
+                            // Dominant style per line (majority chars): a style change
+                            // (heading bar -> body, body -> section head) always splits.
+                            // This fixes "What's inside" merging into the Part 1 paragraph.
+                            val domSize = line.chunks.maxByOrNull { it.text.length }?.fontSizePt ?: 12f
+                            val domBold = line.chunks.maxByOrNull { it.text.length }?.isBold ?: false
+                            val styleChanged = currentParagraph != null &&
+                                    (kotlin.math.abs(domSize - prevDomSize) > 1.5f ||
+                                            (domBold != prevDomBold && yGap > prevLineHeight * 1.3f))
 
                             val isNewParagraphNeeded = isHeading || isListItem || (isCode != inCodeBlock) ||
                                     currentParagraph == null || !isBelowPrevLine || !isSameCol ||
-                                    (yGap > (prevLineHeight * 1.55f)) ||
-                                    (indentTwips > 0) || (prevEndedSentence && isShortLine)
+                                    (yGap > (prevLineHeight * 1.9f)) || indentJump || styleChanged
 
                             if (isNewParagraphNeeded) {
                                 currentParagraph = docx.createParagraph()
@@ -294,6 +346,12 @@ class ReverseOfficeConverter @Inject constructor(
                                         currentParagraph.spacingBefore = 220
                                         currentParagraph.spacingAfter = 100
                                         if (indentTwips > 0) currentParagraph.indentationLeft = indentTwips
+                                        // Title-grade heads (cover title, PART banners) stay
+                                        // centered like the source; section heads stay left.
+                                        val maxSize = line.chunks.maxOfOrNull { it.fontSizePt } ?: 12f
+                                        if (maxSize >= 18f) {
+                                            currentParagraph.alignment = org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                                        }
                                     }
                                     isCode -> {
                                         inCodeBlock = true
@@ -325,24 +383,49 @@ class ReverseOfficeConverter @Inject constructor(
                                 }
                             }
 
-                            for (chunk in line.chunks) {
-                                val r = currentParagraph!!.createRun()
-                                r.fontFamily = if (isCode) "Consolas" else chunk.fontFamily
-                                r.fontSize = Math.round(chunk.fontSizePt).toInt().coerceIn(6, 72)
-                                r.isBold = chunk.isBold || isHeading
-                                r.isItalic = chunk.isItalic
-                                if (isHeading) {
-                                    r.color = "1F4E79"
-                                } else if (isCode) {
-                                    r.color = "24292E"
+                            // Merge consecutive same-style chunks into one run to avoid
+                            // run explosion (a major source of cluttered/formal-print noise).
+                            // No invented colors: headings keep bold+size+spacing, not forced blue.
+                            var pendingText = StringBuilder()
+                            var pendingFamily: String? = null
+                            var pendingSize = 0
+                            var pendingBold = false
+                            var pendingItalic = false
+                            fun flushPending() {
+                                if (pendingText.isNotEmpty()) {
+                                    val r = currentParagraph!!.createRun()
+                                    r.fontFamily = pendingFamily ?: "Calibri"
+                                    r.fontSize = pendingSize.coerceIn(6, 72)
+                                    r.isBold = pendingBold
+                                    r.isItalic = pendingItalic
+                                    r.setText(pendingText.toString())
+                                    pendingText = StringBuilder()
                                 }
-                                r.setText(chunk.text)
                             }
+                            for (chunk in line.chunks) {
+                                val fam = if (isCode) "Consolas" else chunk.fontFamily
+                                val sz = Math.round(chunk.fontSizePt).toInt().coerceIn(6, 72)
+                                val b = chunk.isBold || isHeading
+                                val it = chunk.isItalic
+                                if (pendingText.isEmpty()) {
+                                    pendingFamily = fam; pendingSize = sz; pendingBold = b; pendingItalic = it
+                                    pendingText.append(chunk.text)
+                                } else if (fam == pendingFamily && sz == pendingSize && b == pendingBold && it == pendingItalic) {
+                                    pendingText.append(chunk.text)
+                                } else {
+                                    flushPending()
+                                    pendingFamily = fam; pendingSize = sz; pendingBold = b; pendingItalic = it
+                                    pendingText.append(chunk.text)
+                                }
+                            }
+                            flushPending()
 
                             prevLineY = line.y
                             prevLineMinX = line.minX
                             prevLineHeight = line.chunks.maxOfOrNull { it.fontSizePt } ?: 12f
-                            prevLineText = trimmed
+                            prevIndentTwips = indentTwips
+                            prevDomSize = domSize
+                            prevDomBold = domBold
                         }
                     }
                 }
@@ -429,127 +512,265 @@ class ReverseOfficeConverter @Inject constructor(
 
         val lines = mutableListOf<ExtractedLine>()
 
+        private data class RawChar(
+            val ch: String,
+            val x: Float,
+            val yBase: Float,
+            val size: Float,
+            val fontName: String,
+            val width: Float,
+            val height: Float
+        )
+
+        private val rawChars = mutableListOf<RawChar>()
+
+        override fun processTextPosition(pos: TextPosition) {
+            super.processTextPosition(pos)
+            val u = pos.unicode ?: return
+            if (u.isEmpty()) return
+            rawChars.add(
+                RawChar(
+                    ch = u,
+                    x = pos.xDirAdj,
+                    yBase = pos.yDirAdj,
+                    size = pos.fontSizeInPt,
+                    fontName = pos.font?.name ?: "",
+                    width = pos.widthDirAdj,
+                    height = pos.fontSizeInPt * 0.7f
+                )
+            )
+        }
+
         override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
-            if (textPositions.isEmpty() || text.isBlank()) return
+            // Intentional no-op: visual lines are formed in finishGrouping() from
+            // raw chars. PDFBox's own line formation merges rows whose y-ranges
+            // overlap (e.g. a 24pt title over an 11pt subtitle), interleaving both
+            // rows' characters into one garbled line.
+        }
 
-            // 1. Deduplicate characters from drop-shadow, faux-bold, or dual-layer OCR text
-            val deduped = mutableListOf<TextPosition>()
-            for (pos in textPositions.sortedBy { it.xDirAdj }) {
-                val u = pos.unicode
-                if (u.isNullOrEmpty()) continue
-                val prev = deduped.lastOrNull()
-                if (prev != null && prev.unicode == u &&
-                    kotlin.math.abs(pos.xDirAdj - prev.xDirAdj) < 1.8f &&
-                    kotlin.math.abs(pos.yDirAdj - prev.yDirAdj) < 1.8f
-                ) {
-                    continue
-                }
-                deduped.add(pos)
+        /**
+         * Char-level line formation (validated against pdfminer-style layout):
+         * baseline rows -> superscript merge-back -> font-size split for merged
+         * rows -> styled chunks -> same-visual-line merge -> duplicate drop.
+         * Conventions match the old code: ascending y = top to bottom.
+         */
+        fun finishGrouping(): List<ExtractedLine> {
+            lines.clear()
+            if (rawChars.isEmpty()) return lines
+
+            // 1. Rows by baseline proximity.
+            val sorted = rawChars.sortedWith(compareBy({ it.yBase }, { it.x }))
+            val rows = mutableListOf<MutableList<RawChar>>()
+            for (c in sorted) {
+                val last = rows.lastOrNull()
+                if (last != null && kotlin.math.abs(c.yBase - last.last().yBase) <= 2.5f) last.add(c)
+                else rows.add(mutableListOf(c))
             }
-            if (deduped.isEmpty()) return
 
-            // 2. Build styled chunks using exact coordinate displacement for word spacing
+            // 2. Merge superscript/subscript slivers back into the neighbor row.
+            val mergedRows = mutableListOf<MutableList<RawChar>>()
+            for (row in rows) {
+                val prev = mergedRows.lastOrNull()
+                if (prev != null && row.size <= 3 && prev.size > 3) {
+                    val rowMed = row.map { it.size }.sorted().let { it[it.size / 2] }
+                    val prevMed = prev.map { it.size }.sorted().let { it[it.size / 2] }
+                    val prevH = prev.maxOf { it.height }.coerceAtLeast(1f)
+                    if (rowMed < prevMed * 0.7f &&
+                        kotlin.math.abs(row.first().yBase - prev.last().yBase) < prevH * 1.2f
+                    ) {
+                        prev.addAll(row)
+                        continue
+                    }
+                }
+                mergedRows.add(row)
+            }
+
+            // 3. Build lines, splitting rows that mix distinct font sizes
+            // (the title-over-subtitle case) into separate lines, top first.
+            val built = mutableListOf<ExtractedLine>()
+            for (row in mergedRows) {
+                val bands = mutableMapOf<Float, MutableList<RawChar>>()
+                for (c in row) {
+                    val key = bands.keys.firstOrNull { kotlin.math.abs(it - c.size) <= 1.2f }
+                    if (key != null) bands[key]!!.add(c) else bands[c.size] = mutableListOf(c)
+                }
+                val fragments: List<List<RawChar>> = if (bands.size > 1) {
+                    val counts = bands.values.map { it.size }
+                    val sizes = bands.keys.sorted()
+                    if (counts.min() / counts.sum().toFloat() > 0.12f &&
+                        sizes.last() / sizes.first().coerceAtLeast(0.1f) > 1.5f
+                    ) {
+                        bands.values.sortedBy { frag -> frag.minOf { it.yBase } }
+                    } else listOf(row.sortedBy { it.x })
+                } else listOf(row.sortedBy { it.x })
+                for (frag in fragments) {
+                    val line = buildLine(frag.sortedBy { it.x })
+                    if (line != null) built.add(line)
+                }
+            }
+
+            // 4. Merge fragments of one visual line that PDF text ops split apart
+            // (wide interior gaps, e.g. code plus trailing comment).
+            val merged = mutableListOf<ExtractedLine>()
+            for (ln in built) {
+                val prev = merged.lastOrNull()
+                if (prev != null && canMergeVisual(prev, ln)) {
+                    merged[merged.lastIndex] = joinVisual(prev, ln)
+                } else merged.add(ln)
+            }
+
+            // 5. Drop exact-duplicate lines (shadow / double-drawn text).
+            var lastText = ""
+            var lastY = Float.MIN_VALUE
+            for (ln in merged) {
+                val norm = ln.lineText.replace(Regex("\\s+"), " ")
+                if (norm.isNotBlank() &&
+                    !(norm == lastText && kotlin.math.abs(ln.y - lastY) < 4f)
+                ) {
+                    lines.add(ln)
+                    lastText = norm
+                    lastY = ln.y
+                }
+            }
+            return lines
+        }
+
+        private fun lineHeightOf(ln: ExtractedLine): Float =
+            ln.chunks.maxOfOrNull { it.fontSizePt } ?: 12f
+
+        private fun canMergeVisual(prev: ExtractedLine, next: ExtractedLine): Boolean {
+            if (next.lineText.isBlank() || prev.lineText.isBlank()) return false
+            val dy = kotlin.math.abs(next.y - prev.y)
+            if (dy > 0.5f * kotlin.math.min(lineHeightOf(prev), lineHeightOf(next))) return false
+            // Next starts where previous ends (x-disjoint, to the right).
+            return next.minX >= prev.maxX - 2f
+        }
+
+        private fun joinVisual(prev: ExtractedLine, next: ExtractedLine): ExtractedLine {
+            val gap = next.minX - prev.maxX
+            val mono = (prev.chunks + next.chunks).all { it.fontFamily == "Consolas" }
+            val spaceW = 4f
+            val sep = if (gap > spaceW) {
+                if (mono) " ".repeat(1 + (gap / spaceW).toInt().coerceIn(0, 8)) else " "
+            } else ""
+            val first = next.chunks.first()
+            val adjustedFirst = first.copy(text = sep + first.text)
+            val chunks = prev.chunks + listOf(adjustedFirst) + next.chunks.drop(1)
+            val fullText = chunks.joinToString("") { it.text }
+            return ExtractedLine(chunks, prev.y, prev.minX, next.maxX, fullText.trimEnd())
+        }
+
+        private fun mapFamily(rawFontName: String): Triple<String, Boolean, Boolean> {
+            val fontName = if (rawFontName.contains("+")) rawFontName.substringAfter("+") else rawFontName
+            val isBold = fontName.contains("bold", ignoreCase = true) ||
+                    fontName.contains("black", ignoreCase = true) ||
+                    fontName.contains("heavy", ignoreCase = true) ||
+                    fontName.contains("w7", ignoreCase = true) ||
+                    fontName.contains("w8", ignoreCase = true) ||
+                    fontName.contains("w9", ignoreCase = true)
+            val isItalic = fontName.contains("italic", ignoreCase = true) ||
+                    fontName.contains("oblique", ignoreCase = true)
+            val family = when {
+                fontName.contains("Courier", ignoreCase = true) ||
+                        fontName.contains("Consolas", ignoreCase = true) ||
+                        fontName.contains("Mono", ignoreCase = true) ||
+                        fontName.contains("Menlo", ignoreCase = true) -> "Consolas"
+                fontName.contains("Times", ignoreCase = true) -> "Times New Roman"
+                fontName.contains("Georgia", ignoreCase = true) -> "Georgia"
+                fontName.contains("Arial", ignoreCase = true) ||
+                        fontName.contains("Helvetica", ignoreCase = true) -> "Arial"
+                else -> "Calibri"
+            }
+            return Triple(family, isBold, isItalic)
+        }
+
+        private fun buildLine(cells: List<RawChar>): ExtractedLine? {
+            if (cells.isEmpty()) return null
+            // Deduplicate characters from drop-shadow, faux-bold, or dual-layer text.
+            val deduped = mutableListOf<RawChar>()
+            for (c in cells) {
+                val prev = deduped.lastOrNull()
+                if (prev != null && prev.ch == c.ch &&
+                    kotlin.math.abs(c.x - prev.x) < 1.8f &&
+                    kotlin.math.abs(c.yBase - prev.yBase) < 1.8f
+                ) continue
+                deduped.add(c)
+            }
+            if (deduped.isEmpty()) return null
+
             val chunks = mutableListOf<StyledChunk>()
             var currentChunkText = StringBuilder()
             var currentFont = ""
             var currentSize = 0f
             var currentBold = false
             var currentItalic = false
-            var chunkStartX = deduped.first().xDirAdj
-            val lineY = deduped.first().yDirAdj
-            var prevEnd = deduped.first().xDirAdj
+            var chunkStartX = deduped.first().x
+            val lineY = deduped.first().yBase
+            var prevEnd = deduped.first().x
 
-            for (pos in deduped) {
-                val rawFontName = pos.font?.name ?: "Calibri"
-                val fontName = if (rawFontName.contains("+")) rawFontName.substringAfter("+") else rawFontName
-                val isBold = fontName.contains("bold", ignoreCase = true) ||
-                        fontName.contains("black", ignoreCase = true) ||
-                        fontName.contains("heavy", ignoreCase = true) ||
-                        fontName.contains("w7", ignoreCase = true) ||
-                        fontName.contains("w8", ignoreCase = true) ||
-                        fontName.contains("w9", ignoreCase = true)
-                val isItalic = fontName.contains("italic", ignoreCase = true) ||
-                        fontName.contains("oblique", ignoreCase = true)
-                val fontSize = pos.fontSizeInPt
-
-                val family = when {
-                    fontName.contains("Courier", ignoreCase = true) ||
-                            fontName.contains("Consolas", ignoreCase = true) ||
-                            fontName.contains("Mono", ignoreCase = true) ||
-                            fontName.contains("Menlo", ignoreCase = true) -> "Consolas"
-                    fontName.contains("Times", ignoreCase = true) -> "Times New Roman"
-                    fontName.contains("Georgia", ignoreCase = true) -> "Georgia"
-                    fontName.contains("Arial", ignoreCase = true) ||
-                            fontName.contains("Helvetica", ignoreCase = true) -> "Arial"
-                    else -> "Calibri"
+            fun pushChunk() {
+                if (currentChunkText.isNotEmpty()) {
+                    chunks.add(
+                        StyledChunk(
+                            text = currentChunkText.toString(),
+                            fontFamily = currentFont,
+                            fontSizePt = currentSize,
+                            isBold = currentBold,
+                            isItalic = currentItalic,
+                            x = chunkStartX,
+                            y = lineY
+                        )
+                    )
+                    currentChunkText = StringBuilder()
                 }
+            }
 
-                val u = pos.unicode ?: ""
-                val spaceGap = pos.xDirAdj - prevEnd
-                val spaceWidth = if (pos.widthOfSpace > 0) pos.widthOfSpace else (fontSize * 0.25f)
+            for (c in deduped) {
+                val (family, isBold, isItalic) = mapFamily(c.fontName)
+                val fontSize = c.size
+                val spaceGap = c.x - prevEnd
+                val spaceWidth = (fontSize * 0.28f).coerceAtLeast(1.5f)
                 val needsSpace = spaceGap > (spaceWidth * 0.45f).coerceAtLeast(2.0f) && currentChunkText.isNotEmpty()
+                // Monospace column gaps keep extra spaces so code columns survive.
+                val gapSpaces = if (needsSpace && family == "Consolas" && currentFont == "Consolas") {
+                    " ".repeat(1 + (spaceGap / spaceWidth).toInt().coerceIn(0, 8))
+                } else if (needsSpace) " " else ""
 
                 if (chunks.isEmpty() && currentChunkText.isEmpty()) {
                     currentFont = family
                     currentSize = fontSize
                     currentBold = isBold
                     currentItalic = isItalic
-                    chunkStartX = pos.xDirAdj
-                    currentChunkText.append(u)
+                    chunkStartX = c.x
+                    currentChunkText.append(c.ch)
                 } else if (family == currentFont &&
                     kotlin.math.abs(fontSize - currentSize) < 0.5f &&
                     isBold == currentBold &&
                     isItalic == currentItalic
                 ) {
-                    if (needsSpace) currentChunkText.append(" ")
-                    currentChunkText.append(u)
+                    currentChunkText.append(gapSpaces)
+                    currentChunkText.append(c.ch)
                 } else {
-                    if (currentChunkText.isNotEmpty()) {
-                        chunks.add(
-                            StyledChunk(
-                                text = currentChunkText.toString(),
-                                fontFamily = currentFont,
-                                fontSizePt = currentSize,
-                                isBold = currentBold,
-                                isItalic = currentItalic,
-                                x = chunkStartX,
-                                y = lineY
-                            )
-                        )
-                    }
-                    currentChunkText = StringBuilder()
-                    if (needsSpace) currentChunkText.append(" ")
-                    currentChunkText.append(u)
+                    pushChunk()
+                    currentChunkText.append(gapSpaces)
+                    currentChunkText.append(c.ch)
                     currentFont = family
                     currentSize = fontSize
                     currentBold = isBold
                     currentItalic = isItalic
-                    chunkStartX = pos.xDirAdj
+                    chunkStartX = c.x
                 }
-                prevEnd = pos.xDirAdj + pos.widthDirAdj
+                prevEnd = c.x + c.width
             }
+            pushChunk()
 
-            if (currentChunkText.isNotEmpty()) {
-                chunks.add(
-                    StyledChunk(
-                        text = currentChunkText.toString(),
-                        fontFamily = currentFont,
-                        fontSizePt = currentSize,
-                        isBold = currentBold,
-                        isItalic = currentItalic,
-                        x = chunkStartX,
-                        y = lineY
-                    )
-                )
-            }
-
-            if (chunks.isNotEmpty()) {
-                val firstX = chunks.first().x
-                val lastChunk = chunks.last()
-                val calculatedMaxX = lastChunk.x + (lastChunk.text.length * lastChunk.fontSizePt * 0.5f)
-                val fullText = chunks.joinToString("") { it.text }
-                lines.add(ExtractedLine(chunks, lineY, firstX, calculatedMaxX, fullText.trimEnd()))
-            }
+            if (chunks.isEmpty()) return null
+            val firstX = chunks.first().x
+            val lastChunk = chunks.last()
+            val calculatedMaxX = lastChunk.x + (lastChunk.text.length * lastChunk.fontSizePt * 0.5f)
+            val fullText = chunks.joinToString("") { it.text }
+            if (fullText.isBlank()) return null
+            return ExtractedLine(chunks, lineY, firstX, calculatedMaxX, fullText.trimEnd())
         }
     }
 

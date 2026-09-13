@@ -36,11 +36,21 @@ class FileOutputManager @Inject constructor(
             val resolver = context.contentResolver
             val contentUri = MediaStore.Files.getContentUri("external")
             val uri = resolver.insert(contentUri, contentValues) ?: return null
-            resolver.openOutputStream(uri)?.use { out ->
-                file.inputStream().use { input ->
-                    input.copyTo(out)
+            try {
+                val stream = resolver.openOutputStream(uri) ?: run {
+                    try { resolver.delete(uri, null, null) } catch (_: Throwable) {}
+                    return null
                 }
-                out.flush()
+                stream.use { out ->
+                    file.inputStream().use { input ->
+                        input.copyTo(out)
+                    }
+                    out.flush()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                try { resolver.delete(uri, null, null) } catch (_: Throwable) {}
+                return null
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val updateValues = ContentValues().apply {
@@ -74,9 +84,19 @@ class FileOutputManager @Inject constructor(
             val resolver = context.contentResolver
             val contentUri = MediaStore.Files.getContentUri("external")
             val uri = resolver.insert(contentUri, contentValues) ?: return null
-            resolver.openOutputStream(uri)?.use { out ->
-                out.write(bytes)
-                out.flush()
+            try {
+                val stream = resolver.openOutputStream(uri) ?: run {
+                    try { resolver.delete(uri, null, null) } catch (_: Throwable) {}
+                    return null
+                }
+                stream.use { out ->
+                    out.write(bytes)
+                    out.flush()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                try { resolver.delete(uri, null, null) } catch (_: Throwable) {}
+                return null
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val updateValues = ContentValues().apply {

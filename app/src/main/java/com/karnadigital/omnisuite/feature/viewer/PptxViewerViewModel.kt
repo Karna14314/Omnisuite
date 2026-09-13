@@ -3,6 +3,8 @@ package com.karnadigital.omnisuite.feature.viewer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.engine.SearchResult
+import com.karnadigital.omnisuite.core.util.CustomGeomPath
+import com.karnadigital.omnisuite.core.util.parseCustomGeomPath
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -84,6 +86,9 @@ enum class ShapeGeometryType {
     STAR, PENTAGON, RIGHT_ARROW, CALLOUT, PARALLELOGRAM, LINE, NONE
 }
 
+/** DrawingML custom-geometry model shared with the PPTX-to-PDF renderer. */
+
+
 data class ShapeBorder(
     val strokeColorHex: String? = null,
     val strokeWidthDp: Float = 1.5f
@@ -111,7 +116,9 @@ data class PptxTextShape(
     /** normAutofit lnSpcReduction in thousandths. Null = no reduction. */
     val lnSpcReduction: Int? = null,
     /** True if shape is full-bleed background or master layout decorative shape. */
-    val isBackgroundShape: Boolean = false
+    val isBackgroundShape: Boolean = false,
+    /** Parsed `<a:custGeom>` outline; renderer prefers it over [shapeGeometry]. */
+    val customPath: CustomGeomPath? = null
 ) {
     val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
     val primaryText: String get() = paragraphs.firstOrNull()?.primaryText ?: ""
@@ -129,7 +136,13 @@ data class PptxImage(
     val width: Float,
     val height: Float,
     val zOrder: Int = 0,
-    val id: String = ""
+    val id: String = "",
+    /** Geometry to clip this image to when it is a picture-fill of an AutoShape. */
+    val clipGeometry: ShapeGeometryType = ShapeGeometryType.RECTANGLE,
+    /** True when sourced from an AutoShape spPr blipFill rather than a true p:pic. */
+    val isShapeFill: Boolean = false,
+    /** Parsed `<a:custGeom>` outline for clipping picture-fills of custom shapes. */
+    val customClip: CustomGeomPath? = null
 )
 
 data class PptxSlide(
@@ -737,6 +750,36 @@ class PptxViewerViewModel @Inject constructor(
         return null
     }
 
+    /** True only for genuine <p:pic> picture shapes — not AutoShapes with picture fill. */
+    private fun isTruePictureShape(shape: Any): Boolean {
+        if (shape is org.apache.poi.sl.usermodel.PictureShape<*, *>) return true
+        return try {
+            val xml = getXmlObjectReflection(shape) ?: return false
+            val clsName = xml.javaClass.name
+            clsName.contains("CTPicture") && !clsName.contains("CTShape") && !clsName.contains("CTGroupShape")
+        } catch (_: Throwable) { false }
+    }
+
+    /** Thin wrapper over the shared DrawingML parser ([parseCustomGeomPath]). */
+    private fun extractCustomGeomPath(shape: Any): CustomGeomPath? {
+        return try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+            val xmlStr = try { xml.toString() } catch (_: Throwable) { return null }
+            parseCustomGeomPath(xmlStr)
+        } catch (_: Throwable) { null }
+    }
+
+    /** True when an AutoShape carries <a:blipFill> inside <p:spPr> (picture fill). */
+    private fun hasSpPictureFill(shape: Any): Boolean {
+        return try {
+            val xml = getXmlObjectReflection(shape) ?: return false
+            val spPr = try { xml.javaClass.getMethod("getSpPr").invoke(xml) } catch (_: Throwable) { null }
+                ?: return false
+            val blipFill = try { spPr.javaClass.getMethod("getBlipFill").invoke(spPr) } catch (_: Throwable) { null }
+            blipFill != null
+        } catch (_: Throwable) { false }
+    }
+
     private fun savePicBytesToTempFile(slideIndex: Int, dataBytes: ByteArray, contentType: String?, crop: PicCrop? = null): File {
         val cropSuffix = if (crop != null) "_c_${crop.l}_${crop.t}_${crop.r}_${crop.b}" else ""
         val hash = dataBytes.contentHashCode().toString() + cropSuffix
@@ -850,6 +893,70 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Reads DrawingML alpha transforms (`a:alpha`, `a:alphaMod`, `a:alphaModFix`,
+     * `a:alphaOff` children of a color element) and returns the combined opacity
+     * fraction 0..1. Missing = opaque. Ignoring this painted 15%-wash fills solid.
+     */
+    private fun extractColorAlphaFraction(colorObj: Any?): Float {
+        if (colorObj == null) return 1f
+        return try {
+            val kids: List<*> = try {
+                colorObj.javaClass.getMethod("getAlphaArray").invoke(colorObj) as? Array<*> as? List<*>
+                    ?: (colorObj.javaClass.getMethod("getAlphaList").invoke(colorObj) as? List<*>)
+            } catch (_: Throwable) {
+                try { colorObj.javaClass.getMethod("getAlphaList").invoke(colorObj) as? List<*> } catch (_: Throwable) { null }
+            } ?: return combinedAlphaFromMods(colorObj, 1f)
+            var alpha = 1f
+            for (kid in kids) {
+                if (kid == null) continue
+                val name = kid.javaClass.simpleName.lowercase()
+                val amt = readFixedPercent(kid) ?: if (name.contains("modfix")) 100000L else continue
+                alpha = when {
+                    name.contains("alphaoff") -> (alpha + amt.toFloat() / 100000f).coerceIn(0f, 1f)
+                    name.startsWith("alpha") && !name.contains("mod") -> (amt.toFloat() / 100000f).coerceIn(0f, 1f)
+                    else -> (alpha * amt.toFloat() / 100000f).coerceIn(0f, 1f)
+                }
+            }
+            // Reflective getters miss some bean shapes; fall back to raw XML scan.
+            if (alpha >= 1f) combinedAlphaFromMods(colorObj, alpha) else alpha
+        } catch (_: Throwable) { 1f }
+    }
+
+    private fun readFixedPercent(obj: Any): Long? {
+        return try {
+            val v = obj.javaClass.getMethod("getVal").invoke(obj) ?: return null
+            when (v) {
+                is Number -> v.toLong()
+                else -> v.toString().toLongOrNull()
+            }
+        } catch (_: Throwable) { null }
+    }
+
+    private fun combinedAlphaFromMods(colorObj: Any?, base: Float): Float {
+        // Last-resort regex over the color element XML (mirrors extractBlipCrop approach).
+        return try {
+            val xmlStr = colorObj.toString()
+            var alpha = base
+            val aAbs = Regex("""<[^>:/]*:?alpha[ >][^>]*val=["'](\d+)["']""").find(xmlStr)?.groupValues?.get(1)?.toLongOrNull()
+            if (aAbs != null) alpha = (aAbs.toFloat() / 100000f).coerceIn(0f, 1f)
+            for (m in Regex("""<[^>:/]*:?alphaModFix[^>]*amt=["'](\d+)["']""").findAll(xmlStr)) {
+                alpha *= ((m.groupValues[1].toLongOrNull() ?: 100000L).toFloat() / 100000f)
+            }
+            for (m in Regex("""<[^>:/]*:?alphaMod[ >][^>]*amt=["'](\d+)["']""").findAll(xmlStr)) {
+                alpha *= ((m.groupValues[1].toLongOrNull() ?: 100000L).toFloat() / 100000f)
+            }
+            alpha.coerceIn(0f, 1f)
+        } catch (_: Throwable) { base }
+    }
+
+    private fun withAlpha(hexRgb: String, colorObj: Any?): String {
+        val a = extractColorAlphaFraction(colorObj)
+        if (a >= 0.999f) return hexRgb
+        val ai = (a * 255f).toInt().coerceIn(0, 255)
+        return "#" + String.format("%02X", ai) + hexRgb.removePrefix("#")
+    }
+
     private fun extractColorFromSolidFill(solidFill: Any?): String? {
         if (solidFill == null) return null
         try {
@@ -857,20 +964,20 @@ class PptxViewerViewModel @Inject constructor(
             if (srgb != null) {
                 val hexBytes = try { srgb.javaClass.getMethod("getVal").invoke(srgb) as? ByteArray } catch (_: Throwable) { null }
                 val hex = hexBytes?.joinToString("") { String.format("%02X", it) }
-                if (!hex.isNullOrBlank()) return "#$hex"
+                if (!hex.isNullOrBlank()) return withAlpha("#$hex", srgb)
             }
             val schemeClr = try { solidFill.javaClass.getMethod("getSchemeClr").invoke(solidFill) } catch (_: Throwable) { null }
             if (schemeClr != null) {
                 val valObj = try { schemeClr.javaClass.getMethod("getVal").invoke(schemeClr) } catch (_: Throwable) { null }
                 val valStr = valObj?.toString() ?: ""
                 val resolved = resolveSchemeColor(valStr)
-                if (resolved != null) return resolved
+                if (resolved != null) return withAlpha(resolved, schemeClr)
             }
             val sysClr = try { solidFill.javaClass.getMethod("getSysClr").invoke(solidFill) } catch (_: Throwable) { null }
             if (sysClr != null) {
                 val lastClrBytes = try { sysClr.javaClass.getMethod("getLastClr").invoke(sysClr) as? ByteArray } catch (_: Throwable) { null }
                 val hex = lastClrBytes?.joinToString("") { String.format("%02X", it) }
-                if (!hex.isNullOrBlank()) return "#$hex"
+                if (!hex.isNullOrBlank()) return withAlpha("#$hex", sysClr)
             }
             val prstClr = try { solidFill.javaClass.getMethod("getPrstClr").invoke(solidFill) } catch (_: Throwable) { null }
             if (prstClr != null) {
@@ -1180,26 +1287,25 @@ class PptxViewerViewModel @Inject constructor(
                 }
             }
 
-            // Fallback for geometric shapes to prevent invisible transparent shapes
-            val isGeometric = geometry in listOf(
-                ShapeGeometryType.HEXAGON,
-                ShapeGeometryType.TRIANGLE,
-                ShapeGeometryType.DIAMOND,
-                ShapeGeometryType.CHEVRON,
-                ShapeGeometryType.STAR,
-                ShapeGeometryType.PENTAGON,
-                ShapeGeometryType.RIGHT_ARROW,
-                ShapeGeometryType.CALLOUT,
-                ShapeGeometryType.PARALLELOGRAM,
-                ShapeGeometryType.LINE
-            )
-            if (isGeometric) {
-                if (bgColor == null) {
-                    bgColor = resolveSchemeColor("accent1") ?: "#3B82F6"
-                }
-                if (border == null) {
-                    border = ShapeBorder(strokeColorHex = resolveSchemeColor("accent2") ?: "#1E40AF", strokeWidthDp = 1.2f)
-                }
+            // No invented fills: a geometric preset with no authored fill/line stays
+            // transparent (border-only handled by renderer). Inventing accent1 blue
+            // is what made every picture-filled/decorative shape render as a crude blob.
+            // Also detect custGeom so custom geometry is not silently downgraded to RECTANGLE.
+            if (geometry == ShapeGeometryType.RECTANGLE) {
+                try {
+                    val spPr = try { xml?.javaClass?.getMethod("getSpPr")?.invoke(xml) } catch (_: Throwable) { null }
+                    val custGeom = try { spPr?.javaClass?.getMethod("getCustGeom")?.invoke(spPr) } catch (_: Throwable) { null }
+                    if (custGeom != null) {
+                        // Custom geometry path present — keep RECTANGLE box but mark border
+                        // so renderer does not treat it as a plain missing-geometry text box.
+                        if (bgColor == null && border == null) {
+                            border = ShapeBorder(
+                                strokeColorHex = resolveSchemeColor("tx2") ?: "#64748B",
+                                strokeWidthDp = 1f
+                            )
+                        }
+                    }
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
 
@@ -1589,8 +1695,17 @@ class PptxViewerViewModel @Inject constructor(
             for ((shapeIndex, shape) in allShapes.withIndex()) {
                 val shapeZOrder = shapeIndex
                 try {
-                    // 1. Check if shape has picture data (PictureShape, blipFill on AutoShape/SimpleShape, etc.)
+                    // 1. Picture handling with fill-type awareness.
+                    // True <p:pic> -> standalone image. AutoShape <p:spPr><a:blipFill>
+                    // (image-with-shapes background) -> image clipped to that shape's
+                    // geometry, NOT a second crude rectangle + duplicate text box.
                     val picTriple = extractPictureDataFromShape(shape, slide)
+                    val isTruePic = isTruePictureShape(shape)
+                    val isShapeFillPic = !isTruePic && picTriple != null && hasSpPictureFill(shape)
+                    // Pre-read geometry so picture-fill can reuse it for clipping.
+                    val (earlyGeom, earlyBorder, earlyBg) = extractShapeGeometryAndBorder(shape)
+                    // Custom outline for custGeom shapes (parsed lazily; regex scan only).
+                    val earlyCustomPath = if (earlyGeom == ShapeGeometryType.RECTANGLE) extractCustomGeomPath(shape) else null
                     if (picTriple != null && picTriple.first.isNotEmpty()) {
                         val file = savePicBytesToTempFile(index, picTriple.first, picTriple.second, picTriple.third)
                         val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
@@ -1604,18 +1719,39 @@ class PptxViewerViewModel @Inject constructor(
 
                         val imgZOrder = shapeZOrder
                         val imgId = "img_${index}_${images.size}"
-                        if (isBackground && backgroundImage == null) {
-                            backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
+                        if (isShapeFillPic) {
+                            // Picture-fill of a shape: keep geometry for clip, skip bg promotion
+                            // unless genuinely full-bleed.
+                            if (isBackground && backgroundImage == null) {
+                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
+                            } else {
+                                images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId, clipGeometry = earlyGeom, isShapeFill = true, customClip = earlyCustomPath))
+                            }
+                        } else if (isTruePic) {
+                            if (isBackground && backgroundImage == null) {
+                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
+                            } else {
+                                images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId))
+                            }
                         } else {
-                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId))
+                            // Unknown host (connector/group child): only keep if full-bleed bg.
+                            if (isBackground && backgroundImage == null) {
+                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
+                            }
                         }
                     }
 
                     // 2. Process text or geometric shape (including decorative/background shapes with no text)
                     val isTextShape = shape is org.apache.poi.sl.usermodel.TextShape<*, *>
                     val shapeText = if (isTextShape) try { (shape as org.apache.poi.sl.usermodel.TextShape<*, *>).text ?: "" } catch (t: Throwable) { "" } else ""
-                    val (shapeGeom, shapeBorder, shapeBg) = extractShapeGeometryAndBorder(shape)
-                    val hasVisualPresence = shapeBg != null || shapeBorder != null || shapeGeom != ShapeGeometryType.RECTANGLE
+                    val (shapeGeom, shapeBorder, shapeBg) = Triple(earlyGeom, earlyBorder, earlyBg)
+                    // Picture-filled AutoShape with no text is already emitted as clipped
+                    // image above — emitting an empty rect on top is the "crude cube" bug.
+                    if (isShapeFillPic && shapeText.isBlank()) {
+                        continue
+                    }
+                    val hasVisualPresence = shapeBg != null || shapeBorder != null ||
+                            shapeGeom != ShapeGeometryType.RECTANGLE || earlyCustomPath != null
 
                     if (shape !is org.apache.poi.sl.usermodel.TableShape<*, *> && (shapeText.isNotBlank() || hasVisualPresence)) {
                         val isTitle = if (isTextShape) {
@@ -1763,7 +1899,8 @@ class PptxViewerViewModel @Inject constructor(
                                 autoFit = bodyPr.autoFit,
                                 fontScale = bodyPr.fontScale,
                                 lnSpcReduction = bodyPr.lnSpcReduction,
-                                isBackgroundShape = isBgShape
+                                isBackgroundShape = isBgShape,
+                                customPath = earlyCustomPath
                             )
 
                             if (isDistinctTitle) {

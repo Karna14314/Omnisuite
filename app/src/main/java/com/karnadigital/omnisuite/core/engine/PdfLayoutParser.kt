@@ -73,8 +73,16 @@ class PdfLayoutParser {
         PDDocument.load(file).use { document ->
             for (pageIndex in 0 until document.numberOfPages) {
                 val page = document.getPage(pageIndex)
-                val layout = parsePage(page, pageIndex)
-                layouts.add(layout)
+                // PDFTextStripper pages are 1-based; parse from the owning document
+                // so the live PDPage is never re-parented to a temp doc.
+                val textExtractor = BlockTextStripper()
+                textExtractor.startPage = pageIndex + 1
+                textExtractor.endPage = pageIndex + 1
+                textExtractor.sortByPosition = true
+                textExtractor.resetBlocks()
+                textExtractor.getText(document)
+                val rawBlocks = textExtractor.drainBlocks()
+                layouts.add(buildLayout(page, pageIndex, rawBlocks))
             }
         }
         return layouts
@@ -86,8 +94,8 @@ class PdfLayoutParser {
         val pageHeight = mediaBox.height
 
         val textExtractor = BlockTextStripper()
-        textExtractor.startPage = pageIndex
-        textExtractor.endPage = pageIndex
+        textExtractor.startPage = pageIndex + 1
+        textExtractor.endPage = pageIndex + 1
         textExtractor.sortByPosition = true
 
         val rawBlocks = mutableListOf<RawTextBlock>()
@@ -112,6 +120,28 @@ class PdfLayoutParser {
         }
 
         return PdfPageLayout(pageIndex, pageWidth, pageHeight, blocks)
+    }
+
+    private fun buildLayout(page: PDPage, pageIndex: Int, rawBlocks: List<RawTextBlock>): PdfPageLayout {
+        val mediaBox = page.mediaBox
+        val blocks = rawBlocks.map { raw ->
+            PdfTextBlock(
+                id = blockIdCounter++,
+                text = raw.text,
+                x = raw.x,
+                y = raw.y,
+                width = raw.width,
+                height = raw.height,
+                fontSize = raw.fontSize,
+                fontFamily = raw.fontFamily,
+                fontWeight = raw.fontWeight,
+                textColor = raw.textColor,
+                backgroundColor = raw.backgroundColor,
+                pageIndex = pageIndex,
+                blockType = classifyBlock(raw, mediaBox.height)
+            )
+        }
+        return PdfPageLayout(pageIndex, mediaBox.width, mediaBox.height, blocks)
     }
 
     private fun classifyBlock(raw: RawTextBlock, pageHeight: Float): BlockType {
@@ -145,13 +175,44 @@ class PdfLayoutParser {
         private val lineThreshold = 5f
         private val paragraphThreshold = 15f
 
+        fun resetBlocks() {
+            rawBlocks.clear()
+            currentBlock = null
+            // Flush any paragraph still held from a previous getText() call.
+            endPageBlocks()
+        }
+
+        fun drainBlocks(): List<RawTextBlock> {
+            endPageBlocks()
+            return rawBlocks.toList()
+        }
+
+        private fun endPageBlocks() {
+            val pending = currentBlock
+            if (pending != null && pending.text.isNotBlank()) {
+                rawBlocks.add(pending)
+            }
+            currentBlock = null
+        }
+
         fun extractBlocks(page: PDPage, output: MutableList<RawTextBlock>) {
             rawBlocks.clear()
             currentBlock = null
+            // Standalone path (no owning doc): import (clone) instead of addPage,
+            // which would steal the live page from its document and corrupt it.
             PDDocument().use { tempDoc ->
-                tempDoc.addPage(page)
-                getText(tempDoc)
+                try {
+                    val imported = tempDoc.importPage(page)
+                    startPage = 1
+                    endPage = 1
+                    getText(tempDoc)
+                    // importPage leaves `imported` owned by tempDoc; closed by use{}.
+                } catch (_: Throwable) {
+                    // Fallback for ports without importPage: parse via COS copy is
+                    // unavailable, return what we have rather than crashing.
+                }
             }
+            endPageBlocks()
             output.addAll(rawBlocks)
         }
 

@@ -330,26 +330,44 @@ class PdfToolsRepository @Inject constructor(
             val originalName = (getFileNameFromUri(inputUri) ?: "document").removeSuffix(".pdf")
             val savedUris = mutableListOf<Uri>()
             var totalSize = 0L
-            for (i in 0 until pageCount) {
-                val page = pdfRenderer.openPage(i)
-                val bitmap = android.graphics.Bitmap.createBitmap(page.width * 2, page.height * 2, android.graphics.Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                val stream = java.io.ByteArrayOutputStream()
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
-                val bytes = stream.toByteArray()
-                bitmap.recycle()
-                val imageName = "${originalName}_page_${i + 1}.png"
-                val savedUri = fileOutputManager.saveToDefault(bytes, imageName, "image/png", "Images")
-                    ?: throw Exception("Failed to save page ${i + 1} image.")
-                savedUris.add(savedUri)
-                totalSize += bytes.size.toLong()
+            try {
+                for (i in 0 until pageCount) {
+                    val page = pdfRenderer.openPage(i)
+                    try {
+                        // Cap render dims so large pages can't OOM (≈58MB at 2x ARGB).
+                        var w = page.width * 2
+                        var h = page.height * 2
+                        val maxDim = 2048
+                        if (w > maxDim || h > maxDim) {
+                            val scale = maxDim.toFloat() / maxOf(w, h).toFloat()
+                            w = (w * scale).toInt().coerceAtLeast(1)
+                            h = (h * scale).toInt().coerceAtLeast(1)
+                        }
+                        val bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                        try {
+                            page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            val stream = java.io.ByteArrayOutputStream()
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                            val bytes = stream.toByteArray()
+                            val imageName = "${originalName}_page_${i + 1}.png"
+                            val savedUri = fileOutputManager.saveToDefault(bytes, imageName, "image/png", "Images")
+                                ?: throw Exception("Failed to save page ${i + 1} image.")
+                            savedUris.add(savedUri)
+                            totalSize += bytes.size.toLong()
+                        } finally {
+                            try { bitmap.recycle() } catch (_: Throwable) {}
+                        }
+                    } finally {
+                        try { page.close() } catch (_: Throwable) {}
+                    }
+                }
+            } finally {
+                try { pdfRenderer.close() } catch (_: Throwable) {}
+                try { parcelFileDescriptor.close() } catch (_: Throwable) {}
             }
             val batchUriString = savedUris.joinToString("|||") { it.toString() }
             registerRecentFile(Uri.parse(batchUriString), "${originalName} (All Pages)", "image/png", totalSize)
-            pdfRenderer.close()
-            parcelFileDescriptor.close()
-            if (tempInputFile.exists()) tempInputFile.delete()
+            if (tempInputFile.exists()) try { tempInputFile.delete() } catch (_: Throwable) {}
             Result.success(savedUris)
         } catch (e: Exception) {
             Result.failure(e)
@@ -962,7 +980,24 @@ class PdfToolsRepository @Inject constructor(
                     val size = try { sizeStr.toLong(8) } catch (e: Exception) { 0L }
                     val isFile = header[156] == '0'.toByte() || header[156] == 0.toByte()
                     if (isFile && size > 0) {
-                        val outFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_$name")
+                        // Block ZipSlip: normalize separators, reject absolute/parent refs,
+                        // keep nested subpath inside cacheDir (basename-flatten would corrupt zips).
+                        val normalized = name.replace('\\', '/').trim().trimStart('/')
+                        if (normalized.isBlank() || normalized.split('/').any { it == ".." }) {
+                            val blocks = (size + 511) / 512
+                            fis.skip(blocks * 512)
+                            continue
+                        }
+                        val safeRel = normalized.replace(Regex("[^a-zA-Z0-9._\\-/]"), "_")
+                        val outFile = File(context.cacheDir, "extracted_${System.currentTimeMillis()}_$safeRel")
+                        // Ensure the resolved path stays inside cacheDir.
+                        val canonicalBase = context.cacheDir.canonicalPath
+                        if (!outFile.canonicalPath.startsWith(canonicalBase + File.separator)) {
+                            val blocks = (size + 511) / 512
+                            fis.skip(blocks * 512)
+                            continue
+                        }
+                        outFile.parentFile?.mkdirs()
                         FileOutputStream(outFile).use { fos ->
                             var remaining = size
                             val buf = ByteArray(1024)
@@ -1609,23 +1644,28 @@ class PdfToolsRepository @Inject constructor(
                         val page = document.getPage(pageIdx)
                         val pageWidth = page.mediaBox.width
                         val pageHeight = page.mediaBox.height
+                        // Visual cover only: paints an opaque box. Underlying text bytes
+                        // remain in the file (not a secure redact) — callers label it as cover.
                         val contentStream = com.tom_roush.pdfbox.pdmodel.PDPageContentStream(
                             document,
                             page,
                             com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode.APPEND,
                             true
                         )
-                        contentStream.setNonStrokingColor(0f, 0f, 0f)
-                        for (box in boxes) {
-                            val pdfX = box.normX * pageWidth
-                            val pdfW = box.normWidth * pageWidth
-                            val pdfH = box.normHeight * pageHeight
-                            // PDF coordinates have (0,0) at bottom-left: flip Y from screen (top-left) to PDF (bottom-left)
-                            val pdfY = pageHeight - (box.normY * pageHeight + pdfH)
-                            contentStream.addRect(pdfX, pdfY, pdfW, pdfH)
+                        try {
+                            contentStream.setNonStrokingColor(0f, 0f, 0f)
+                            for (box in boxes) {
+                                val pdfX = box.normX * pageWidth
+                                val pdfW = box.normWidth * pageWidth
+                                val pdfH = box.normHeight * pageHeight
+                                // PDF coordinates have (0,0) at bottom-left: flip Y from screen (top-left) to PDF (bottom-left)
+                                val pdfY = pageHeight - (box.normY * pageHeight + pdfH)
+                                contentStream.addRect(pdfX, pdfY, pdfW, pdfH)
+                            }
+                            contentStream.fill()
+                        } finally {
+                            try { contentStream.close() } catch (_: Throwable) {}
                         }
-                        contentStream.fill()
-                        contentStream.close()
                     }
                 }
                 FileOutputStream(tempOutputFile).use { document.save(it) }
@@ -1645,6 +1685,23 @@ class PdfToolsRepository @Inject constructor(
     }
 
     suspend fun redactPdf(inputUri: Uri, pageNumber: Int, x: Float, y: Float, width: Float, height: Float, customFilename: String? = null): Result<Uri> = withContext(Dispatchers.IO) {
+        // Legacy point-based API: resolve against the actual page size instead of
+        // hardcoded 595x842 so non-A4 pages place the box correctly. A4 callers
+        // behave exactly as before (A4 ≈ 595x842pt).
+        try {
+            val tmp = uriCacheUtils.cacheUriToFile(inputUri)
+            if (tmp != null) {
+                PDDocument.load(tmp).use { doc ->
+                    if (pageNumber in 0 until doc.numberOfPages) {
+                        val pg = doc.getPage(pageNumber)
+                        val pw = pg.mediaBox.width.takeIf { it > 0 } ?: 595f
+                        val ph = pg.mediaBox.height.takeIf { it > 0 } ?: 842f
+                        val boxes = listOf(RedactionBox(pageNumber, x / pw, y / ph, width / pw, height / ph))
+                        return@withContext redactPdfBoxes(inputUri, boxes, customFilename)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
         val boxes = listOf(RedactionBox(pageNumber, x / 595f, y / 842f, width / 595f, height / 842f))
         redactPdfBoxes(inputUri, boxes, customFilename)
     }
