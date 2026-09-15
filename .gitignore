@@ -34,6 +34,11 @@ Thumbs.db
 keystore.properties
 *.jks
 signing/
+play-store-key.json
+play_store_key.json
+release_description.txt
+keystore.jks
+app/keystore.jks
 
 # Gradle Wrapper JAR (can be re-downloaded/re-generated, but some teams commit it. We ignore it for light repo or keep it. Let's ignore typical built objects)
 # Note: Usually gradle-wrapper.jar is committed, but wrapper properties is the source of truth. We exclude built jar here if we want or check.
@@ -44,4 +49,9 @@ signing/
 # Local Store Listing assets
 store_listing/
 store listing/
+distribution/whatsnew/whatsnew-en-US
+
+# Local AI/agent tooling
+.kilo/
+.ruff_cache/
 

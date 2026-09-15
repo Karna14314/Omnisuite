@@ -1,91 +1,24 @@
-# CLAUDE.md - OmniSuite Onboarding & Guidelines
+# OmniSuite — Agent Onboarding
 
-This document details coding conventions and links to the codebase onboarding guides.
+Offline-first Android document suite (Compose + Hilt + Room). Single app, no flavors. Release via `bundleRelease` to Play internal track.
 
----
+## Docs
 
-## 📖 Codebase Onboarding & File Map
+- `docs/agents.md` — feature → file map, routes, quick-fix index
+- `docs/architecture.md` — layers, MVVM data flow
+- `docs/file-map.md` — full file catalog
+- `docs/navigation.md` — `Screen` routes
+- `docs/dependencies.md` — versions, R8 rules
+- `docs/engines.md` — conversion/search/image engine APIs
 
-For comprehensive details on which file corresponds to which feature, engine specifications, or architecture flows, refer directly to the documentation:
+## Release
 
-- **Primary Onboarding Hub**: [docs/agents.md](file:///c:/Users/chait/Projects/Omnisuite/docs/agents.md)
-  - Maps every feature to its corresponding files, ViewModels, and navigation routes.
-  - Contains quick-fix lookup indexes to locate code files in seconds.
-- **Architectural Reference**: [docs/architecture.md](file:///c:/Users/chait/Projects/Omnisuite/docs/architecture.md)
-  - Details clean architecture layers, reactive MVVM data flows, and SAF sandboxing caches.
-- **Complete File Directory Map**: [docs/file-map.md](file:///c:/Users/chait/Projects/Omnisuite/docs/file-map.md)
-  - Full catalog mapping every file to its specific purpose.
-- **Navigation Reference**: [docs/navigation.md](file:///c:/Users/chait/Projects/Omnisuite/docs/navigation.md)
-  - Mappings of sealed `Screen` classes and polymorphic MIME type resolution loops.
-- **Dependencies & ProGuard Rules**: [docs/dependencies.md](file:///c:/Users/chait/Projects/Omnisuite/docs/dependencies.md)
-  - Library versions and rules for R8 optimization.
-- **Engine API Specifications**: [docs/engines.md](file:///c:/Users/chait/Projects/Omnisuite/docs/engines.md)
-  - APIs for conversion, search, and image processing engines.
+`.github/workflows/deploy.yml` on push to `main`:
+`versionCode = github.run_number + 2`, `versionName = 1.0.{code}` passed as `-PAPP_VERSION_CODE` / `-PAPP_VERSION_NAME`. Secrets required: `ANDROID_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `PLAY_STORE_JSON_KEY`. Never commit `*.jks`, `keystore.properties`, `play-store-key.json`.
 
----
+## Guidelines
 
-## 🤖 Behavioral Guidelines to Reduce LLM Coding Mistakes
-
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-## 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-## 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+1. State assumptions. Ask when unclear.
+2. Minimal diffs. No speculative features.
+3. Match existing style. Touch only what the task needs.
+4. Define verify step per change (compile, unit test, or workflow run).
