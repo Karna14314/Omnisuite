@@ -1,81 +1,199 @@
-# OmniSuite
+<p align="center">
+  <img src="app/src/main/ic_launcher-web.png" width="120" height="120" alt="OmniSuite">
+</p>
 
-OmniSuite is a **fully offline, high-performance, premium productivity suite** built natively for Android using Jetpack Compose and modern architecture principles. It operates 100% locally on the user's device, ensuring zero dependency on external network APIs or cloud servers, safeguarding absolute data privacy.
+<h1 align="center">OmniSuite</h1>
 
----
+<p align="center">
+  <strong>A privacy-first, offline document suite for Android</strong>
+</p>
 
-## 💎 Features & Capabilities
-
-OmniSuite delivers desktop-grade utility across a lightweight mobile framework:
-
-### 1. Unified Sandbox Document Viewers
-- **PDF Viewer**: High-performance rendering, text search, page jump, and zoom controls.
-- **Word Viewer (`.docx`, `.doc`)**: In-memory parsing, style rendering, and text editing using Apache POI.
-- **Excel Viewer (`.xlsx`, `.xls`)**: Normalized grid-view tabular visual spreadsheet rendering. Supports active formulas calculations and inline cell updating.
-- **Slides Viewer (`.pptx`, `.ppt`)**: Slides layouts presentation controls.
-- **Text Editor (`.txt`)**: Text-wrapped editor, support for standard file writes.
-- **Image Viewer**: Cinematic zoomable viewer supporting JPG, PNG, WEBP, GIF, and BMP. Features double-tap reset and full metadata inspection.
-- **CSV Editor**: Full offline parser handling embedded double-quotes, commas, and line-breaks. Allows spreadsheet grid editing and exports back to standard formatted CSV.
-
-### 2. PDF toolkit (Offline-First)
-- **Merge & Split**: Combine multiple files or extract targeted page ranges.
-- **Encrypt**: Secure files with password locks using PDFBox.
-- **Signature Pad**: High-fidelity vector digital canvas capture and signing.
-- **Watermark overlay**: Extended graphics state rotation stamping.
-- **Office Transcoders**: Dynamic offline conversion of docx/xlsx elements to landscapes/A4 PDF documents.
-
-### 3. Image Lab & ML Kit Utilities
-- **OCR Text Recognition**: Extract Latin-model text offline from imported pictures or target photos.
-- **Smart Edge Scanner**: Automated edge detection and page camera crop tools.
-- **Image Editor**: Compress, interactively crop, and format transcode (JPEG, PNG, WEBP, BMP).
-
-### 4. 11-Payload QR Generator & Customization
-Dynamically structures and compiles QR codes offline for **11 different payload formats** (exceeding standard requirements):
-- **URL**, **Plain Text**, **WiFi Credentials**, **Contact (vCard 3.0)**, **Email Links**, **SMS Links**, **Phone Shortcuts**, **GPS Coordinates (Geo)**, **Event Calendars (vCalendar 2.0)**, **WhatsApp pre-fills**, and **Play Store shortcuts**.
-- **Accent Customizations**: Allows customizing foreground accent colors (Black, Emerald, Royal Blue, Indigo, and Deep Red) and high-fidelity PNG downloads to device gallery folders.
-
-### 5. Categorized All-Tools Hub
-- Restructured navigation into a beautiful **4-tab dashboard** (Home Workspace, Tools Hub, File Browser, and History Logs) inspired by premium mockups.
-- Categorized 30+ tools under PDF, Documents, Image, and Utilities tabs inside a clean scroll-safe Compose grid.
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=com.karnadigital.omnisuite">
+    <img src="https://img.shields.io/badge/Play%20Store-Download-green?logo=googleplay" alt="Play Store">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+  </a>
+  <a href="https://github.com/Karna14314/Omnisuite/stargazers">
+    <img src="https://img.shields.io/github/stars/Karna14314/Omnisuite?style=flat&color=yellow" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/Karna14314/Omnisuite/forks">
+    <img src="https://img.shields.io/github/forks/Karna14314/Omnisuite?style=flat&color=blue" alt="GitHub Forks">
+  </a>
+  <a href="https://github.com/Karna14314/Omnisuite/issues">
+    <img src="https://img.shields.io/github/issues/Karna14314/Omnisuite?style=flat&color=red" alt="GitHub Issues">
+  </a>
+  <a href="https://github.com/Karna14314/Omnisuite/releases">
+    <img src="https://img.shields.io/github/v/release/Karna14314/Omnisuite?include_prereleases" alt="Latest Release">
+  </a>
+  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?logo=android" alt="Platform">
+  <img src="https://img.shields.io/github/last-commit/Karna14314/Omnisuite?style=flat&color=orange" alt="Last Commit">
+</p>
 
 ---
 
-## 🛠️ Architecture & Build Guidelines
+## Get it on Android
 
-OmniSuite uses a modern clean architecture with Dagger-Hilt for dependency injection, Room database for offline history logs, CameraX hardware abstractions, Apache POI for document indexing, PDFBox-Android for graphics, and Coil for images.
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=com.karnadigital.omnisuite">
+    <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" height="80" alt="Get it on Google Play">
+  </a>
+</p>
 
-### Portable Gradle Wrapper Standardization
-
-To maintain absolute build consistency across workstations, pipelines, and developer environments:
-- Standardized Gradle Version: **Gradle 8.11.1**
-- Java Platform: **JDK 17** (compatible with toolchains up to Java 21)
+> Offline · Privacy-first · No account required
 
 ---
 
-## 🚀 One-Command Compile & Deployment
+## Features
 
-To build, verify, package, and deploy OmniSuite to your connected device in **one single command**, run the custom deployment script in your project root:
+### Document Viewers
 
-### For Windows:
-```powershell
-.\build_and_install.bat
-```
+- **PDF Viewer** — High-performance rendering, text search, page jump, zoom
+- **Word Viewer (`.docx`, `.doc`)** — In-memory parsing and styled rendering with Apache POI
+- **Excel Viewer (`.xlsx`, `.xls`)** — Grid rendering with formula evaluation and cell editing
+- **Slides Viewer (`.pptx`, `.ppt`)** — Slide layouts with presentation controls
+- **Text Editor (`.txt`)** — Wrapped editing with standard file writes
+- **CSV Editor** — Offline parsing (quotes, commas, line-breaks) with grid editing
+- **Image Viewer** — Zoomable viewer (JPG, PNG, WEBP, GIF, BMP) with metadata inspection
+- **Archive Viewer** — Browse ZIP contents without extracting
 
-### For macOS / Linux:
+### PDF Toolkit
+
+- **Merge & Split** — Combine files or extract page ranges
+- **Compress** — Reduce file size while keeping quality
+- **Encrypt & Decrypt** — Password-protect files with PDFBox
+- **Watermark** — Text stamping with rotation
+- **Header & Footer** — Page numbering and document branding
+- **Forms** — Fill PDF forms on the go
+- **Signatures** — Vector signature-pad capture and signing
+- **Page Tools** — Reorder, rotate, extract, delete pages
+- **PDF to Images / Text / Word** — Offline export pipelines
+
+### Office Conversion
+
+- **DOCX / XLSX / PPTX to PDF** — Offline A4 conversion
+- **Text extraction** — DOCX, XLSX, PPTX to plain text
+- **HTML / Markdown to PDF** — Direct document export
+- **Images to PDF** — Layout-aware gallery export
+
+### Image Lab & Scanning
+
+- **OCR Text Recognition** — On-device ML Kit extraction from photos
+- **Smart Scanner** — Edge detection with CameraX crop tools
+- **Image Editor** — Compress, crop, format transcode (JPEG, PNG, WEBP)
+- **QR & Barcode** — 11-payload QR generator plus gallery scanning
+
+### File Management
+
+- **4-tab workspace** — Home, Tools Hub, File Browser, History
+- **Offline history logs** — Room-backed recent-file tracking
+- **Storage Access Framework** — Scoped, sandbox-safe file access
+
+---
+
+## Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| **Language** | Kotlin 100% |
+| **UI Framework** | Jetpack Compose (Material Design 3) |
+| **Architecture** | MVVM + Clean Architecture |
+| **DI** | Dagger Hilt |
+| **Database** | Room |
+| **Preferences** | DataStore |
+| **PDF Processing** | PdfBox-Android, Android PdfRenderer |
+| **Office Documents** | Apache POI |
+| **OCR & Scanning** | Google ML Kit, ZXing, CameraX |
+| **Images** | Coil |
+| **Archives** | Zip4j |
+| **Async** | Coroutines & Flow |
+| **Build** | Gradle + Kapt |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Android Studio Hedgehog or newer
+- JDK 17+
+- Android SDK 30+
+
+### Build
+
 ```bash
-./build_and_install.sh
+# Clone the repository
+git clone https://github.com/Karna14314/Omnisuite.git
+cd Omnisuite
+
+# Debug APK
+./gradlew assembleDebug
+
+# Unit tests
+./gradlew testDebugUnitTest
+
+# Release AAB (version injected by CI)
+./gradlew bundleRelease -PAPP_VERSION_CODE=3 -PAPP_VERSION_NAME=1.0.2
+
+# Release APK (attached to GitHub Releases)
+./gradlew assembleRelease -PAPP_VERSION_CODE=3 -PAPP_VERSION_NAME=1.0.2
 ```
 
-### Script Execution Parameters:
-1. **Compiles & Packages** the optimized debug APK: `.\gradlew assembleDebug`
-2. **Scans & Verifies** connected, authorized USB-debugging devices/emulators via `adb devices`.
-3. **Deploys & Upgrades** the compiled binary directly on the device: `adb install -r ...`
-4. **Starts & Launches** the premium splash viewport: `adb shell am start -n com.karnadigital.omnisuite/.MainActivity`
+Install on a connected device:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ---
 
-## 🧪 Automated CI Workflow
-Every commit and Pull Request triggers a comprehensive automated test build in our GitHub Actions pipeline (`.github/workflows/ci.yml`):
-- Performs static syntax compilation verification (`compileDebugKotlin`).
-- Runs target unit testing suites evaluating payload compilers (`testDebugUnitTest`).
-- Assembles debugging structures (`assembleDebug`).
+## Download
+
+| Platform | Link | Notes |
+|----------|------|-------|
+| Google Play | [Install](https://play.google.com/store/apps/details?id=com.karnadigital.omnisuite) | Internal track, auto-updates |
+| GitHub Releases | [Download APK](https://github.com/Karna14314/Omnisuite/releases) | Signed release APK, manual install |
+
+---
+
+## Release Process
+
+Push to `main` triggers `.github/workflows/deploy.yml`:
+
+1. Computes `versionCode = github.run_number + 2`, `versionName = 1.0.{code}`
+2. Builds signed release AAB + APK (secrets: `ANDROID_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`)
+3. Uploads the AAB to the Play Store internal track
+4. Attaches the APK to a GitHub Release
+
+Signing keys are never committed. See `.gitignore` and `CLAUDE.md`.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request against `main`
+
+See [open issues](https://github.com/Karna14314/Omnisuite/issues) for feature requests and bug reports.
+
+---
+
+## Maintainer
+
+**Narisetti Chaitanya Naidu**
+GitHub: [@Karna14314](https://github.com/Karna14314)
+
+---
+
+## License
+
+Copyright (c) 2026 Karna Digital
+
+Licensed under the MIT License.
+See [LICENSE](LICENSE) for full text. Third-party attributions in [NOTICE](NOTICE).
