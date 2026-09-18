@@ -442,6 +442,15 @@ fun XlsxViewerScreen(
                                 }
                             )
 
+                            if (currentState.isProgressiveLoading) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.dp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
                             // High-performance SheetJS + x-spreadsheet view with full font styling
                             if (currentState.xlsxBase64 != null) {
                                 // Save scroll position before recomposition
@@ -487,6 +496,24 @@ fun XlsxViewerScreen(
                                         .weight(1f)
                                         .fillMaxWidth()
                                 )
+                            } else {
+                                val currentSheet = currentState.workbook.sheets.getOrNull(activeSheetIndex)
+                                if (currentSheet != null) {
+                                    NativeSpreadsheetGrid(
+                                        sheet = currentSheet,
+                                        selectedCell = selectedCell,
+                                        onCellSelected = { r, c, cellData ->
+                                            selectedCell = CellCoords(r, c)
+                                            selectedCellData = cellData
+                                            formulaBarValue = cellData.formulaString ?: cellData.text
+                                            bottomSheetValue = cellData.formulaString ?: cellData.text
+                                            showBottomSheet = true
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                    )
+                                }
                             }
 
                             // 3. Multi-Sheet Footer Selector TabRow
@@ -2196,4 +2223,173 @@ fun SpreadsheetWebView(
         modifier = modifier
     )
 }
+
+@Composable
+fun NativeSpreadsheetGrid(
+    sheet: ExcelSheet,
+    selectedCell: CellCoords?,
+    onCellSelected: (rowIndex: Int, colIndex: Int, cellData: CellData) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val hScrollState = rememberScrollState()
+    val vLazyListState = rememberLazyListState()
+    val numCols = sheet.columnWidthsDp.size.coerceAtLeast(sheet.rows.maxOfOrNull { it.size } ?: 0)
+    val defaultColWidth = 80.dp
+
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Sticky Column Headers (A, B, C, ...)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .horizontalScroll(hScrollState)
+            ) {
+                // Top-left corner box (intersection of row and col headers)
+                Box(
+                    modifier = Modifier
+                        .width(44.dp)
+                        .height(28.dp)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "◢",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+
+                // Column letters
+                for (c in 0 until numCols) {
+                    val colWidth = sheet.columnWidthsDp.getOrNull(c)?.dp ?: defaultColWidth
+                    Box(
+                        modifier = Modifier
+                            .width(colWidth)
+                            .height(28.dp)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = com.karnadigital.omnisuite.core.util.SpreadsheetUtils.getColumnLetter(c),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Virtualized Rows via LazyColumn
+            LazyColumn(
+                state = vLazyListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(hScrollState)
+            ) {
+                items(sheet.rows.size) { rowIndex ->
+                    val row = sheet.rows[rowIndex]
+                    val rowHeight = sheet.rowHeightsDp.getOrNull(rowIndex)?.dp ?: 24.dp
+
+                    Row(
+                        modifier = Modifier.height(rowHeight)
+                    ) {
+                        // Sticky Row Header (1, 2, 3...)
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(rowHeight)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${rowIndex + 1}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Cells in row
+                        for (colIndex in 0 until numCols) {
+                            val colWidth = sheet.columnWidthsDp.getOrNull(colIndex)?.dp ?: defaultColWidth
+                            val cell = row.getOrNull(colIndex)
+                            if (cell != null && !cell.isMergeAnchor) {
+                                // Covered by a merged cell
+                                continue
+                            }
+
+                            val isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.colIndex == colIndex
+                            val cellWidth = if (cell != null && cell.mergeColSpan > 1) {
+                                (0 until cell.mergeColSpan).fold(0.dp) { acc, offset ->
+                                    acc + (sheet.columnWidthsDp.getOrNull(colIndex + offset)?.dp ?: defaultColWidth)
+                                }
+                            } else {
+                                colWidth
+                            }
+
+                            val cellBg = if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                            } else if (cell?.colorHex != null) {
+                                try {
+                                    Color(android.graphics.Color.parseColor(cell.colorHex))
+                                } catch (e: Exception) {
+                                    Color.Transparent
+                                }
+                            } else {
+                                Color.Transparent
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(cellWidth)
+                                    .height(rowHeight)
+                                    .background(cellBg)
+                                    .border(
+                                        if (isSelected) 1.5.dp else 0.5.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+                                    .clickable {
+                                        if (cell != null) {
+                                            onCellSelected(rowIndex, colIndex, cell)
+                                        } else {
+                                            onCellSelected(rowIndex, colIndex, CellData(text = ""))
+                                        }
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                                contentAlignment = when (cell?.horizontalAlign) {
+                                    "CENTER" -> Alignment.Center
+                                    "RIGHT" -> Alignment.CenterEnd
+                                    else -> Alignment.CenterStart
+                                }
+                            ) {
+                                if (cell != null && cell.text.isNotEmpty()) {
+                                    Text(
+                                        text = cell.text,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (cell.isBold) FontWeight.Bold else FontWeight.Normal,
+                                        fontStyle = if (cell.isItalic) FontStyle.Italic else FontStyle.Normal,
+                                        textDecoration = if (cell.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                                        color = if (cell.textColorHex != null) {
+                                            try {
+                                                Color(android.graphics.Color.parseColor(cell.textColorHex))
+                                            } catch (e: Exception) {
+                                                MaterialTheme.colorScheme.onSurface
+                                            }
+                                        } else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

@@ -50,6 +50,7 @@ class TxtViewerViewModel internal constructor(
     val saveStatus: SharedFlow<Boolean> = _saveStatus.asSharedFlow()
 
     private var currentFile: File? = null
+    private var currentUri: Uri? = null
 
     private val maxTextFileSize = 50L * 1024 * 1024
 
@@ -72,7 +73,7 @@ class TxtViewerViewModel internal constructor(
             _canUndo.value = undoStack.isNotEmpty()
             _canRedo.value = false
         }
-        val name = currentFile?.name ?: "Document.txt"
+        val name = (_loadState.value as? TxtLoadState.Success)?.fileName ?: currentFile?.name ?: "Document.txt"
         _loadState.value = TxtLoadState.Success(content = newContent, fileName = name)
     }
 
@@ -83,7 +84,7 @@ class TxtViewerViewModel internal constructor(
         val previous = undoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
-        val name = currentFile?.name ?: "Document.txt"
+        val name = (_loadState.value as? TxtLoadState.Success)?.fileName ?: currentFile?.name ?: "Document.txt"
         _loadState.value = TxtLoadState.Success(content = previous, fileName = name)
     }
 
@@ -94,11 +95,25 @@ class TxtViewerViewModel internal constructor(
         val next = redoStack.pop()
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
-        val name = currentFile?.name ?: "Document.txt"
+        val name = (_loadState.value as? TxtLoadState.Success)?.fileName ?: currentFile?.name ?: "Document.txt"
         _loadState.value = TxtLoadState.Success(content = next, fileName = name)
     }
 
-    fun loadTextFile(filePath: String) {
+    private fun getDisplayNameFromUri(uri: Uri): String? {
+        if (context == null) return null
+        return try {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun loadTextFile(filePath: String, originalUriString: String? = null) {
         viewModelScope.launch {
             _loadState.value = TxtLoadState.Loading
             withContext(Dispatchers.IO) {
@@ -109,18 +124,34 @@ class TxtViewerViewModel internal constructor(
                     val isContentUri = filePath.startsWith("content://")
                     val isFileUri = filePath.startsWith("file://")
 
+                    if (originalUriString?.startsWith("content://") == true) {
+                        currentUri = Uri.parse(originalUriString)
+                    }
+
                     if (isContentUri) {
                         val uri = Uri.parse(filePath)
+                        currentUri = uri
                         context?.contentResolver?.openInputStream(uri)?.use { stream ->
-                            content = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                            val bytes = stream.readBytes()
+                            val encoding = try {
+                                EncodingDetector.detectEncoding(bytes)
+                            } catch (_: Throwable) {
+                                null
+                            }
+                            val charset = encoding?.charset ?: Charsets.UTF_8
+                            content = String(bytes, charset)
                         }
-                        name = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.txt"
+                        name = getDisplayNameFromUri(uri) ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Document.txt"
                     } else {
                         val cleanPath = if (isFileUri) filePath.removePrefix("file://") else filePath
                         val file = File(cleanPath)
                         if (file.exists() && file.isFile) {
                             currentFile = file
                             name = file.name
+                            if (currentUri != null) {
+                                val originalDisplayName = getDisplayNameFromUri(currentUri!!)
+                                if (originalDisplayName != null) name = originalDisplayName
+                            }
                             if (file.length() > maxTextFileSize) {
                                 _loadState.value = TxtLoadState.Error("File is too large to edit (${file.length() / (1024 * 1024)} MB).")
                                 return@withContext
@@ -147,23 +178,64 @@ class TxtViewerViewModel internal constructor(
         }
     }
 
-    fun saveTextFile(content: String) {
-        val file = currentFile ?: return
+    fun saveTextFile(content: String, encoding: String = "UTF-8") {
         viewModelScope.launch {
             val success = withContext(Dispatchers.IO) {
                 try {
-                    file.bufferedWriter().use { it.write(content) }
-                    recentFileRepository.insertRecentFile(
-                        RecentFile(
-                            fileUri = android.net.Uri.fromFile(file).toString(),
-                            fileName = file.name,
-                            mimeType = "text/plain",
-                            fileSize = file.length(),
-                            lastOpened = System.currentTimeMillis(),
-                            isOperation = true
+                    val charset = try {
+                        java.nio.charset.Charset.forName(encoding)
+                    } catch (_: Exception) {
+                        Charsets.UTF_8
+                    }
+
+                    var savedAtLeastOnce = false
+
+                    // 1. If local cached file exists, update it
+                    val file = currentFile
+                    if (file != null) {
+                        file.bufferedWriter(charset).use { it.write(content) }
+                        savedAtLeastOnce = true
+                    }
+
+                    // 2. If original/current Uri is a content:// URI, stream back to SAF
+                    val uri = currentUri
+                    if (uri != null && uri.scheme == "content" && context != null) {
+                        try {
+                            context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                                out.write(content.toByteArray(charset))
+                                out.flush()
+                            }
+                            savedAtLeastOnce = true
+                        } catch (e: Exception) {
+                            try {
+                                context.contentResolver.openOutputStream(uri, "w")?.use { out ->
+                                    out.write(content.toByteArray(charset))
+                                    out.flush()
+                                }
+                                savedAtLeastOnce = true
+                            } catch (e2: Exception) {
+                                e2.printStackTrace()
+                            }
+                        }
+                    }
+
+                    if (savedAtLeastOnce) {
+                        val recordUri = uri?.toString() ?: file?.let { Uri.fromFile(it).toString() } ?: ""
+                        val recordName = (_loadState.value as? TxtLoadState.Success)?.fileName ?: file?.name ?: "Document.txt"
+                        val recordSize = file?.length() ?: content.toByteArray(charset).size.toLong()
+                        recentFileRepository.insertRecentFile(
+                            RecentFile(
+                                fileUri = recordUri,
+                                fileName = recordName,
+                                mimeType = "text/plain",
+                                fileSize = recordSize,
+                                lastOpened = System.currentTimeMillis(),
+                                isOperation = true
+                            )
                         )
-                    )
-                    true
+                    }
+
+                    savedAtLeastOnce
                 } catch (e: Exception) {
                     e.printStackTrace()
                     false

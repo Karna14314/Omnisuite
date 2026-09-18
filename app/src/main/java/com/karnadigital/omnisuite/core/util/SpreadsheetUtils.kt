@@ -78,4 +78,14 @@ object SpreadsheetUtils {
             false
         }
     }
+
+    fun getColumnLetter(colIndex: Int): String {
+        var c = colIndex
+        var result = ""
+        while (c >= 0) {
+            result = ('A'.code + (c % 26)).toChar() + result
+            c = c / 26 - 1
+        }
+        return result
+    }
 }

@@ -653,12 +653,17 @@ private fun isFormatSupported(ext: String, mime: String): Boolean {
         e == "png" || e == "jpg" || e == "jpeg" || e == "webp" || e == "gif" || e == "bmp" ||
         e == "py" || e == "kt" || e == "java" || e == "json" || e == "xml" || e == "html" ||
         e == "css" || e == "js" || e == "gradle" || e == "sh" || e == "bat" || e == "cpp" ||
-        e == "c" || e == "h" || e == "md" || e == "properties") return true
+        e == "c" || e == "h" || e == "md" || e == "properties" ||
+        e == "dart" || e == "ts" || e == "tsx" || e == "jsx" || e == "hpp" || e == "cs" ||
+        e == "php" || e == "sql" || e == "yaml" || e == "yml" || e == "ini" || e == "cfg" ||
+        e == "conf" || e == "log" || e == "tsv" || e == "bash" || e == "rb" || e == "go" ||
+        e == "rs" || e == "swift" || e == "scala" || e == "r" || e == "lua") return true
     
     val m = mime.lowercase()
     if (m.contains("pdf") || m.contains("word") || m.contains("msword") || 
         m.contains("excel") || m.contains("spreadsheet") || m.contains("powerpoint") || 
-        m.contains("presentation") || m.contains("zip") || m.contains("text/plain") || 
+        m.contains("presentation") || m.contains("zip") || m.startsWith("text/") ||
+        m.contains("json") || m.contains("xml") || m.contains("javascript") ||
         m.startsWith("image/")) return true
         
     return false

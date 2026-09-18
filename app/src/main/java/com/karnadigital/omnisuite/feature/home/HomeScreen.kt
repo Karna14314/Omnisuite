@@ -70,7 +70,10 @@ fun HomeScreen(
                             "excel" -> fileExtension in listOf("xlsx", "xls", "ods", "csv")
                             "slides" -> fileExtension in listOf("pptx", "ppt", "odp")
                             "image" -> fileExtension in listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
-                            "text" -> fileExtension in listOf("txt", "py", "kt", "java", "json", "xml", "html", "css", "js", "gradle", "sh", "bat", "cpp", "c", "md", "properties")
+                            "text" -> fileExtension in listOf(
+                                "txt", "py", "kt", "java", "json", "xml", "html", "css", "js", "gradle", "sh", "bat", "cpp", "c", "md", "properties",
+                                "dart", "ts", "tsx", "jsx", "h", "hpp", "cs", "php", "sql", "yaml", "yml", "ini", "cfg", "conf", "log", "tsv", "bash", "rb", "go", "rs", "swift", "scala", "r", "lua"
+                            )
                             "csv" -> fileExtension == "csv"
                             "zip" -> fileExtension == "zip"
                             else -> true
@@ -83,7 +86,7 @@ fun HomeScreen(
                                 "excel" -> "Excel Spreadsheet (.xlsx, .xls, .csv)"
                                 "slides" -> "PowerPoint Slides (.pptx, .ppt)"
                                 "image" -> "Image (.png, .jpg, .webp)"
-                                "text" -> "Text File (.txt, .json, .xml)"
+                                "text" -> "Text or Code File (.txt, .py, .kt, .json, etc.)"
                                 "csv" -> "CSV Sheet (.csv)"
                                 "zip" -> "ZIP Archive (.zip)"
                                 else -> "valid file"
@@ -153,26 +156,24 @@ fun HomeScreen(
                 "application/vnd.oasis.opendocument.presentation"
             ))
             "image" -> documentLauncher.launch(arrayOf("image/*"))
-            "text" -> documentLauncher.launch(arrayOf("text/plain"))
+            "text" -> documentLauncher.launch(arrayOf(
+                "text/*",
+                "application/json",
+                "application/xml",
+                "application/javascript",
+                "application/x-javascript",
+                "application/x-sh",
+                "application/x-yaml",
+                "application/octet-stream",
+                "*/*"
+            ))
             "csv" -> documentLauncher.launch(arrayOf("text/csv", "text/comma-separated-values"))
             "zip" -> documentLauncher.launch(arrayOf(
                 "application/zip",
                 "application/x-zip-compressed",
                 "application/x-zip"
             ))
-            else -> documentLauncher.launch(arrayOf(
-                "application/pdf",
-                "application/msword",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "application/vnd.ms-powerpoint",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                "image/*",
-                "text/plain",
-                "text/csv",
-                "application/zip"
-            ))
+            else -> documentLauncher.launch(arrayOf("*/*"))
         }
     }
 
@@ -200,7 +201,7 @@ fun HomeScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         OmniTopBar(
-                            showActions = false,
+                            showActions = true,
                             onNotificationsClick = {},
                             onSettingsClick = { selectedTab = HomeTab.Settings }
                         )

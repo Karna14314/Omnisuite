@@ -49,6 +49,7 @@ app/keystore.jks
 # Local Store Listing assets
 store_listing/
 store listing/
+store_listing.md
 distribution/whatsnew/whatsnew-en-US
 
 # Local AI/agent tooling

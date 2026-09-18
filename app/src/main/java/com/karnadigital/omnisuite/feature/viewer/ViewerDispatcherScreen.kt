@@ -27,7 +27,7 @@ import com.karnadigital.omnisuite.feature.home.HomeScreenViewModel
 
 sealed class DispatcherState {
     object Loading : DispatcherState()
-    data class Success(val cachedPath: String, val fileType: FileType) : DispatcherState()
+    data class Success(val cachedPath: String, val fileType: FileType, val originalUri: String? = null) : DispatcherState()
     data class Error(val message: String) : DispatcherState()
 }
 
@@ -94,7 +94,7 @@ fun ViewerDispatcherScreen(
             if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
                 val fileType = determineFileType(context, fileUri, cachedFile)
                 if (fileType != null) {
-                    state = DispatcherState.Success(cachedFile.absolutePath, fileType)
+                    state = DispatcherState.Success(cachedFile.absolutePath, fileType, originalUri = fileUri)
                     val fileName = getFileNameFromUri(context, parsedUri) ?: cachedFile.name
                     val fileSize = cachedFile.length()
                     val mimeType = getMimeTypeFromFileType(fileType)
@@ -114,7 +114,7 @@ fun ViewerDispatcherScreen(
                 if (directFile.exists() && directFile.isFile && directFile.length() > 0) {
                     val fileType = determineFileType(context, fileUri, directFile)
                     if (fileType != null) {
-                        state = DispatcherState.Success(directFile.absolutePath, fileType)
+                        state = DispatcherState.Success(directFile.absolutePath, fileType, originalUri = fileUri)
                         val fileName = directFile.name
                         val fileSize = directFile.length()
                         val mimeType = getMimeTypeFromFileType(fileType)
@@ -165,6 +165,7 @@ fun ViewerDispatcherScreen(
                     )
                     FileType.TXT -> TxtViewerScreen(
                         fileUri = currentState.cachedPath,
+                        originalUri = currentState.originalUri,
                         onBack = onBack,
                         onToolAction = onToolAction
                     )
@@ -180,6 +181,7 @@ fun ViewerDispatcherScreen(
                     )
                     FileType.PPTX, FileType.PPT_LEGACY -> PptxViewerScreen(
                         fileUri = currentState.cachedPath,
+                        originalUri = currentState.originalUri,
                         onBack = onBack,
                         onToolAction = onToolAction
                     )
@@ -285,15 +287,19 @@ private fun determineFileType(context: Context, originalUriString: String, cache
         }
     } catch (e: Exception) { e.printStackTrace() }
 
+    var originalName = ""
     try {
         val parsedUri = Uri.parse(originalUriString)
         val mimeType = context.contentResolver.getType(parsedUri)?.lowercase()
-        val originalName = getFileNameFromUri(context, parsedUri)?.lowercase() ?: ""
+        originalName = getFileNameFromUri(context, parsedUri)?.lowercase() ?: ""
 
         if (mimeType != null) {
             when {
                 mimeType == "application/pdf" -> return FileType.PDF
-                mimeType == "text/plain" -> return FileType.TXT
+                mimeType.startsWith("text/") || mimeType == "application/json" || 
+                mimeType == "application/xml" || mimeType == "application/javascript" || 
+                mimeType == "application/x-javascript" || mimeType == "application/x-sh" || 
+                mimeType == "application/x-yaml" -> return FileType.TXT
                 mimeType.contains("word") || mimeType == "application/msword" || mimeType.contains("wordprocessingml") -> {
                     return if (originalName.endsWith(".doc") || mimeType == "application/msword") FileType.DOC_LEGACY else FileType.DOCX
                 }
@@ -310,7 +316,11 @@ private fun determineFileType(context: Context, originalUriString: String, cache
         }
     } catch (e: Exception) { e.printStackTrace() }
 
-    val nameToCheck = cachedFile.name.lowercase()
+    val nameToCheck = if (originalName.isNotBlank() && !originalName.endsWith(".bin") && !originalName.endsWith(".tmp")) {
+        originalName
+    } else {
+        cachedFile.name.lowercase()
+    }
     return when {
         nameToCheck.endsWith(".pdf") -> FileType.PDF
         nameToCheck.endsWith(".txt") -> FileType.TXT
@@ -329,7 +339,14 @@ private fun determineFileType(context: Context, originalUriString: String, cache
                 nameToCheck.endsWith(".css") || nameToCheck.endsWith(".js") || nameToCheck.endsWith(".gradle") ||
                 nameToCheck.endsWith(".sh") || nameToCheck.endsWith(".bat") || nameToCheck.endsWith(".cpp") ||
                 nameToCheck.endsWith(".c") || nameToCheck.endsWith(".h") || nameToCheck.endsWith(".md") ||
-                nameToCheck.endsWith(".properties") -> FileType.TXT
+                nameToCheck.endsWith(".properties") || nameToCheck.endsWith(".dart") || nameToCheck.endsWith(".ts") ||
+                nameToCheck.endsWith(".tsx") || nameToCheck.endsWith(".jsx") || nameToCheck.endsWith(".hpp") ||
+                nameToCheck.endsWith(".cs") || nameToCheck.endsWith(".php") || nameToCheck.endsWith(".sql") ||
+                nameToCheck.endsWith(".yaml") || nameToCheck.endsWith(".yml") || nameToCheck.endsWith(".ini") ||
+                nameToCheck.endsWith(".cfg") || nameToCheck.endsWith(".conf") || nameToCheck.endsWith(".log") ||
+                nameToCheck.endsWith(".tsv") || nameToCheck.endsWith(".bash") || nameToCheck.endsWith(".rb") ||
+                nameToCheck.endsWith(".go") || nameToCheck.endsWith(".rs") || nameToCheck.endsWith(".swift") ||
+                nameToCheck.endsWith(".scala") || nameToCheck.endsWith(".r") || nameToCheck.endsWith(".lua") -> FileType.TXT
         else -> {
             try {
                 if (cachedFile.exists() && cachedFile.length() > 0) {

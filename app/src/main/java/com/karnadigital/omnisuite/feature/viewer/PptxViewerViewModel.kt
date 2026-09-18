@@ -1,5 +1,8 @@
 package com.karnadigital.omnisuite.feature.viewer
 
+import android.content.Context
+import android.net.Uri
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.engine.SearchResult
@@ -172,6 +175,7 @@ sealed class PptxLoadState {
 
 @HiltViewModel
 class PptxViewerViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val recentFileRepository: RecentFileRepository,
     private val officeConverter: com.karnadigital.omnisuite.core.engine.document.OfficeConverter
 ) : ViewModel() {
@@ -196,6 +200,7 @@ class PptxViewerViewModel @Inject constructor(
 
     private var activePresentation: org.apache.poi.sl.usermodel.SlideShow<*, *>? = null
     private var activeFilePath: String? = null
+    private var sourceUriString: String? = null
 
     private val tempImageCache = mutableMapOf<String, File>()
 
@@ -2074,8 +2079,9 @@ class PptxViewerViewModel @Inject constructor(
         return slides
     }
 
-    fun loadPptxFile(filePath: String) {
-        android.util.Log.d("PptxViewModel", "loadPptxFile called with: $filePath")
+    fun loadPptxFile(filePath: String, originalUri: String? = null) {
+        sourceUriString = originalUri ?: if (filePath.startsWith("content://")) filePath else null
+        android.util.Log.d("PptxViewModel", "loadPptxFile called with: $filePath, sourceUri: $sourceUriString")
         viewModelScope.launch {
             _loadState.value = PptxLoadState.Loading
             withContext(Dispatchers.IO) {
@@ -2161,9 +2167,9 @@ class PptxViewerViewModel @Inject constructor(
         }
     }
 
-    private fun pushUndoState() {
-        val ppt = activePresentation ?: return
-        val bytes = takeSnapshotBytes(ppt) ?: return
+    private suspend fun pushUndoState() = withContext(Dispatchers.IO) {
+        val ppt = activePresentation ?: return@withContext
+        val bytes = takeSnapshotBytes(ppt) ?: return@withContext
         if (undoStack.size >= 30) {
             undoStack.removeFirst()
         }
@@ -2174,55 +2180,57 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     private fun restoreSnapshot(snapshotBytes: ByteArray) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Loading
-            withContext(Dispatchers.IO) {
+            try {
+                val bis = java.io.ByteArrayInputStream(snapshotBytes)
+                val newPpt = XMLSlideShow(bis)
                 try {
-                    val bis = java.io.ByteArrayInputStream(snapshotBytes)
-                    val newPpt = XMLSlideShow(bis)
-                    try {
-                        activePresentation?.close()
-                    } catch (_: Throwable) {}
-                    activePresentation = newPpt
-                    val slides = parseAllSlides(newPpt)
-                    _loadState.value = PptxLoadState.Success(
-                        presentation = PptxPresentation(slides),
-                        fileName = activeFilePath?.let { File(it).name } ?: "presentation.pptx"
-                    )
-                } catch (t: Throwable) {
-                    t.printStackTrace()
-                    _saveStatus.emit("Failed to restore history snapshot: ${t.localizedMessage}")
-                }
+                    activePresentation?.close()
+                } catch (_: Throwable) {}
+                activePresentation = newPpt
+                val slides = parseAllSlides(newPpt)
+                _loadState.value = PptxLoadState.Success(
+                    presentation = PptxPresentation(slides),
+                    fileName = activeFilePath?.let { File(it).name } ?: "presentation.pptx"
+                )
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                _saveStatus.emit("Failed to restore history snapshot: ${t.localizedMessage}")
             }
         }
     }
 
     fun undo() {
         if (undoStack.isEmpty()) return
-        val ppt = activePresentation ?: return
-        val currentBytes = takeSnapshotBytes(ppt) ?: return
-        val previousBytes = undoStack.removeLast()
-        if (redoStack.size >= 30) {
-            redoStack.removeFirst()
+        viewModelScope.launch(Dispatchers.IO) {
+            val ppt = activePresentation ?: return@launch
+            val currentBytes = takeSnapshotBytes(ppt) ?: return@launch
+            val previousBytes = undoStack.removeLast()
+            if (redoStack.size >= 30) {
+                redoStack.removeFirst()
+            }
+            redoStack.addLast(currentBytes)
+            _canUndo.value = undoStack.isNotEmpty()
+            _canRedo.value = true
+            restoreSnapshot(previousBytes)
         }
-        redoStack.addLast(currentBytes)
-        _canUndo.value = undoStack.isNotEmpty()
-        _canRedo.value = true
-        restoreSnapshot(previousBytes)
     }
 
     fun redo() {
         if (redoStack.isEmpty()) return
-        val ppt = activePresentation ?: return
-        val currentBytes = takeSnapshotBytes(ppt) ?: return
-        val nextBytes = redoStack.removeLast()
-        if (undoStack.size >= 30) {
-            undoStack.removeFirst()
+        viewModelScope.launch(Dispatchers.IO) {
+            val ppt = activePresentation ?: return@launch
+            val currentBytes = takeSnapshotBytes(ppt) ?: return@launch
+            val nextBytes = redoStack.removeLast()
+            if (undoStack.size >= 30) {
+                undoStack.removeFirst()
+            }
+            undoStack.addLast(currentBytes)
+            _canUndo.value = true
+            _canRedo.value = redoStack.isNotEmpty()
+            restoreSnapshot(nextBytes)
         }
-        undoStack.addLast(currentBytes)
-        _canUndo.value = true
-        _canRedo.value = redoStack.isNotEmpty()
-        restoreSnapshot(nextBytes)
     }
 
     fun moveSlide(fromIndex: Int, toIndex: Int) {
@@ -2236,15 +2244,15 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (fromIndex !in slides.indices || toIndex !in slides.indices || fromIndex == toIndex) return
 
-        pushUndoState()
-        try {
-            val slide = slides[fromIndex]
-            ppt.setSlideOrder(slide, toIndex)
-        } catch (t: Throwable) {
-            t.printStackTrace()
-        }
+        viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            try {
+                val slide = slides[fromIndex]
+                ppt.setSlideOrder(slide, toIndex)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
 
-        viewModelScope.launch {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath!!).name
@@ -2363,10 +2371,10 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (slideIndex in slides.indices) {
-            pushUndoState()
-            val slide = slides[slideIndex]
-            setSlideBgColorHex(slide, colorHex)
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
+                pushUndoState()
+                val slide = slides[slideIndex]
+                setSlideBgColorHex(slide, colorHex)
                 _loadState.value = PptxLoadState.Success(
                     presentation = PptxPresentation(parseAllSlides(ppt)),
                     fileName = File(activeFilePath!!).name
@@ -2531,31 +2539,31 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
-        var picIdx = 0
-        for (shape in slide.shapes) {
-            val picData = extractPictureDataFromShape(shape, slide)
-            if (picData != null && picData.first.isNotEmpty()) {
-                val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
-                if (!isBg) {
-                    if (picIdx == imageIndex) {
-                        val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
-                            ?: getXmlObjectReflection(shape)
-                        if (xmlObj is org.apache.xmlbeans.XmlObject) {
-                            updateShapeExt(xmlObj, factor)
+        viewModelScope.launch(Dispatchers.IO) {
+            val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+            var picIdx = 0
+            for (shape in slide.shapes) {
+                val picData = extractPictureDataFromShape(shape, slide)
+                if (picData != null && picData.first.isNotEmpty()) {
+                    val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                    val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
+                    if (!isBg) {
+                        if (picIdx == imageIndex) {
+                            val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
+                                ?: getXmlObjectReflection(shape)
+                            if (xmlObj is org.apache.xmlbeans.XmlObject) {
+                                updateShapeExt(xmlObj, factor)
+                            }
+                            break
                         }
-                        break
+                        picIdx++
                     }
-                    picIdx++
                 }
             }
-        }
 
-        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -2569,36 +2577,36 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
-        var picIdx = 0
-        for (shape in slide.shapes) {
-            val picData = extractPictureDataFromShape(shape, slide)
-            if (picData != null && picData.first.isNotEmpty()) {
-                val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
-                if (!isBg) {
-                    if (picIdx == imageIndex) {
-                        try {
-                            slide.removeShape(shape as XSLFShape)
-                        } catch (t: Throwable) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+            var picIdx = 0
+            for (shape in slide.shapes) {
+                val picData = extractPictureDataFromShape(shape, slide)
+                if (picData != null && picData.first.isNotEmpty()) {
+                    val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                    val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
+                    if (!isBg) {
+                        if (picIdx == imageIndex) {
                             try {
-                                val m = slide.javaClass.getMethod("removeShape", Shape::class.java)
-                                m.invoke(slide, shape)
-                            } catch (t2: Throwable) {
-                                t2.printStackTrace()
+                                slide.removeShape(shape as XSLFShape)
+                            } catch (t: Throwable) {
+                                try {
+                                    val m = slide.javaClass.getMethod("removeShape", Shape::class.java)
+                                    m.invoke(slide, shape)
+                                } catch (t2: Throwable) {
+                                    t2.printStackTrace()
+                                }
                             }
+                            break
                         }
-                        break
+                        picIdx++
                     }
-                    picIdx++
                 }
             }
-        }
 
-        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -2651,22 +2659,22 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
-        val deltaXEmu = (deltaXFrac * slideWidthEmu).toLong()
-        val deltaYEmu = (deltaYFrac * slideHeightEmu).toLong()
-
-        val shape = findShapeById(slide, shapeId)
-        if (shape != null) {
-            val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
-                ?: getXmlObjectReflection(shape)
-            if (xmlObj is org.apache.xmlbeans.XmlObject) {
-                updateShapePosition(xmlObj, deltaXEmu, deltaYEmu)
-            }
-        }
-
         viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+            val deltaXEmu = (deltaXFrac * slideWidthEmu).toLong()
+            val deltaYEmu = (deltaYFrac * slideHeightEmu).toLong()
+
+            val shape = findShapeById(slide, shapeId)
+            if (shape != null) {
+                val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
+                    ?: getXmlObjectReflection(shape)
+                if (xmlObj is org.apache.xmlbeans.XmlObject) {
+                    updateShapePosition(xmlObj, deltaXEmu, deltaYEmu)
+                }
+            }
+
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -2680,18 +2688,18 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val shape = findShapeById(slide, shapeId)
-        if (shape != null) {
-            val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
-                ?: getXmlObjectReflection(shape)
-            if (xmlObj is org.apache.xmlbeans.XmlObject) {
-                updateShapeExt(xmlObj, factor)
-            }
-        }
-
         viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val shape = findShapeById(slide, shapeId)
+            if (shape != null) {
+                val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
+                    ?: getXmlObjectReflection(shape)
+                if (xmlObj is org.apache.xmlbeans.XmlObject) {
+                    updateShapeExt(xmlObj, factor)
+                }
+            }
+
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -2705,34 +2713,34 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
-        val deltaXEmu = (deltaXFrac * slideWidthEmu).toLong()
-        val deltaYEmu = (deltaYFrac * slideHeightEmu).toLong()
+        viewModelScope.launch(Dispatchers.IO) {
+            val imageIndex = imageId.removePrefix("img_${slideIndex}_").toIntOrNull() ?: 0
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val (slideWidthEmu, slideHeightEmu) = getSlideDimensionsEmu(ppt)
+            val deltaXEmu = (deltaXFrac * slideWidthEmu).toLong()
+            val deltaYEmu = (deltaYFrac * slideHeightEmu).toLong()
 
-        var picIdx = 0
-        for (shape in slide.shapes) {
-            val picData = extractPictureDataFromShape(shape, slide)
-            if (picData != null && picData.first.isNotEmpty()) {
-                val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
-                if (!isBg) {
-                    if (picIdx == imageIndex) {
-                        val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
-                            ?: getXmlObjectReflection(shape)
-                        if (xmlObj is org.apache.xmlbeans.XmlObject) {
-                            updateShapePosition(xmlObj, deltaXEmu, deltaYEmu)
+            var picIdx = 0
+            for (shape in slide.shapes) {
+                val picData = extractPictureDataFromShape(shape, slide)
+                if (picData != null && picData.first.isNotEmpty()) {
+                    val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                    val isBg = (bounds?.get(2) ?: 0f) * (bounds?.get(3) ?: 0f) >= 0.85f && (bounds?.get(0) ?: 0f) <= 0.05f && (bounds?.get(1) ?: 0f) <= 0.05f
+                    if (!isBg) {
+                        if (picIdx == imageIndex) {
+                            val xmlObj = (try { shape.javaClass.getMethod("getXmlObject").invoke(shape) } catch (_: Throwable) { null })
+                                ?: getXmlObjectReflection(shape)
+                            if (xmlObj is org.apache.xmlbeans.XmlObject) {
+                                updateShapePosition(xmlObj, deltaXEmu, deltaYEmu)
+                            }
+                            break
                         }
-                        break
+                        picIdx++
                     }
-                    picIdx++
                 }
             }
-        }
 
-        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -2771,100 +2779,102 @@ class PptxViewerViewModel @Inject constructor(
             return
         }
         val ppt = activePresentation as? XMLSlideShow ?: return
-        pushUndoState()
         val insertIndex = (afterIndex + 1).coerceIn(0, ppt.slides.size)
-        try {
-            val layout = try {
-                ppt.slides.getOrNull(afterIndex)?.slideLayout
-                    ?: ppt.slideMasters.firstOrNull()?.slideLayouts?.firstOrNull()
-            } catch (_: Throwable) { null }
+        viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            try {
+                val layout = try {
+                    ppt.slides.getOrNull(afterIndex)?.slideLayout
+                        ?: ppt.slideMasters.firstOrNull()?.slideLayouts?.firstOrNull()
+                } catch (_: Throwable) { null }
 
-            val newSlide = if (layout != null) {
-                try {
-                    ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as? XSLFSlide
-                } catch (_: Throwable) {
+                val newSlide = if (layout != null) {
+                    try {
+                        ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as? XSLFSlide
+                    } catch (_: Throwable) {
+                        ppt.createSlide()
+                    }
+                } else {
                     ppt.createSlide()
                 }
-            } else {
-                ppt.createSlide()
-            }
 
-            if (newSlide != null) {
-                try {
-                    ppt.setSlideOrder(newSlide, insertIndex)
-                } catch (t: Throwable) {
-                    t.printStackTrace()
-                }
-
-                // Add standard Title and Content placeholders if the slide has no shapes
-                try {
-                    if (newSlide.shapes.isEmpty()) {
-                        val (slideW, slideH) = getSlideDimensionsEmu(ppt)
-
-                        // 1. Title box
-                        val titleBox = newSlide.createTextBox()
-                        val tp = titleBox.addNewTextParagraph()
-                        val tr = tp.addNewTextRun()
-                        tr.setText("Tap to add title")
-                        setRunProperties(tr, "#1E293B", 28f, isBold = true)
-
-                        val titleSp = getXmlObjectReflection(titleBox)
-                        val titleSpPr = try {
-                            titleSp?.javaClass?.getMethod("getSpPr")?.invoke(titleSp)
-                                ?: titleSp?.javaClass?.getMethod("addNewSpPr")?.invoke(titleSp)
-                        } catch (_: Throwable) { null }
-                        val titleXfrm = try {
-                            titleSpPr?.javaClass?.getMethod("getXfrm")?.invoke(titleSpPr)
-                                ?: titleSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(titleSpPr)
-                        } catch (_: Throwable) { null }
-                        if (titleXfrm != null) {
-                            val off = try { titleXfrm.javaClass.getMethod("getOff").invoke(titleXfrm) ?: titleXfrm.javaClass.getMethod("addNewOff").invoke(titleXfrm) } catch (_: Throwable) { null }
-                            val ext = try { titleXfrm.javaClass.getMethod("getExt").invoke(titleXfrm) ?: titleXfrm.javaClass.getMethod("addNewExt").invoke(titleXfrm) } catch (_: Throwable) { null }
-                            off?.javaClass?.getMethod("setX", Long::class.javaPrimitiveType)?.invoke(off, (slideW * 0.08f).toLong())
-                            off?.javaClass?.getMethod("setY", Long::class.javaPrimitiveType)?.invoke(off, (slideH * 0.12f).toLong())
-                            ext?.javaClass?.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(ext, (slideW * 0.84f).toLong())
-                            ext?.javaClass?.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(ext, (slideH * 0.18f).toLong())
-                        }
-
-                        // 2. Subtitle / body content box
-                        val bodyBox = newSlide.createTextBox()
-                        val bp = bodyBox.addNewTextParagraph()
-                        val br = bp.addNewTextRun()
-                        br.setText("Tap to add text")
-                        setRunProperties(br, "#64748B", 18f)
-
-                        val bodySp = getXmlObjectReflection(bodyBox)
-                        val bodySpPr = try {
-                            bodySp?.javaClass?.getMethod("getSpPr")?.invoke(bodySp)
-                                ?: bodySp?.javaClass?.getMethod("addNewSpPr")?.invoke(bodySp)
-                        } catch (_: Throwable) { null }
-                        val bodyXfrm = try {
-                            bodySpPr?.javaClass?.getMethod("getXfrm")?.invoke(bodySpPr)
-                                ?: bodySpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(bodySpPr)
-                        } catch (_: Throwable) { null }
-                        if (bodyXfrm != null) {
-                            val off = try { bodyXfrm.javaClass.getMethod("getOff").invoke(bodyXfrm) ?: bodyXfrm.javaClass.getMethod("addNewOff").invoke(bodyXfrm) } catch (_: Throwable) { null }
-                            val ext = try { bodyXfrm.javaClass.getMethod("getExt").invoke(bodyXfrm) ?: bodyXfrm.javaClass.getMethod("addNewExt").invoke(bodyXfrm) } catch (_: Throwable) { null }
-                            off?.javaClass?.getMethod("setX", Long::class.javaPrimitiveType)?.invoke(off, (slideW * 0.08f).toLong())
-                            off?.javaClass?.getMethod("setY", Long::class.javaPrimitiveType)?.invoke(off, (slideH * 0.36f).toLong())
-                            ext?.javaClass?.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(ext, (slideW * 0.84f).toLong())
-                            ext?.javaClass?.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(ext, (slideH * 0.45f).toLong())
-                        }
+                if (newSlide != null) {
+                    try {
+                        ppt.setSlideOrder(newSlide, insertIndex)
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
                     }
-                } catch (t: Throwable) {
-                    t.printStackTrace()
-                }
-            }
-        } catch (t: Throwable) {
-            t.printStackTrace()
-        }
 
-        viewModelScope.launch {
+                    // Add standard Title and Content placeholders if the slide has no shapes
+                    try {
+                        if (newSlide.shapes.isEmpty()) {
+                            val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+
+                            // 1. Title box
+                            val titleBox = newSlide.createTextBox()
+                            val tp = titleBox.addNewTextParagraph()
+                            val tr = tp.addNewTextRun()
+                            tr.setText("Tap to add title")
+                            setRunProperties(tr, "#1E293B", 28f, isBold = true)
+
+                            val titleSp = getXmlObjectReflection(titleBox)
+                            val titleSpPr = try {
+                                titleSp?.javaClass?.getMethod("getSpPr")?.invoke(titleSp)
+                                    ?: titleSp?.javaClass?.getMethod("addNewSpPr")?.invoke(titleSp)
+                            } catch (_: Throwable) { null }
+                            val titleXfrm = try {
+                                titleSpPr?.javaClass?.getMethod("getXfrm")?.invoke(titleSpPr)
+                                    ?: titleSpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(titleSpPr)
+                            } catch (_: Throwable) { null }
+                            if (titleXfrm != null) {
+                                val off = try { titleXfrm.javaClass.getMethod("getOff").invoke(titleXfrm) ?: titleXfrm.javaClass.getMethod("addNewOff").invoke(titleXfrm) } catch (_: Throwable) { null }
+                                val ext = try { titleXfrm.javaClass.getMethod("getExt").invoke(titleXfrm) ?: titleXfrm.javaClass.getMethod("addNewExt").invoke(titleXfrm) } catch (_: Throwable) { null }
+                                off?.javaClass?.getMethod("setX", Long::class.javaPrimitiveType)?.invoke(off, (slideW * 0.08f).toLong())
+                                off?.javaClass?.getMethod("setY", Long::class.javaPrimitiveType)?.invoke(off, (slideH * 0.12f).toLong())
+                                ext?.javaClass?.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(ext, (slideW * 0.84f).toLong())
+                                ext?.javaClass?.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(ext, (slideH * 0.18f).toLong())
+                            }
+
+                            // 2. Subtitle / body content box
+                            val bodyBox = newSlide.createTextBox()
+                            val bp = bodyBox.addNewTextParagraph()
+                            val br = bp.addNewTextRun()
+                            br.setText("Tap to add text")
+                            setRunProperties(br, "#64748B", 18f)
+
+                            val bodySp = getXmlObjectReflection(bodyBox)
+                            val bodySpPr = try {
+                                bodySp?.javaClass?.getMethod("getSpPr")?.invoke(bodySp)
+                                    ?: bodySp?.javaClass?.getMethod("addNewSpPr")?.invoke(bodySp)
+                            } catch (_: Throwable) { null }
+                            val bodyXfrm = try {
+                                bodySpPr?.javaClass?.getMethod("getXfrm")?.invoke(bodySpPr)
+                                    ?: bodySpPr?.javaClass?.getMethod("addNewXfrm")?.invoke(bodySpPr)
+                            } catch (_: Throwable) { null }
+                            if (bodyXfrm != null) {
+                                val off = try { bodyXfrm.javaClass.getMethod("getOff").invoke(bodyXfrm) ?: bodyXfrm.javaClass.getMethod("addNewOff").invoke(bodyXfrm) } catch (_: Throwable) { null }
+                                val ext = try { bodyXfrm.javaClass.getMethod("getExt").invoke(bodyXfrm) ?: bodyXfrm.javaClass.getMethod("addNewExt").invoke(bodyXfrm) } catch (_: Throwable) { null }
+                                off?.javaClass?.getMethod("setX", Long::class.javaPrimitiveType)?.invoke(off, (slideW * 0.08f).toLong())
+                                off?.javaClass?.getMethod("setY", Long::class.javaPrimitiveType)?.invoke(off, (slideH * 0.36f).toLong())
+                                ext?.javaClass?.getMethod("setCx", Long::class.javaPrimitiveType)?.invoke(ext, (slideW * 0.84f).toLong())
+                                ext?.javaClass?.getMethod("setCy", Long::class.javaPrimitiveType)?.invoke(ext, (slideH * 0.45f).toLong())
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        t.printStackTrace()
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
             )
-            onSlideAdded?.invoke(insertIndex)
+            withContext(Dispatchers.Main) {
+                onSlideAdded?.invoke(insertIndex)
+            }
         }
     }
 
@@ -2878,13 +2888,13 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
-            pushUndoState()
-            try {
-                ppt.removeSlide(index)
-            } catch (t: Throwable) {
-                t.printStackTrace()
-            }
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
+                pushUndoState()
+                try {
+                    ppt.removeSlide(index)
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
                 _loadState.value = PptxLoadState.Success(
                     presentation = PptxPresentation(parseAllSlides(ppt)),
                     fileName = File(activeFilePath!!).name
@@ -2903,16 +2913,17 @@ class PptxViewerViewModel @Inject constructor(
         val ppt = activePresentation as? XMLSlideShow ?: return
         val slides = ppt.slides
         if (index in slides.indices) {
-            pushUndoState()
-            try {
-                val originalSlide = slides[index]
-                val layout = originalSlide.slideLayout
-                val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as XSLFSlide
+            viewModelScope.launch(Dispatchers.IO) {
+                pushUndoState()
+                try {
+                    val originalSlide = slides[index]
+                    val layout = originalSlide.slideLayout
+                    val newSlide = ppt.javaClass.getMethod("createSlide", layout.javaClass).invoke(ppt, layout) as XSLFSlide
 
-                val originalBgColor = getSlideBgColorHex(originalSlide)
-                if (originalBgColor != null) {
-                    setSlideBgColorHex(newSlide, originalBgColor)
-                }
+                    val originalBgColor = getSlideBgColorHex(originalSlide)
+                    if (originalBgColor != null) {
+                        setSlideBgColorHex(newSlide, originalBgColor)
+                    }
 
                 originalSlide.shapes.forEach { shape ->
                     try {
@@ -3028,15 +3039,16 @@ class PptxViewerViewModel @Inject constructor(
                 t.printStackTrace()
             }
 
-            viewModelScope.launch {
-                _loadState.value = PptxLoadState.Success(
-                    presentation = PptxPresentation(parseAllSlides(ppt)),
-                    fileName = File(activeFilePath!!).name
-                )
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath!!).name
+            )
+            withContext(Dispatchers.Main) {
                 onSlideDuplicated?.invoke(ppt.slides.size - 1)
             }
         }
     }
+}
 
     private fun getAllShapesForSlide(slide: XSLFSlide): List<org.apache.poi.sl.usermodel.Shape<*, *>> {
         val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
@@ -3135,16 +3147,14 @@ class PptxViewerViewModel @Inject constructor(
         return null
     }
 
-    fun updateShapeTextSync(slideIndex: Int, shapeId: String, newText: String) {
+    suspend fun updateShapeTextSync(slideIndex: Int, shapeId: String, newText: String) = withContext(Dispatchers.IO) {
         if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
-            viewModelScope.launch {
-                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
-            }
-            return
+            _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            return@withContext
         }
-        val ppt = activePresentation as? XMLSlideShow ?: return
+        val ppt = activePresentation as? XMLSlideShow ?: return@withContext
         val slides = ppt.slides
-        if (slideIndex !in slides.indices) return
+        if (slideIndex !in slides.indices) return@withContext
 
         pushUndoState()
         val slide = slides[slideIndex]
@@ -3257,30 +3267,30 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val shape = findShapeById(slide, shapeId)
-        if (shape is XSLFTextShape) {
-            for (p in shape.textParagraphs) {
-                if (alignment != null) {
-                    p.textAlign = when (alignment.uppercase()) {
-                        "CENTER" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER
-                        "RIGHT" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT
-                        "JUSTIFY" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY
-                        else -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT
+        viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val shape = findShapeById(slide, shapeId)
+            if (shape is XSLFTextShape) {
+                for (p in shape.textParagraphs) {
+                    if (alignment != null) {
+                        p.textAlign = when (alignment.uppercase()) {
+                            "CENTER" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER
+                            "RIGHT" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT
+                            "JUSTIFY" -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY
+                            else -> org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT
+                        }
+                    }
+                    for (r in p.textRuns) {
+                        if (isBold != null) r.isBold = isBold
+                        if (isItalic != null) r.isItalic = isItalic
+                        if (isUnderline != null) r.isUnderlined = isUnderline
+                        val currentFontSize = fontSizePt ?: (try { r.fontSize?.toFloat() } catch (_: Throwable) { null } ?: 14f)
+                        setRunProperties(r, textColorHex, currentFontSize, isBold, isItalic, isUnderline)
                     }
                 }
-                for (r in p.textRuns) {
-                    if (isBold != null) r.isBold = isBold
-                    if (isItalic != null) r.isItalic = isItalic
-                    if (isUnderline != null) r.isUnderlined = isUnderline
-                    val currentFontSize = fontSizePt ?: (try { r.fontSize?.toFloat() } catch (_: Throwable) { null } ?: 14f)
-                    setRunProperties(r, textColorHex, currentFontSize, isBold, isItalic, isUnderline)
-                }
             }
-        }
 
-        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -3299,34 +3309,35 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        pushUndoState()
-        val slide = slides[slideIndex]
-        try {
-            val textBox = slide.createTextBox()
-            val p = textBox.addNewTextParagraph()
-            val r = p.addNewTextRun()
-            r.setText(text)
-            setRunProperties(r, "#000000", 18f)
+        viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            try {
+                val textBox = slide.createTextBox()
+                val p = textBox.addNewTextParagraph()
+                val r = p.addNewTextRun()
+                r.setText(text)
+                setRunProperties(r, "#000000", 18f)
 
-            val sp = getXmlObjectReflection(textBox)
-            if (sp != null) {
-                val spPr = try {
-                    sp.javaClass.getMethod("getSpPr").invoke(sp)
-                        ?: sp.javaClass.getMethod("addNewSpPr").invoke(sp)
-                } catch (t: Throwable) {
-                    try { sp.javaClass.getMethod("addNewSpPr").invoke(sp) } catch (t2: Throwable) { null }
-                }
-                if (spPr != null) {
-                    val xfrm = try {
-                        spPr.javaClass.getMethod("getXfrm").invoke(spPr)
-                            ?: spPr.javaClass.getMethod("addNewXfrm").invoke(spPr)
+                val sp = getXmlObjectReflection(textBox)
+                if (sp != null) {
+                    val spPr = try {
+                        sp.javaClass.getMethod("getSpPr").invoke(sp)
+                            ?: sp.javaClass.getMethod("addNewSpPr").invoke(sp)
                     } catch (t: Throwable) {
-                        try { spPr.javaClass.getMethod("addNewXfrm").invoke(spPr) } catch (t2: Throwable) { null }
+                        try { sp.javaClass.getMethod("addNewSpPr").invoke(sp) } catch (t2: Throwable) { null }
                     }
-                    if (xfrm != null) {
-                        val off = try {
-                            xfrm.javaClass.getMethod("getOff").invoke(xfrm)
-                                ?: xfrm.javaClass.getMethod("addNewOff").invoke(xfrm)
+                    if (spPr != null) {
+                        val xfrm = try {
+                            spPr.javaClass.getMethod("getXfrm").invoke(spPr)
+                                ?: spPr.javaClass.getMethod("addNewXfrm").invoke(spPr)
+                        } catch (t: Throwable) {
+                            try { spPr.javaClass.getMethod("addNewXfrm").invoke(spPr) } catch (t2: Throwable) { null }
+                        }
+                        if (xfrm != null) {
+                            val off = try {
+                                xfrm.javaClass.getMethod("getOff").invoke(xfrm)
+                                    ?: xfrm.javaClass.getMethod("addNewOff").invoke(xfrm)
                         } catch (t: Throwable) {
                             try { xfrm.javaClass.getMethod("addNewOff").invoke(xfrm) } catch (t2: Throwable) { null }
                         }
@@ -3351,7 +3362,125 @@ class PptxViewerViewModel @Inject constructor(
             t.printStackTrace()
         }
 
+            _loadState.value = PptxLoadState.Success(
+                presentation = PptxPresentation(parseAllSlides(ppt)),
+                fileName = File(activeFilePath ?: "presentation.pptx").name
+            )
+        }
+    }
+
+    fun insertShape(
+        slideIndex: Int,
+        geometry: ShapeGeometryType = ShapeGeometryType.RECTANGLE,
+        fillColorHex: String = "#3B82F6",
+        borderColorHex: String = "#1D4ED8"
+    ) {
+        if (activePresentation is org.apache.poi.hslf.usermodel.HSLFSlideShow) {
+            viewModelScope.launch {
+                _saveStatus.emit("Editing is not supported for legacy PowerPoint (.ppt) documents. Please save as .pptx format to edit.")
+            }
+            return
+        }
+        val ppt = activePresentation as? XMLSlideShow ?: return
+        val slides = ppt.slides
+        if (slideIndex !in slides.indices) return
+
         viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            try {
+                val autoShape = slide.createAutoShape()
+                autoShape.shapeType = when (geometry) {
+                    ShapeGeometryType.ROUNDED_RECTANGLE -> org.apache.poi.sl.usermodel.ShapeType.ROUND_RECT
+                    ShapeGeometryType.ELLIPSE -> org.apache.poi.sl.usermodel.ShapeType.ELLIPSE
+                    ShapeGeometryType.TRIANGLE -> org.apache.poi.sl.usermodel.ShapeType.TRIANGLE
+                    ShapeGeometryType.RIGHT_ARROW -> org.apache.poi.sl.usermodel.ShapeType.RIGHT_ARROW
+                    ShapeGeometryType.STAR -> org.apache.poi.sl.usermodel.ShapeType.STAR_5
+                    ShapeGeometryType.LINE -> org.apache.poi.sl.usermodel.ShapeType.LINE
+                    else -> org.apache.poi.sl.usermodel.ShapeType.RECT
+                }
+
+                val (slideW, slideH) = getSlideDimensionsEmu(ppt)
+                val sp = getXmlObjectReflection(autoShape)
+                if (sp != null) {
+                    val spPr = try {
+                        sp.javaClass.getMethod("getSpPr").invoke(sp)
+                            ?: sp.javaClass.getMethod("addNewSpPr").invoke(sp)
+                    } catch (t: Throwable) {
+                        try { sp.javaClass.getMethod("addNewSpPr").invoke(sp) } catch (t2: Throwable) { null }
+                    }
+                    if (spPr != null) {
+                        val xfrm = try {
+                            spPr.javaClass.getMethod("getXfrm").invoke(spPr)
+                                ?: spPr.javaClass.getMethod("addNewXfrm").invoke(spPr)
+                        } catch (t: Throwable) {
+                            try { spPr.javaClass.getMethod("addNewXfrm").invoke(spPr) } catch (t2: Throwable) { null }
+                        }
+                        if (xfrm != null) {
+                            val off = try {
+                                xfrm.javaClass.getMethod("getOff").invoke(xfrm)
+                                    ?: xfrm.javaClass.getMethod("addNewOff").invoke(xfrm)
+                            } catch (t: Throwable) {
+                                try { xfrm.javaClass.getMethod("addNewOff").invoke(xfrm) } catch (t2: Throwable) { null }
+                            }
+                            if (off != null) {
+                                val shapeW = (slideW * 0.35f).toLong()
+                                val shapeH = (slideH * 0.30f).toLong()
+                                val shapeX = ((slideW - shapeW) / 2).coerceAtLeast(0L)
+                                val shapeY = ((slideH - shapeH) / 2).coerceAtLeast(0L)
+                                off.javaClass.getMethod("setX", Long::class.javaPrimitiveType).invoke(off, shapeX)
+                                off.javaClass.getMethod("setY", Long::class.javaPrimitiveType).invoke(off, shapeY)
+
+                                val ext = try {
+                                    xfrm.javaClass.getMethod("getExt").invoke(xfrm)
+                                        ?: xfrm.javaClass.getMethod("addNewExt").invoke(xfrm)
+                                } catch (t: Throwable) {
+                                    try { xfrm.javaClass.getMethod("addNewExt").invoke(xfrm) } catch (t2: Throwable) { null }
+                                }
+                                if (ext != null) {
+                                    ext.javaClass.getMethod("setCx", Long::class.javaPrimitiveType).invoke(ext, shapeW)
+                                    ext.javaClass.getMethod("setCy", Long::class.javaPrimitiveType).invoke(ext, shapeH)
+                                }
+                            }
+                        }
+
+                        // Set solid fill color
+                        try {
+                            val fillRgb = android.graphics.Color.parseColor(fillColorHex)
+                            val rgbBytes = byteArrayOf(
+                                ((fillRgb shr 16) and 0xFF).toByte(),
+                                ((fillRgb shr 8) and 0xFF).toByte(),
+                                (fillRgb and 0xFF).toByte()
+                            )
+                            val solidFill = spPr.javaClass.getMethod("addNewSolidFill").invoke(spPr)
+                            val srgbClr = solidFill.javaClass.getMethod("addNewSrgbClr").invoke(solidFill)
+                            srgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(srgbClr, rgbBytes)
+                        } catch (t: Throwable) {
+                            t.printStackTrace()
+                        }
+
+                        // Set border / outline
+                        try {
+                            val borderRgb = android.graphics.Color.parseColor(borderColorHex)
+                            val borderRgbBytes = byteArrayOf(
+                                ((borderRgb shr 16) and 0xFF).toByte(),
+                                ((borderRgb shr 8) and 0xFF).toByte(),
+                                (borderRgb and 0xFF).toByte()
+                            )
+                            val ln = spPr.javaClass.getMethod("addNewLn").invoke(spPr)
+                            ln.javaClass.getMethod("setW", Int::class.javaPrimitiveType).invoke(ln, 19050)
+                            val lnSolidFill = ln.javaClass.getMethod("addNewSolidFill").invoke(ln)
+                            val lnSrgbClr = lnSolidFill.javaClass.getMethod("addNewSrgbClr").invoke(lnSolidFill)
+                            lnSrgbClr.javaClass.getMethod("setVal", ByteArray::class.java).invoke(lnSrgbClr, borderRgbBytes)
+                        } catch (t: Throwable) {
+                            t.printStackTrace()
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -3370,29 +3499,29 @@ class PptxViewerViewModel @Inject constructor(
         val slides = ppt.slides
         if (slideIndex !in slides.indices) return
 
-        pushUndoState()
-        val slide = slides[slideIndex]
-        val shape = findShapeById(slide, shapeId)
-        if (shape != null) {
-            if (shapeId.startsWith("table_cell_")) {
-                if (shape is XSLFTextShape) {
-                    shape.clearText()
-                }
-            } else {
-                try {
-                    slide.removeShape(shape as XSLFShape)
-                } catch (t: Throwable) {
+        viewModelScope.launch(Dispatchers.IO) {
+            pushUndoState()
+            val slide = slides[slideIndex]
+            val shape = findShapeById(slide, shapeId)
+            if (shape != null) {
+                if (shapeId.startsWith("table_cell_")) {
+                    if (shape is XSLFTextShape) {
+                        shape.clearText()
+                    }
+                } else {
                     try {
-                        val method = slide.javaClass.getMethod("removeShape", Shape::class.java)
-                        method.invoke(slide, shape)
-                    } catch (t2: Throwable) {
-                        t2.printStackTrace()
+                        slide.removeShape(shape as XSLFShape)
+                    } catch (t: Throwable) {
+                        try {
+                            val method = slide.javaClass.getMethod("removeShape", Shape::class.java)
+                            method.invoke(slide, shape)
+                        } catch (t2: Throwable) {
+                            t2.printStackTrace()
+                        }
                     }
                 }
             }
-        }
 
-        viewModelScope.launch(Dispatchers.IO) {
             _loadState.value = PptxLoadState.Success(
                 presentation = PptxPresentation(parseAllSlides(ppt)),
                 fileName = File(activeFilePath ?: "presentation.pptx").name
@@ -3426,11 +3555,25 @@ class PptxViewerViewModel @Inject constructor(
                         fos.flush()
                     }
                     tempFile.copyTo(targetFile, overwrite = true)
-                    tempFile.delete()
 
+                    // Also write back to external SAF URI if present
+                    if (sourceUriString != null && sourceUriString!!.startsWith("content://")) {
+                        try {
+                            context.contentResolver.openOutputStream(Uri.parse(sourceUriString), "wt")?.use { os ->
+                                tempFile.inputStream().use { input ->
+                                    input.copyTo(os)
+                                }
+                                os.flush()
+                            }
+                        } catch (safEx: Exception) {
+                            safEx.printStackTrace()
+                        }
+                    }
+
+                    val effectiveUri = sourceUriString ?: Uri.fromFile(targetFile).toString()
                     recentFileRepository.insertRecentFile(
-                        com.karnadigital.omnisuite.core.model.RecentFile(
-                            fileUri = android.net.Uri.fromFile(targetFile).toString(),
+                        RecentFile(
+                            fileUri = effectiveUri,
                             fileName = targetFile.name,
                             mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                             fileSize = targetFile.length(),

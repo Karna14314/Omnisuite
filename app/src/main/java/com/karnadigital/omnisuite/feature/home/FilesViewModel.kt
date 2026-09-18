@@ -298,18 +298,23 @@ class FilesViewModel @Inject constructor(
                                         val name = file.name.lowercase()
                                         if (category == "documents") {
                                             val docFilter = _documentFilter.value
+                                            val isCode = name.substringAfterLast('.', "") in listOf(
+                                                "py", "kt", "java", "json", "xml", "html", "css", "js", "gradle", "sh", "bat", "cpp", "c", "h", "properties",
+                                                "dart", "ts", "tsx", "jsx", "hpp", "cs", "php", "sql", "yaml", "yml", "ini", "cfg", "conf", "log", "tsv", "bash", "rb", "go", "rs", "swift", "scala", "r", "lua"
+                                            )
+                                            val isTextOrCode = name.endsWith(".txt") || name.endsWith(".md") || isCode
                                             val isDoc = name.endsWith(".pdf") || name.endsWith(".docx") || 
                                                     name.endsWith(".doc") || name.endsWith(".xlsx") || 
                                                     name.endsWith(".xls") || name.endsWith(".csv") || 
                                                     name.endsWith(".pptx") || name.endsWith(".ppt") || 
-                                                    name.endsWith(".txt") || name.endsWith(".md")
+                                                    isTextOrCode
                                             if (isDoc) {
                                                 val matchesFilter = when (docFilter) {
                                                     "pdf" -> name.endsWith(".pdf")
                                                     "word" -> name.endsWith(".docx") || name.endsWith(".doc")
                                                     "excel" -> name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv")
                                                     "slides" -> name.endsWith(".pptx") || name.endsWith(".ppt")
-                                                    "txt" -> name.endsWith(".txt") || name.endsWith(".md")
+                                                    "txt" -> isTextOrCode
                                                     else -> true
                                                 }
                                                 if (matchesFilter) filesList.add(file)

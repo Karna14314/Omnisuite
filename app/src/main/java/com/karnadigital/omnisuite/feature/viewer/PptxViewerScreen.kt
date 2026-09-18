@@ -133,6 +133,7 @@ private fun safeParseColor(colorHex: String?, fallback: Color): Color {
 @Composable
 fun PptxViewerScreen(
     fileUri: String,
+    originalUri: String? = null,
     onBack: () -> Unit,
     onToolAction: (ViewerTool) -> Unit = {},
     viewModel: PptxViewerViewModel = hiltViewModel()
@@ -141,8 +142,8 @@ fun PptxViewerScreen(
     val uriCacheUtils = coreEntryPoint(context).uriCacheUtils()
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(fileUri) {
-        viewModel.loadPptxFile(fileUri)
+    LaunchedEffect(fileUri, originalUri) {
+        viewModel.loadPptxFile(fileUri, originalUri)
     }
 
     LaunchedEffect(Unit) {
@@ -158,6 +159,7 @@ fun PptxViewerScreen(
     var isEditMode by remember { mutableStateOf(false) }
     var viewMode by remember { mutableStateOf(PptxViewMode.CONTINUOUS) }
     var showNotesPanel by remember { mutableStateOf(false) }
+    var showShapePicker by remember { mutableStateOf(false) }
 
     var selectedShapeId by remember { mutableStateOf<String?>(null) }
     var selectedImageId by remember { mutableStateOf<String?>(null) }
@@ -995,6 +997,12 @@ fun PptxViewerScreen(
                                                     }
                                                 )
                                                 RibbonActionCard(
+                                                    icon = Icons.Default.Category,
+                                                    title = "Shape",
+                                                    subtitle = "Insert geometry",
+                                                    onClick = { showShapePicker = true }
+                                                )
+                                                RibbonActionCard(
                                                     icon = Icons.Default.Image,
                                                     title = "Picture",
                                                     subtitle = "Insert image",
@@ -1677,6 +1685,147 @@ fun PptxViewerScreen(
                                     onInsertImageClick = {
                                         imagePickerLauncher.launch("image/*")
                                         showFormatter = false
+                                    }
+                                )
+                            }
+
+                            if (showShapePicker) {
+                                var selectedGeometry by remember { mutableStateOf(ShapeGeometryType.RECTANGLE) }
+                                var selectedFillColor by remember { mutableStateOf("#1976D2") }
+                                var selectedBorderColor by remember { mutableStateOf("#0D47A1") }
+
+                                val shapeOptions = listOf(
+                                    Triple(ShapeGeometryType.RECTANGLE, "Rectangle", Icons.Default.CropSquare),
+                                    Triple(ShapeGeometryType.ROUNDED_RECTANGLE, "Rounded", Icons.Default.CropSquare),
+                                    Triple(ShapeGeometryType.ELLIPSE, "Circle", Icons.Default.Circle),
+                                    Triple(ShapeGeometryType.TRIANGLE, "Triangle", Icons.Default.ChangeHistory),
+                                    Triple(ShapeGeometryType.RIGHT_ARROW, "Arrow", Icons.Default.ArrowForward),
+                                    Triple(ShapeGeometryType.STAR, "Star", Icons.Default.Star),
+                                    Triple(ShapeGeometryType.LINE, "Line", Icons.Default.HorizontalRule)
+                                )
+                                val colorOptions = listOf(
+                                    "#1976D2" to "#0D47A1",
+                                    "#D32F2F" to "#B71C1C",
+                                    "#388E3C" to "#1B5E20",
+                                    "#F57C00" to "#E65100",
+                                    "#7B1FA2" to "#4A148C",
+                                    "#424242" to "#212121",
+                                    "#00897B" to "#004D40",
+                                    "#C2185B" to "#880E4F"
+                                )
+
+                                AlertDialog(
+                                    onDismissRequest = { showShapePicker = false },
+                                    title = {
+                                        Text("Insert Shape", fontWeight = FontWeight.Bold)
+                                    },
+                                    text = {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                "Shape Geometry",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                items(shapeOptions.size) { idx ->
+                                                    val (geom, label, icon) = shapeOptions[idx]
+                                                    val isSelected = selectedGeometry == geom
+                                                    Surface(
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                                                        modifier = Modifier.clickable { selectedGeometry = geom }
+                                                    ) {
+                                                        Column(
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = icon,
+                                                                contentDescription = label,
+                                                                modifier = Modifier.size(24.dp),
+                                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text(
+                                                                text = label,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                "Fill & Border Color",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                items(colorOptions.size) { idx ->
+                                                    val (fill, border) = colorOptions[idx]
+                                                    val isColorSelected = selectedFillColor == fill
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(34.dp)
+                                                            .clip(CircleShape)
+                                                            .background(safeParseColor(fill, Color.Blue))
+                                                            .border(
+                                                                width = if (isColorSelected) 3.dp else 1.dp,
+                                                                color = if (isColorSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                                shape = CircleShape
+                                                            )
+                                                            .clickable {
+                                                                selectedFillColor = fill
+                                                                selectedBorderColor = border
+                                                            },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isColorSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = "Selected",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                viewModel.insertShape(
+                                                    slideIndex = currentSlideIndex,
+                                                    geometry = selectedGeometry,
+                                                    fillColorHex = selectedFillColor,
+                                                    borderColorHex = selectedBorderColor
+                                                )
+                                                showShapePicker = false
+                                                Toast.makeText(context, "Shape inserted into slide!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Text("Insert")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showShapePicker = false }) {
+                                            Text("Cancel")
+                                        }
                                     }
                                 )
                             }

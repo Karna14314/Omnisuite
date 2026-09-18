@@ -45,6 +45,8 @@ object OmniColors {
     val XlsGreenBg  = Color(0x1F10B981)
     val ImgPurple   = Color(0xFF8B5CF6)
     val ImgPurpleBg = Color(0x1F8B5CF6)
+    val PptOrange   = Color(0xFFF59E0B)
+    val PptOrangeBg = Color(0x1FF59E0B)
     val ArcCyan     = Color(0xFF06B6D4)
     val ArcCyanBg   = Color(0x1F06B6D4)
     

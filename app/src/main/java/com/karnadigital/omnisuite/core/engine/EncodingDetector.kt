@@ -40,6 +40,22 @@ object EncodingDetector {
         "KOI8-R"
     )
 
+    fun detectEncoding(bytes: ByteArray): EncodingResult {
+        if (bytes.isEmpty()) {
+            return EncodingResult(StandardCharsets.UTF_8, 1.0f, false)
+        }
+        val header = bytes.copyOf(minOf(bytes.size, 8192))
+        detectBom(header)?.let { return it }
+        if (isAscii(header)) {
+            return EncodingResult(StandardCharsets.US_ASCII, 0.95f, false)
+        }
+        if (isUtf8(header)) {
+            return EncodingResult(StandardCharsets.UTF_8, 0.9f, false)
+        }
+        val detected = detectByHeuristics(header)
+        return EncodingResult(detected, 0.6f, false)
+    }
+
     fun detectEncoding(file: File): EncodingResult {
         if (!file.exists() || file.length() == 0L) {
             return EncodingResult(StandardCharsets.UTF_8, 1.0f, false)
@@ -54,20 +70,7 @@ object EncodingDetector {
             return EncodingResult(StandardCharsets.UTF_8, 1.0f, false)
         }
 
-        val header = bytes.copyOf(bytesRead)
-
-        detectBom(header)?.let { return it }
-
-        if (isAscii(header)) {
-            return EncodingResult(StandardCharsets.US_ASCII, 0.95f, false)
-        }
-
-        if (isUtf8(header)) {
-            return EncodingResult(StandardCharsets.UTF_8, 0.9f, false)
-        }
-
-        val detected = detectByHeuristics(header)
-        return EncodingResult(detected, 0.6f, false)
+        return detectEncoding(bytes.copyOf(bytesRead))
     }
 
     private fun detectBom(header: ByteArray): EncodingResult? {

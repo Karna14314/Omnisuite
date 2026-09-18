@@ -85,7 +85,8 @@ sealed class XlsxLoadState {
     data class Success(
         val workbook: ExcelWorkbook,
         val fileName: String,
-        val xlsxBase64: String? = null
+        val xlsxBase64: String? = null,
+        val isProgressiveLoading: Boolean = false
     ) : XlsxLoadState()
     data class Error(val message: String) : XlsxLoadState()
 }
@@ -164,13 +165,34 @@ class XlsxViewerViewModel @Inject constructor(
                     activeWorkbook = workbook
                     activeFilePath = filePath
 
-                    val parsedWb = parseWorkbook(workbook)
+                    val hasLargeSheet = (0 until workbook.numberOfSheets).any { workbook.getSheetAt(it).lastRowNum > 150 }
+                    if (hasLargeSheet) {
+                        val initialWb = parseWorkbook(workbook, rowLimitPerSheet = 100)
+                        _loadState.value = XlsxLoadState.Success(
+                            workbook = initialWb,
+                            fileName = file.name,
+                            xlsxBase64 = base64Data,
+                            isProgressiveLoading = true
+                        )
 
-                    _loadState.value = XlsxLoadState.Success(
-                        workbook = parsedWb,
-                        fileName = file.name,
-                        xlsxBase64 = base64Data
-                    )
+                        val fullWb = parseWorkbook(workbook, rowLimitPerSheet = null)
+                        if (activeWorkbook === workbook) {
+                            _loadState.value = XlsxLoadState.Success(
+                                workbook = fullWb,
+                                fileName = file.name,
+                                xlsxBase64 = base64Data,
+                                isProgressiveLoading = false
+                            )
+                        }
+                    } else {
+                        val parsedWb = parseWorkbook(workbook)
+                        _loadState.value = XlsxLoadState.Success(
+                            workbook = parsedWb,
+                            fileName = file.name,
+                            xlsxBase64 = base64Data,
+                            isProgressiveLoading = false
+                        )
+                    }
 
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -247,7 +269,7 @@ class XlsxViewerViewModel @Inject constructor(
         return result
     }
 
-    private fun parseWorkbook(wb: org.apache.poi.ss.usermodel.Workbook): ExcelWorkbook {
+    private fun parseWorkbook(wb: org.apache.poi.ss.usermodel.Workbook, rowLimitPerSheet: Int? = null): ExcelWorkbook {
         val dataFormatter = org.apache.poi.ss.usermodel.DataFormatter()
         val evaluator = try { wb.creationHelper.createFormulaEvaluator() } catch (e: Exception) { null }
         val sheetList = mutableListOf<ExcelSheet>()
@@ -263,16 +285,18 @@ class XlsxViewerViewModel @Inject constructor(
             // --- Column widths ---
             val lastRowNum = sheet.lastRowNum.coerceAtLeast(0)
             var maxCols = 0
-            for (r in 0..lastRowNum) {
+            val checkRows = if (rowLimitPerSheet != null) minOf(lastRowNum, rowLimitPerSheet) else lastRowNum
+            for (r in 0..checkRows) {
                 val row = sheet.getRow(r) ?: continue
                 maxCols = maxOf(maxCols, row.lastCellNum.toInt())
             }
             maxCols = maxCols.coerceAtLeast(1)
             // Large-sheet guard: skip UX padding when it would explode cell count.
-            val extraRowsHere = if (lastRowNum > 1000) 0 else EXTRA_ROWS
+            val extraRowsHere = if (lastRowNum > 1000 || rowLimitPerSheet != null) 0 else EXTRA_ROWS
             val extraColsHere = if (maxCols > 50) 0 else EXTRA_COLS
             val totalCols = (maxCols + extraColsHere).coerceAtMost(200)
             val totalRowsCapped = (lastRowNum + 1 + extraRowsHere).coerceAtMost(5000)
+            val totalRows = if (rowLimitPerSheet != null) minOf(totalRowsCapped, rowLimitPerSheet) else totalRowsCapped
 
             // POI column width is in 1/256th character units; 1 char ≈ 7px at 96dpi ≈ 5.25dp
             val columnWidthsDp = (0 until totalCols).map { c ->
@@ -314,7 +338,6 @@ class XlsxViewerViewModel @Inject constructor(
             val frozenCols = if (paneInfo?.isFreezePane == true) paneInfo.verticalSplitPosition.toInt() else 0
 
             // --- Row data ---
-            val totalRows = totalRowsCapped
             val rowList = mutableListOf<List<CellData>>()
             val rowHeightsDp = mutableListOf<Float>()
 

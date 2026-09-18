@@ -33,7 +33,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             
-            <!-- Intent filter to view documents opened from other apps (PDF, Word, Excel, PowerPoint, Text, ZIP, CSV) -->
+            <!-- Intent filter to view documents opened from other apps (PDF, Word, Excel, PowerPoint, Text, Code, ZIP, CSV) -->
             <intent-filter android:label="Open with OmniSuite">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,13 +49,18 @@
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
                 <data android:mimeType="application/vnd.ms-powerpoint" />
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
-                <data android:mimeType="text/plain" />
-                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-javascript" />
+                <data android:mimeType="application/x-sh" />
+                <data android:mimeType="application/x-yaml" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
 
-            <!-- Intent filter to capture web URLs pointing to supported office documents -->
+            <!-- Intent filter to capture web URLs pointing to supported office documents and source files -->
             <intent-filter android:label="Open with OmniSuite">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -83,6 +88,21 @@
                 <data android:pathPattern=".*\\.TXT" />
                 <data android:pathPattern=".*\\.csv" />
                 <data android:pathPattern=".*\\.CSV" />
+                <data android:pathPattern=".*\\.py" />
+                <data android:pathPattern=".*\\.kt" />
+                <data android:pathPattern=".*\\.java" />
+                <data android:pathPattern=".*\\.dart" />
+                <data android:pathPattern=".*\\.js" />
+                <data android:pathPattern=".*\\.ts" />
+                <data android:pathPattern=".*\\.cpp" />
+                <data android:pathPattern=".*\\.c" />
+                <data android:pathPattern=".*\\.h" />
+                <data android:pathPattern=".*\\.json" />
+                <data android:pathPattern=".*\\.xml" />
+                <data android:pathPattern=".*\\.html" />
+                <data android:pathPattern=".*\\.css" />
+                <data android:pathPattern=".*\\.sh" />
+                <data android:pathPattern=".*\\.md" />
                 <data android:pathPattern=".*\\.zip" />
                 <data android:pathPattern=".*\\.ZIP" />
             </intent-filter>

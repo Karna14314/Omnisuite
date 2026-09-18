@@ -60,7 +60,9 @@ import java.util.Locale
 
 private val SupportedExtensions = listOf(
     "pdf", "docx", "doc", "xlsx", "xls", "csv", "pptx", "ppt", "txt", "md",
-    "png", "jpg", "jpeg", "webp", "gif", "bmp", "zip", "rar", "7z"
+    "png", "jpg", "jpeg", "webp", "gif", "bmp", "zip", "rar", "7z",
+    "py", "kt", "java", "json", "xml", "html", "css", "js", "gradle", "sh", "bat", "cpp", "c", "h", "properties",
+    "dart", "ts", "tsx", "jsx", "hpp", "cs", "php", "sql", "yaml", "yml", "ini", "cfg", "conf", "log", "tsv", "bash", "rb", "go", "rs", "swift", "scala", "r", "lua"
 )
 
 private fun isFileSupported(file: File): Boolean {
@@ -82,6 +84,7 @@ private fun formatFileDate(time: Long): String {
 private fun getFileEmoji(file: File): String {
     if (file.isDirectory) return "📁"
     val name = file.name.lowercase()
+    val ext = file.extension.lowercase()
     return when {
         name.endsWith(".pdf") -> "📋"
         name.endsWith(".docx") || name.endsWith(".doc") -> "📝"
@@ -91,7 +94,8 @@ private fun getFileEmoji(file: File): String {
         name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp") || name.endsWith(".gif") -> "🖼️"
         name.endsWith(".mp3") || name.endsWith(".wav") || name.endsWith(".m4a") || name.endsWith(".ogg") -> "🎵"
         name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") || name.endsWith(".3gp") -> "📹"
-        name.endsWith(".txt") || name.endsWith(".md") -> "📄"
+        ext in listOf("py", "kt", "java", "dart", "js", "ts", "tsx", "jsx", "cpp", "c", "h", "hpp", "cs", "php", "sql", "rb", "go", "rs", "swift", "sh", "json", "xml", "html", "css", "yaml", "yml", "gradle") -> "💻"
+        name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".log") -> "📄"
         else -> "📄"
     }
 }
@@ -100,6 +104,7 @@ private fun getFileEmoji(file: File): String {
 private fun getFileIconBg(file: File): Color {
     if (file.isDirectory) return Color(0x1F3B82F6)
     val name = file.name.lowercase()
+    val ext = file.extension.lowercase()
     return when {
         name.endsWith(".pdf") -> OmniColors.PdfRedBg
         name.endsWith(".docx") || name.endsWith(".doc") -> OmniColors.DocBlueBg
@@ -109,6 +114,7 @@ private fun getFileIconBg(file: File): Color {
         name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp") || name.endsWith(".gif") -> OmniColors.ImgPurpleBg
         name.endsWith(".mp3") || name.endsWith(".wav") || name.endsWith(".m4a") || name.endsWith(".ogg") -> Color(0x1FF59E0B)
         name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi") || name.endsWith(".3gp") -> Color(0x1FEF4444)
+        ext in listOf("py", "kt", "java", "dart", "js", "ts", "tsx", "jsx", "cpp", "c", "h", "hpp", "cs", "php", "sql", "rb", "go", "rs", "swift", "sh", "json", "xml", "html", "css", "yaml", "yml", "gradle") -> Color(0x1F10B981)
         else -> OmniColors.Surface2
     }
 }

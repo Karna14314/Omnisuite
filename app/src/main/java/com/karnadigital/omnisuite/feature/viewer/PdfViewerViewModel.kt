@@ -158,10 +158,12 @@ class PdfViewerViewModel @Inject constructor(
 
                     // Graceful progressive loading: inspect page 0 immediately so page 1 displays instantly
                     val firstPageRatio = try {
-                        val page0 = renderer.openPage(0)
-                        val ratio = page0.width.toFloat() / page0.height.toFloat()
-                        page0.close()
-                        ratio
+                        synchronized(renderer) {
+                            val page0 = renderer.openPage(0)
+                            val ratio = page0.width.toFloat() / page0.height.toFloat()
+                            page0.close()
+                            ratio
+                        }
                     } catch (e: Exception) {
                         0.707f // A4 standard ratio
                     }
@@ -175,19 +177,19 @@ class PdfViewerViewModel @Inject constructor(
                         fileName = file.name
                     )
 
-                    // Progressively read exact subsequent page ratios and annotations in background
+                    // Progressively read exact subsequent page ratios and annotations in background via PDFBox without touching renderer
                     viewModelScope.launch(Dispatchers.IO) {
-                        for (i in 1 until pageCount) {
-                            try {
-                                val page = renderer.openPage(i)
-                                pageRatios[i] = page.width.toFloat() / page.height.toFloat()
-                                page.close()
-                            } catch (_: Exception) {}
-                        }
-
-                        // Background load existing annotations using PDFBox
                         try {
                             PDDocument.load(renderFile).use { doc ->
+                                for (i in 0 until doc.numberOfPages) {
+                                    val pg = doc.getPage(i)
+                                    val pageWidth = pg.mediaBox.width
+                                    val pageHeight = pg.mediaBox.height
+                                    if (pageHeight > 0f) {
+                                        pageRatios[i] = pageWidth / pageHeight
+                                    }
+                                }
+
                                 val annotationsMap = mutableMapOf<Int, List<TextNoteData>>()
                                 for (i in 0 until doc.numberOfPages) {
                                     val pg = doc.getPage(i)
@@ -211,7 +213,9 @@ class PdfViewerViewModel @Inject constructor(
                                 }
                                 _loadedAnnotations.value = annotationsMap
                             }
-                        } catch (_: Throwable) {}
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
 
                 } catch (e: Exception) {
@@ -307,6 +311,7 @@ class PdfViewerViewModel @Inject constructor(
             synchronized(renderer) {
                 if (pageIndex < 0 || pageIndex >= renderer.pageCount) return@withContext null
                 val page = renderer.openPage(pageIndex)
+                pageRatios[pageIndex] = page.width.toFloat() / page.height.toFloat()
                 try {
                     // Render at 1.5x scale, capped so A0/300dpi pages can't OOM.
                     var width = (page.width * 1.5f).toInt()

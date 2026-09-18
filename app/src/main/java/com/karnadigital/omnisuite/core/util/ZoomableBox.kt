@@ -21,93 +21,18 @@ fun ZoomableBox(
     lazyListState: LazyListState? = null,
     content: @Composable () -> Unit
 ) {
-    var scale by remember { mutableStateOf(1f) }
-    var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
     var size by remember { mutableStateOf(IntSize.Zero) }
-
-    // State to track multi-touch for cross-element pinch
-    var pinchStartDistance by remember { mutableFloatStateOf(0f) }
-    var pinchStartScale by remember { mutableFloatStateOf(1f) }
-    var isPinching by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .onSizeChanged { size = it }
             .pointerInput(Unit) {
-                // Interception layer: detect multi-touch BEFORE children process events
-                // This enables pinch-to-zoom even when fingers land on different pages
-                awaitPointerEventScope {
-                    while (true) {
-                        val firstDown = awaitFirstDown(requireUnconsumed = false)
-
-                        // Wait briefly to see if a second finger arrives
-                        var secondPointer: PointerInputChange? = null
-                        val deadline = System.nanoTime() + 150_000_000L // 150ms
-                        while (System.nanoTime() < deadline) {
-                            val event = awaitPointerEvent()
-                            val pressed = event.changes.filter { it.pressed }
-                            if (pressed.size >= 2) {
-                                secondPointer = pressed.firstOrNull { it.id != firstDown.id }
-                                break
-                            }
-                            if (!firstDown.pressed) break
-                        }
-
-                        if (secondPointer != null) {
-                            // Multi-touch detected: consume events to prevent child handling
-                            isPinching = true
-                            pinchStartDistance = (firstDown.position - secondPointer.position).getDistance()
-                            pinchStartScale = scale
-
-                            // Track and consume all events from both pointers
-                            do {
-                                val event = awaitPointerEvent()
-                                val p1 = event.changes.firstOrNull { it.id == firstDown.id }
-                                val p2 = event.changes.firstOrNull { it.id == secondPointer.id }
-
-                                if (p1 != null && p2 != null && p1.pressed && p2.pressed) {
-                                    val currentDist = (p1.position - p2.position).getDistance()
-                                    if (pinchStartDistance > 0) {
-                                        val zoomFactor = currentDist / pinchStartDistance
-                                        val newScale = (pinchStartScale * zoomFactor).coerceIn(minScale, maxScale)
-                                        scale = newScale
-                                        onScaleChanged(scale)
-                                    }
-                                    p1.consume()
-                                    p2.consume()
-                                }
-                            } while (event.changes.any {
-                                (it.id == firstDown.id || it.id == secondPointer.id) && it.pressed
-                            })
-                            isPinching = false
-                        }
-                    }
-                }
-            }
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(minScale, maxScale)
-                    if (newScale != scale) {
-                        scale = newScale
-                        onScaleChanged(scale)
-                    }
-
-                    if (scale > 1f) {
-                        val maxOffsetX = (size.width * (scale - 1f)) / 2f
-                        val maxOffsetY = (size.height * (scale - 1f)) / 2f
-                        offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
-                        offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                    } else {
-                        offsetX = 0f
-                        offsetY = 0f
-                    }
-                }
-            }
-            .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = {
-                        if (scale > 1f) {
+                        if (scale > 1.05f) {
                             scale = 1f
                             offsetX = 0f
                             offsetY = 0f
@@ -122,6 +47,66 @@ fun ZoomableBox(
                         onTap()
                     }
                 )
+            }
+            .pointerInput(Unit) {
+                forEachGesture {
+                    awaitPointerEventScope {
+                        var zoom = 1f
+                        var pan = Offset.Zero
+                        var pastTouchSlop = false
+                        val touchSlop = viewConfiguration.touchSlop
+
+                        awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val event = awaitPointerEvent()
+                            val canceled = event.changes.any { it.isConsumed }
+                            if (!canceled) {
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+
+                                if (!pastTouchSlop) {
+                                    zoom *= zoomChange
+                                    pan += panChange
+
+                                    val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                                    val zoomMotion = kotlin.math.abs(1 - zoom) * centroidSize
+                                    val panMotion = pan.getDistance()
+
+                                    if (zoomMotion > touchSlop || (scale > 1.05f && panMotion > touchSlop)) {
+                                        pastTouchSlop = true
+                                    }
+                                }
+
+                                if (pastTouchSlop) {
+                                    // When multi-touch pinch or zoomed in, consume and apply transforms
+                                    if (zoomChange != 1f || (scale > 1.05f && panChange != Offset.Zero)) {
+                                        val newScale = (scale * zoomChange).coerceIn(minScale, maxScale)
+                                        if (newScale != scale) {
+                                            scale = newScale
+                                            onScaleChanged(scale)
+                                        }
+
+                                        if (scale > 1.05f) {
+                                            val maxOffsetX = (size.width * (scale - 1f)) / 2f
+                                            val maxOffsetY = (size.height * (scale - 1f)) / 2f
+                                            offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                            offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                        } else {
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        }
+
+                                        event.changes.forEach {
+                                            if (it.positionChanged()) {
+                                                it.consume()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } while (!canceled && event.changes.any { it.pressed })
+                    }
+                }
             }
             .graphicsLayer(
                 scaleX = scale,

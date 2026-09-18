@@ -29,16 +29,16 @@ class MainActivity : ComponentActivity() {
                 val controller = rememberNavController()
                 navController = controller
                 
+                val initialStartDestination = if (externalUriString != null) {
+                    Screen.ViewerDispatcher.createRoute(externalUriString)
+                } else {
+                    Screen.MainShell.route
+                }
+                
                 OmniNavGraph(
                     navController = controller,
-                    startDestination = Screen.MainShell.route
+                    startDestination = initialStartDestination
                 )
-                
-                androidx.compose.runtime.LaunchedEffect(externalUriString) {
-                    if (externalUriString != null) {
-                        controller.navigate(Screen.ViewerDispatcher.createRoute(externalUriString))
-                    }
-                }
             }
         }
     }

@@ -47,6 +47,7 @@ import java.nio.charset.StandardCharsets
 @Composable
 fun TxtViewerScreen(
     fileUri: String,
+    originalUri: String? = null,
     onBack: () -> Unit,
     onToolAction: (ViewerTool) -> Unit = {},
     viewModel: TxtViewerViewModel = hiltViewModel()
@@ -64,6 +65,7 @@ fun TxtViewerScreen(
     var replaceQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<Int>>(emptyList()) }
     var currentMatchIndex by remember { mutableIntStateOf(-1) }
+    var caseSensitive by remember { mutableStateOf(false) }
     var showReplace by remember { mutableStateOf(false) }
 
     var showGoToLine by remember { mutableStateOf(false) }
@@ -79,7 +81,8 @@ fun TxtViewerScreen(
     var themeIndex by remember { mutableIntStateOf(0) }
 
     val fileExtension = remember {
-        fileUri.substringAfterLast('.', "").lowercase()
+        val targetName = originalUri ?: fileUri
+        targetName.substringAfterLast('.', "").lowercase()
     }
 
     val themes = listOf(
@@ -101,8 +104,8 @@ fun TxtViewerScreen(
         "go", "rs", "swift", "dart", "scala", "r", "lua", "pl"
     )
 
-    LaunchedEffect(fileUri) {
-        viewModel.loadTextFile(fileUri)
+    LaunchedEffect(fileUri, originalUri) {
+        viewModel.loadTextFile(fileUri, originalUri)
     }
 
     LaunchedEffect(loadState) {
@@ -269,18 +272,7 @@ fun TxtViewerScreen(
                             Icon(Icons.Default.Code, contentDescription = "Encoding")
                         }
                         IconButton(onClick = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) {
-                                    val file = File(fileUri)
-                                    val charset = try {
-                                        Charset.forName(currentEncoding)
-                                    } catch (e: Exception) {
-                                        StandardCharsets.UTF_8
-                                    }
-                                    file.bufferedWriter(charset).use { it.write(textFieldValue.text) }
-                                }
-                                viewModel.emitSaveStatus(true)
-                            }
+                            viewModel.saveTextFile(textFieldValue.text, currentEncoding)
                         }) {
                             Icon(Icons.Default.Save, contentDescription = "Save", tint = MaterialTheme.colorScheme.primary)
                         }

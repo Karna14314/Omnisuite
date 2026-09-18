@@ -1043,7 +1043,6 @@ fun InteractivePdfPageItem(
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf(false) }
-    var pageText by remember(pageIndex) { mutableStateOf("") }
     var pageTextData by remember { mutableStateOf<PageTextData?>(null) }
     var pageSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -1055,7 +1054,6 @@ fun InteractivePdfPageItem(
             } else {
                 renderError = true
             }
-            pageText = viewModel.extractTextFromPage(pageIndex)
         } catch (e: Exception) {
             e.printStackTrace()
             renderError = true
