@@ -21,6 +21,7 @@ jobs:
     env:
       VERSION_CODE_OFFSET: 2
       VERSION_PREFIX: '1.0'
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError\""
 
     steps:
       # 1. Checkout the repository
