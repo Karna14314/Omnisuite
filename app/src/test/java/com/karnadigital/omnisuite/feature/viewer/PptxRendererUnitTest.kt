@@ -7,6 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 import java.lang.reflect.Method
 
 /**
@@ -228,7 +229,7 @@ class PptxRendererUnitTest {
         val targetShape = if (initialSlides[0].title.id != "empty_title") initialSlides[0].title else initialSlides[0].textShapes[0]
         val targetId = targetShape.id
 
-        vm.updateShapeTextSync(0, targetId, "Line 1\nLine 2\nLine 3")
+        runBlocking { vm.updateShapeTextSync(0, targetId, "Line 1\nLine 2\nLine 3") }
 
         @Suppress("UNCHECKED_CAST")
         val slides = parseMethod.invoke(vm, ppt) as List<PptxSlide>
@@ -238,7 +239,7 @@ class PptxRendererUnitTest {
         assertEquals("Line 1\nLine 2\nLine 3", shape.fullText)
 
         // Update down to 1 line (test paragraph and run trimming):
-        vm.updateShapeTextSync(0, targetId, "Only Line")
+        runBlocking { vm.updateShapeTextSync(0, targetId, "Only Line") }
 
         @Suppress("UNCHECKED_CAST")
         val slidesAfterTrim = parseMethod.invoke(vm, ppt) as List<PptxSlide>
