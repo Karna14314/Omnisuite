@@ -160,7 +160,18 @@ data class PptxImage(
     /** True when sourced from an AutoShape spPr blipFill rather than a true p:pic. */
     val isShapeFill: Boolean = false,
     /** Parsed `<a:custGeom>` outline for clipping picture-fills of custom shapes. */
-    val customClip: CustomGeomPath? = null
+    val customClip: CustomGeomPath? = null,
+    /** Rotation from `<a:xfrm rot="...">`, in degrees. */
+    val rotationDegrees: Float = 0f,
+    /** Horizontal flip from `<a:xfrm flipH="1">`. */
+    val flipH: Boolean = false,
+    /** Vertical flip from `<a:xfrm flipV="1">`. */
+    val flipV: Boolean = false,
+    /**
+     * Opacity from `<a:blip><a:alphaModFix amt="...">`, 0..1. Template watermarks
+     * are typically drawn at ~20% and rendered fully opaque without this.
+     */
+    val alphaFactor: Float = 1f
 )
 
 data class PptxSlide(
@@ -708,19 +719,24 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     /**
-     * Resolves raw image bytes and contentType from a blip relationship ID on the slide.
+     * Resolves raw image bytes and contentType from a blip relationship ID.
+     *
+     * [owner] is the part the relationship actually lives on. A picture inherited
+     * from a slide layout or master registers its rId against that part, not
+     * against the slide, so resolving everything against the slide made inherited
+     * artwork disappear.
      */
-    private fun resolvePictureBytesFromBlipId(slide: Any, blipId: String): Pair<ByteArray, String?>? {
-        if (slide !is XSLFSlide) return null
+    private fun resolvePictureBytesFromBlipId(owner: Any, blipId: String): Pair<ByteArray, String?>? {
+        if (owner !is XSLFSlide) return null
         try {
-            val relDoc = slide.getRelationById(blipId)
+            val relDoc = owner.getRelationById(blipId)
             if (relDoc is XSLFPictureData) {
                 return Pair(relDoc.data, relDoc.contentType)
             }
         } catch (_: Throwable) { }
 
         try {
-            val sheetPart = slide.packagePart
+            val sheetPart = owner.packagePart
             val rel = sheetPart?.getRelationship(blipId)
             if (rel != null) {
                 val part = sheetPart.getRelatedPart(rel) ?: sheetPart.getPackage()?.getPart(rel)
@@ -731,12 +747,16 @@ class PptxViewerViewModel @Inject constructor(
             }
         } catch (_: Throwable) { }
 
+        // Last resort: scan every picture in the package. Part names are
+        // /ppt/media/imageN.png and never contain the relationship id, so matching
+        // on the id (as this used to) could never succeed.
         try {
-            val slideShow = slide.slideShow
+            val slideShow = owner.slideShow
             for (pd in slideShow.pictureData) {
-                if (pd.packagePart?.partName?.name?.contains(blipId, ignoreCase = true) == true) {
-                    return Pair(pd.data, pd.contentType)
-                }
+                try {
+                    val rel = pd.packagePart?.getRelationship(blipId) ?: continue
+                    if (rel != null) return Pair(pd.data, pd.contentType)
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { }
 
@@ -744,6 +764,31 @@ class PptxViewerViewModel @Inject constructor(
     }
 
     data class PicCrop(val l: Float = 0f, val t: Float = 0f, val r: Float = 0f, val b: Float = 0f)
+
+    private fun xmlFor(shape: Any): Any? = try { getXmlObjectReflection(shape) } catch (_: Throwable) { null }
+
+    /**
+     * Reads `<a:blip><a:alphaModFix amt>` / `<a:alphaMod amt>` as an opacity
+     * multiplier. Missing means fully opaque. Template watermark art relies on
+     * this and rendered as a solid block when it was ignored.
+     */
+    private fun extractBlipAlphaFactor(xml: Any?): Float {
+        if (xml == null) return 1f
+        return try {
+            val xmlStr = xml.toString()
+            var alpha = 1f
+            // alphaModFix must be excluded from the alphaMod pattern: a plain
+            // "alphaMod" match would also hit "alphaModFix" and apply the same
+            // factor twice (0.2 * 0.2 = 0.04).
+            for (m in Regex("""<[^>:/]*:?alphaModFix[^>]*amt=["'](\d+)["']""").findAll(xmlStr)) {
+                alpha *= (m.groupValues[1].toLongOrNull() ?: 100000L).toFloat() / 100000f
+            }
+            for (m in Regex("""<[^>:/]*:?alphaMod(?!Fix)[^>]*amt=["'](\d+)["']""").findAll(xmlStr)) {
+                alpha *= (m.groupValues[1].toLongOrNull() ?: 100000L).toFloat() / 100000f
+            }
+            alpha.coerceIn(0f, 1f)
+        } catch (_: Throwable) { 1f }
+    }
 
     private fun extractBlipCrop(xml: Any): PicCrop? {
         val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
@@ -772,6 +817,12 @@ class PptxViewerViewModel @Inject constructor(
      * Prioritizes modern vector graphics (SVG) in XML before falling back to POI raster PictureData.
      */
     private fun extractPictureDataFromShape(shape: Any, slide: Any): Triple<ByteArray, String?, PicCrop?>? {
+        // Relationships are registered against the sheet that owns the shape. A
+        // layout or master picture must be resolved against that part, not the slide.
+        val owner: Any = try {
+            (shape as? XSLFShape)?.parent ?: slide
+        } catch (_: Throwable) { slide }
+
         // Priority 1: Check XML for <asvg:svgBlip> or modern vector graphic embed ID FIRST
         try {
             val xml = getXmlObjectReflection(shape)
@@ -779,7 +830,8 @@ class PptxViewerViewModel @Inject constructor(
                 val crop = extractBlipCrop(xml)
                 val blipId = extractBlipEmbedId(xml)
                 if (!blipId.isNullOrBlank()) {
-                    val resolved = resolvePictureBytesFromBlipId(slide, blipId)
+                    val resolved = resolvePictureBytesFromBlipId(owner, blipId)
+                        ?: resolvePictureBytesFromBlipId(slide, blipId)
                     if (resolved != null) return Triple(resolved.first, resolved.second, crop)
                 }
             }
@@ -847,8 +899,11 @@ class PptxViewerViewModel @Inject constructor(
 
     private fun savePicBytesToTempFile(slideIndex: Int, dataBytes: ByteArray, contentType: String?, crop: PicCrop? = null): File {
         val cropSuffix = if (crop != null) "_c_${crop.l}_${crop.t}_${crop.r}_${crop.b}" else ""
-        val hash = dataBytes.contentHashCode().toString() + cropSuffix
-        val cacheKey = "${slideIndex}_$hash"
+        // A 32-bit contentHashCode collides often enough across a large deck to show
+        // the wrong image, so key the cache on a full SHA-1 digest.
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+            .digest(dataBytes).joinToString("") { "%02x".format(it) }
+        val cacheKey = "${slideIndex}_$digest$cropSuffix"
         val cachedFile = tempImageCache[cacheKey]
         if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
             return cachedFile
@@ -1383,6 +1438,30 @@ class PptxViewerViewModel @Inject constructor(
     /**
      * Extracts rotation in degrees (0..359) from shape XML xfrm.getRot().
      */
+    /** `<a:xfrm flipH="1">` — images had no flip support, so mirrored artwork rendered unmirrored. */
+    private fun extractXfrmFlipH(shape: Any): Boolean {
+        val xfrm = shapeXfrm(shape) ?: return false
+        return try { xfrm.javaClass.getMethod("getFlipH").invoke(xfrm) as? Boolean ?: false }
+        catch (_: Throwable) { false }
+    }
+
+    /** `<a:xfrm flipV="1">`. */
+    private fun extractXfrmFlipV(shape: Any): Boolean {
+        val xfrm = shapeXfrm(shape) ?: return false
+        return try { xfrm.javaClass.getMethod("getFlipV").invoke(xfrm) as? Boolean ?: false }
+        catch (_: Throwable) { false }
+    }
+
+    /** The `<a:xfrm>` of a shape, group or graphic frame. */
+    private fun shapeXfrm(shape: Any): Any? {
+        return try {
+            val xml = getXmlObjectReflection(shape) ?: return null
+            tryGetXfrm(xml, "getSpPr")
+                ?: tryGetXfrm(xml, "getGrpSpPr")
+                ?: try { xml.javaClass.getMethod("getXfrm").invoke(xml) } catch (_: Throwable) { null }
+        } catch (_: Throwable) { null }
+    }
+
     private fun extractShapeRotationDegrees(shape: Any): Float {
         try {
             val xml = getXmlObjectReflection(shape) ?: return 0f
@@ -1723,7 +1802,7 @@ class PptxViewerViewModel @Inject constructor(
                                         ?: resolvePictureBytesFromBlipId(slide, bgBlipId)
                                     if (resolved != null) {
                                         val bgFile = savePicBytesToTempFile(index, resolved.first, resolved.second)
-                                        backgroundImage = PptxImage(bgFile.absolutePath, 0f, 0f, 1f, 1f, id = "bg_$index")
+                                        backgroundImage = PptxImage(bgFile.absolutePath, 0f, 0f, 1f, 1f, id = "bg_$index", alphaFactor = extractBlipAlphaFactor(bg))
                                         break
                                     }
                                 }
@@ -1824,25 +1903,22 @@ class PptxViewerViewModel @Inject constructor(
 
                         val imgZOrder = shapeZOrder
                         val imgId = "img_${index}_${images.size}"
-                        if (isShapeFillPic) {
-                            // Picture-fill of a shape: keep geometry for clip, skip bg promotion
-                            // unless genuinely full-bleed.
-                            if (isBackground && backgroundImage == null) {
-                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
-                            } else {
-                                images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId, clipGeometry = earlyGeom, isShapeFill = true, customClip = earlyCustomPath))
-                            }
+                        val rot = extractShapeRotationDegrees(shape)
+                        val flipH = extractXfrmFlipH(shape)
+                        val flipV = extractXfrmFlipV(shape)
+                        val alpha = extractBlipAlphaFactor(xmlFor(shape))
+                        // A full-bleed picture is still real content. It is promoted to the
+                        // background slot only when that slot is free and is otherwise kept
+                        // at its real bounds -- previously the else branch was never taken
+                        // once a background existed, so the picture was dropped entirely.
+                        if (isBackground && backgroundImage == null && isTruePic) {
+                            backgroundImage = PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = "bg_${index}", alphaFactor = alpha)
+                        } else if (isShapeFillPic) {
+                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId, clipGeometry = earlyGeom, isShapeFill = true, customClip = earlyCustomPath, rotationDegrees = rot, flipH = flipH, flipV = flipV, alphaFactor = alpha))
                         } else if (isTruePic) {
-                            if (isBackground && backgroundImage == null) {
-                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
-                            } else {
-                                images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId))
-                            }
-                        } else {
-                            // Unknown host (connector/group child): only keep if full-bleed bg.
-                            if (isBackground && backgroundImage == null) {
-                                backgroundImage = PptxImage(file.absolutePath, 0f, 0f, 1f, 1f, imgZOrder, id = "bg_${index}")
-                            }
+                            images.add(PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = imgId, rotationDegrees = rot, flipH = flipH, flipV = flipV, alphaFactor = alpha))
+                        } else if (isBackground && backgroundImage == null) {
+                            backgroundImage = PptxImage(file.absolutePath, left, top, width, height, imgZOrder, id = "bg_${index}", alphaFactor = alpha)
                         }
                     }
 

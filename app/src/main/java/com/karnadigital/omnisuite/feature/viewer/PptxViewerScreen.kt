@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -2243,7 +2244,7 @@ fun SlideCardItem(
                     .build()
             }
 
-            // LAYER 1: Background Image (bottom layer, full slide coverage)
+            // LAYER 1: Background Image (bottom layer, at its real bounds)
             slide.backgroundImage?.let { bgImg ->
                 AsyncImage(
                     model = ImageRequest.Builder(context)
@@ -2252,7 +2253,13 @@ fun SlideCardItem(
                         .build(),
                     imageLoader = imageLoader,
                     contentDescription = "Slide Background",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = if (bgImg.left <= 0f && bgImg.top <= 0f && bgImg.width >= 1f && bgImg.height >= 1f) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier
+                            .offset(x = (bgImg.left * slideW).dp, y = (bgImg.top * slideH).dp)
+                            .size(width = (bgImg.width * slideW).dp, height = (bgImg.height * slideH).dp)
+                    },
                     contentScale = ContentScale.FillBounds
                 )
             }
@@ -2290,6 +2297,20 @@ fun SlideCardItem(
                                 .offset(x = (element.image.left * slideW).dp, y = (element.image.top * slideH).dp)
                                 .offset { IntOffset(dragOffsetX.roundToInt(), dragOffsetY.roundToInt()) }
                                 .size(width = (element.image.width * slideW).dp, height = (element.image.height * slideH).dp)
+                                .then(
+                                    if (element.image.rotationDegrees != 0f) Modifier.rotate(element.image.rotationDegrees)
+                                    else Modifier
+                                )
+                                .then(
+                                    // Mirrored artwork is common in templates; without this the
+                                    // image rendered unmirrored.
+                                    when {
+                                        element.image.flipH && element.image.flipV -> Modifier.scale(scaleX = -1f, scaleY = -1f)
+                                        element.image.flipH -> Modifier.scale(scaleX = -1f, scaleY = 1f)
+                                        element.image.flipV -> Modifier.scale(scaleX = 1f, scaleY = -1f)
+                                        else -> Modifier
+                                    }
+                                )
                                 .clip(imgClip)
                                 .then(
                                     if (isImgSelected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, imgClip)
@@ -2325,7 +2346,9 @@ fun SlideCardItem(
                                         Modifier.clickable { onImageClick?.invoke(element.image) }
                                     } else Modifier
                                 ),
-                            contentScale = if (element.image.isShapeFill) ContentScale.Crop else ContentScale.Fit
+                            // PowerPoint stretches a <p:pic> to its <a:xfrm> extents; it does not
+                            // letterbox. Shape fills are cropped to the shape's geometry instead.
+                            contentScale = if (element.image.isShapeFill) ContentScale.Crop else ContentScale.FillBounds
                         )
                     }
                     is SlideElement.TextElement -> {
