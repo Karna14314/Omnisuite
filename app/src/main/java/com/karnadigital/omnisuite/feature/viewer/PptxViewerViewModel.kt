@@ -30,6 +30,7 @@ import org.apache.poi.xslf.usermodel.XSLFShape
 import org.apache.poi.xslf.usermodel.XSLFPictureData
 import org.apache.poi.xslf.usermodel.XSLFTextParagraph
 import org.apache.poi.xslf.usermodel.XSLFTextRun
+import org.apache.poi.xslf.usermodel.XSLFTable
 import org.apache.poi.xslf.usermodel.XSLFTextShape
 import android.util.Base64
 import java.io.File
@@ -227,17 +228,17 @@ class PptxViewerViewModel @Inject constructor(
     private val _currentMatchIndex = MutableStateFlow(-1)
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
+    /**
+     * XSLFShape.getXmlObject() is public final; graphic-frame subclasses such as
+     * XSLFTable return their CTGraphicalObjectFrame from it. There is no
+     * fetchXmlObject anywhere in POI, so a null result here means the shape simply
+     * has no XMLBeans backing object — previously the dead second branch hid that.
+     */
     private fun getXmlObjectReflection(obj: Any): Any? {
         return try {
             obj.javaClass.getMethod("getXmlObject").invoke(obj)
-        } catch (t: Throwable) {
-            try {
-                val method = obj.javaClass.getDeclaredMethod("fetchXmlObject")
-                method.isAccessible = true
-                method.invoke(obj)
-            } catch (t2: Throwable) {
-                null
-            }
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -281,6 +282,20 @@ class PptxViewerViewModel @Inject constructor(
      * 2. If placeholder without direct xfrm, resolves from Slide Layout or Slide Master.
      * 3. Falls back to reflection getAnchor() if available.
      */
+    /**
+     * Clamps a normalized [x, y, w, h] rect to the slide so that x+w and y+h can
+     * never exceed 1. Clamping each component independently used to leave a shape
+     * anchored at x=1.0 with a full width, which the view model's width clamp then
+     * collapsed into a 5%-wide sliver.
+     */
+    private fun clampRect(x: Float, y: Float, w: Float, h: Float): FloatArray {
+        val cx = x.coerceIn(0f, 0.99f)
+        val cy = y.coerceIn(0f, 0.99f)
+        val cw = w.coerceIn(0.001f, 1f - cx)
+        val ch = h.coerceIn(0.001f, 1f - cy)
+        return floatArrayOf(cx, cy, cw, ch)
+    }
+
     private fun getShapeNormalizedBounds(
         shape: Any,
         slide: Any?,
@@ -330,11 +345,11 @@ class PptxViewerViewModel @Inject constructor(
                 val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700.0 else 540.0
 
                 if (x != null && y != null && w != null && h != null && w > 0 && h > 0) {
-                    return floatArrayOf(
-                        (x / slideWPt).toFloat().coerceIn(0f, 1f),
-                        (y / slideHPt).toFloat().coerceIn(0f, 1f),
-                        (w / slideWPt).toFloat().coerceIn(0.01f, 1f),
-                        (h / slideHPt).toFloat().coerceIn(0.01f, 1f)
+                    return clampRect(
+                        (x / slideWPt).toFloat(),
+                        (y / slideHPt).toFloat(),
+                        (w / slideWPt).toFloat(),
+                        (h / slideHPt).toFloat()
                     )
                 }
             }
@@ -427,11 +442,11 @@ class PptxViewerViewModel @Inject constructor(
                     parentShape = parentShape.parent
                 }
 
-                return floatArrayOf(
-                    (curX.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
-                    (curY.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
-                    (curCx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.001f, 1f),
-                    (curCy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.001f, 1f)
+                return clampRect(
+                    curX.toFloat() / slideWidthEmu.toFloat(),
+                    curY.toFloat() / slideHeightEmu.toFloat(),
+                    curCx.toFloat() / slideWidthEmu.toFloat(),
+                    curCy.toFloat() / slideHeightEmu.toFloat()
                 )
             }
         } catch (_: Throwable) { }
@@ -600,36 +615,36 @@ class PptxViewerViewModel @Inject constructor(
         val w = if (slideWidthEmu > 0) slideWidthEmu.toFloat() else 9144000f
         val h = if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f
         try {
-            val xml = getXmlObjectReflection(shape) ?: return null
-            val tbl = try { xml.javaClass.getMethod("getTbl").invoke(xml) } catch (_: Throwable) { null } ?: return null
+            // A table is an XSLFTable, whose getXmlObject() returns a
+            // CTGraphicalObjectFrame — that type has no getTbl(), so the previous
+            // reflective lookup always failed and every table fell back to equal
+            // column widths and equal row heights. XSLFTable.getCTTable() is public.
+            val tbl = (shape as? XSLFTable)?.ctTable ?: return null
 
             val gridCols = try {
-                @Suppress("UNCHECKED_CAST")
-                val list = tbl.javaClass.getMethod("getGridColList").invoke(tbl) as? List<*>
-                list?.map { col -> extractLongAttr(col, "getW") ?: 0L } ?: emptyList()
+                tbl.tblGrid?.gridColList?.map { col -> (col.w as? Number)?.toLong() ?: 0L } ?: emptyList()
             } catch (_: Throwable) { emptyList() }
 
+            // tcPr margins are a union type (Object), so unwrap explicitly.
+            fun margin(v: Any?, default: Long): Long = when (v) {
+                is Number -> v.toLong()
+                null -> default
+                else -> extractLongValue(v) ?: default
+            }
+
             val rows = try {
-                @Suppress("UNCHECKED_CAST")
-                val rowList = tbl.javaClass.getMethod("getTrList").invoke(tbl) as? List<*>
-                rowList?.map { tr ->
-                    val trObj = tr ?: return@map TableRow(0L, emptyList())
-                    val rowH = extractLongAttr(trObj, "getH") ?: 0L
-                    val cells = try {
-                        @Suppress("UNCHECKED_CAST")
-                        val tcList = trObj.javaClass.getMethod("getTcList").invoke(trObj) as? List<*>
-                        tcList?.map { tc ->
-                            val tcPr = try { tc?.javaClass?.getMethod("getTcPr")?.invoke(tc) } catch (_: Throwable) { null }
-                            CellMargins(
-                                left = ((extractLongAttr(tcPr, "getMarL") ?: 45720L).toFloat() / w),
-                                top = ((extractLongAttr(tcPr, "getMarT") ?: 45720L).toFloat() / h),
-                                right = ((extractLongAttr(tcPr, "getMarR") ?: 45720L).toFloat() / w),
-                                bottom = ((extractLongAttr(tcPr, "getMarB") ?: 45720L).toFloat() / h)
-                            )
-                        } ?: emptyList()
-                    } catch (_: Throwable) { emptyList<CellMargins>() }
-                    TableRow(rowH, cells)
-                } ?: emptyList()
+                tbl.trList.map { tr ->
+                    val cells = tr.tcList.map { tc ->
+                        val tcPr = tc.tcPr
+                        CellMargins(
+                            left = (margin(tcPr?.marL, 45720L).toFloat() / w),
+                            top = (margin(tcPr?.marT, 45720L).toFloat() / h),
+                            right = (margin(tcPr?.marR, 45720L).toFloat() / w),
+                            bottom = (margin(tcPr?.marB, 45720L).toFloat() / h)
+                        )
+                    }
+                    TableRow((tr.h as? Number)?.toLong() ?: 0L, cells)
+                }
             } catch (_: Throwable) { emptyList<TableRow>() }
 
             return TableGeometry(gridCols, rows)
@@ -1795,10 +1810,14 @@ class PptxViewerViewModel @Inject constructor(
                     if (picTriple != null && picTriple.first.isNotEmpty()) {
                         val file = savePicBytesToTempFile(index, picTriple.first, picTriple.second, picTriple.third)
                         val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
-                        val left = bounds?.get(0) ?: 0.05f
-                        val top = bounds?.get(1) ?: 0.3f
-                        val width = bounds?.get(2) ?: 0.6f
-                        val height = bounds?.get(3) ?: 0.4f
+                        if (bounds == null) {
+                            android.util.Log.d("PptxParser", "slide $index: unresolved bounds for picture '${shape.shapeName}', skipping")
+                            continue
+                        }
+                        val left = bounds[0]
+                        val top = bounds[1]
+                        val width = bounds[2]
+                        val height = bounds[3]
 
                         val imageArea = width * height
                         val isBackground = imageArea >= 0.85f && left <= 0.05f && top <= 0.05f
@@ -1850,10 +1869,19 @@ class PptxViewerViewModel @Inject constructor(
                         } else false
 
                         val bounds = getShapeNormalizedBounds(shape, slide, slideWidthEmu, slideHeightEmu)
+                        if (bounds == null && shapeText.isBlank()) {
+                            // No position and no content: dropping it is correct. Inventing
+                            // a slot here used to stack unrelated shapes into a fake column
+                            // that overlapped real content.
+                            android.util.Log.d("PptxParser", "slide $index: no bounds or text for '${shape.shapeName}', skipping")
+                            continue
+                        }
+                        // Text must still render even when its anchor cannot be resolved —
+                        // losing content is worse than a default position.
                         val shapeLeft = bounds?.get(0) ?: 0.05f
-                        val shapeTop = bounds?.get(1) ?: (if (isTitle) 0.05f else (0.22f + bodyCount * 0.12f).coerceAtMost(0.85f))
+                        val shapeTop = bounds?.get(1) ?: 0.05f
                         val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                        val shapeHeightVal = bounds?.get(3) ?: (if (isTitle) 0.15f else 0.35f)
+                        val shapeHeightVal = bounds?.get(3) ?: 0.35f
 
                         val paragraphs = if (isTextShape) try { (shape as org.apache.poi.sl.usermodel.TextShape<*, *>).textParagraphs } catch (t: Throwable) { emptyList() } else emptyList()
                         val shapeParagraphs = mutableListOf<PptxParagraph>()
@@ -1988,7 +2016,7 @@ class PptxViewerViewModel @Inject constructor(
                             val isDistinctTitle = isTitle && titleShape == null
                             val textZOrder = shapeZOrder
                             val bodyPr = extractBodyPr(shape, slideWidthEmu, slideHeightEmu)
-                            val clampedWidth = shapeWidthVal.coerceAtMost((1f - shapeLeft).coerceAtLeast(0.05f))
+
                             val sId = try { (shape as? XSLFShape)?.shapeId } catch (_: Throwable) { null }
                             val rotDeg = extractShapeRotationDegrees(shape)
                             val isBgShape = (shapeWidthVal >= 0.88f && shapeHeightVal >= 0.88f && shapeParagraphs.isEmpty()) ||
@@ -2001,7 +2029,7 @@ class PptxViewerViewModel @Inject constructor(
                                 shapeBorder = shapeBorder,
                                 shapeLeft = shapeLeft,
                                 shapeTop = shapeTop,
-                                shapeWidth = clampedWidth,
+                                shapeWidth = shapeWidthVal,
                                 shapeHeight = shapeHeightVal,
                                 backgroundColorHex = shapeBg,
                                 zOrder = textZOrder,
@@ -2054,10 +2082,15 @@ class PptxViewerViewModel @Inject constructor(
                                 val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
                                 val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
                                 if (text.isNotBlank()) {
+                                    // A horizontally or vertically merged cell occupies the
+                                    // span of the cells it absorbs, so widen the box and skip
+                                    // the continuation targets.
+                                    val gridSpan = (try { cell.gridSpan } catch (_: Throwable) { 1 }).coerceAtLeast(1)
+                                    val lastC = (c + gridSpan).coerceAtMost(numCols)
                                     val cellLeft = (tLeft + colOffset[c] * tWidth).coerceIn(0f, 1f)
                                     val cellTop = (tTop + rowOffset[r] * tHeight).coerceIn(0f, 1f)
-                                    val cellW = ((colOffset[c + 1] - colOffset[c]) * tWidth).coerceIn(0.05f, 1f)
-                                    val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.05f, 1f)
+                                    val cellW = ((colOffset[lastC] - colOffset[c]) * tWidth).coerceIn(0.01f, 1f - cellLeft)
+                                    val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.01f, 1f - cellTop)
 
                                     val cellParas = try { cell.textParagraphs } catch (_: Throwable) { emptyList() }
                                     val cellShapeParas = mutableListOf<PptxParagraph>()
@@ -2137,13 +2170,33 @@ class PptxViewerViewModel @Inject constructor(
                                             bottom = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f)
                                         )
 
+                                    // Read the cell's real outline from <a:tcPr><a:lnL> instead
+                                    // of stamping a hardcoded grey on every cell. POI's
+                                    // getBorderColor returns java.awt.Color, unavailable on
+                                    // Android, so the colour is read straight from the XML.
+                                    val cellBorder = try {
+                                        val tcPr = (shape as? XSLFTable)?.ctTable
+                                            ?.getTrList()?.getOrNull(r)?.getTcList()?.getOrNull(c)?.tcPr
+                                        val ln = tcPr?.lnL
+                                        // srgbClr/@val is a 3-byte RGB triple.
+                                        val rgb = ln?.solidFill?.srgbClr?.getVal()
+                                        if (rgb != null && rgb.size >= 3) {
+                                            val hex = "#%02X%02X%02X".format(
+                                                rgb[0].toInt() and 0xFF, rgb[1].toInt() and 0xFF, rgb[2].toInt() and 0xFF
+                                            )
+                                            val wEmu = ln.w
+                                            val dp = if (wEmu > 0) (wEmu / 12700f) else 0.75f
+                                            ShapeBorder(hex, dp.coerceIn(0.25f, 4f))
+                                        } else null
+                                    } catch (_: Throwable) { null }
+
                                     textShapes.add(
                                         PptxTextShape(
                                             id = "table_cell_${r}_${c}",
                                             isTitle = false,
                                             paragraphs = cellShapeParas,
                                             shapeGeometry = ShapeGeometryType.RECTANGLE,
-                                            shapeBorder = ShapeBorder(strokeColorHex = "#CBD5E1", strokeWidthDp = 1f),
+                                            shapeBorder = cellBorder,
                                             shapeLeft = cellLeft,
                                             shapeTop = cellTop,
                                             shapeWidth = cellW,
