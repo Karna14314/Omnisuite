@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.karnadigital.omnisuite.core.engine.SearchResult
 import com.karnadigital.omnisuite.core.util.CustomGeomPath
+import com.karnadigital.omnisuite.core.util.PptxStyleResolver
+import com.karnadigital.omnisuite.core.util.ResolvedRunStyle
+import com.karnadigital.omnisuite.core.util.ThemeFontScheme
 import com.karnadigital.omnisuite.core.util.parseCustomGeomPath
 import com.karnadigital.omnisuite.core.model.RecentFile
 import com.karnadigital.omnisuite.core.repository.RecentFileRepository
@@ -62,11 +65,20 @@ data class Insets(
 /** Autofit mode from `<a:bodyPr>` — shrink text, resize shape, or none. */
 enum class AutoFitMode { NONE, NORM_AUTOFIT, SP_AUTO_FIT }
 
+/** Vertical text alignment from `<a:bodyPr anchor="t|ctr|b">`. */
+enum class VerticalAnchor { TOP, CENTER, BOTTOM }
+
 data class PptxParagraph(
     val runs: List<PptxTextRun>,
     val bulletLevel: Int = 0,
     val hasBullet: Boolean = false,
     val bulletChar: String = "•",
+    /** Typeface for the bullet glyph from `<a:buFont>` (e.g. Wingdings). */
+    val bulletFont: String? = null,
+    /** Bullet colour from `<a:buClr>`, as #RRGGBB. */
+    val bulletColorHex: String? = null,
+    /** Bullet size as a percentage of text size from `<a:buSzPct val="...">`. */
+    val bulletSizePct: Float? = null,
     val alignment: String = "LEFT", // "LEFT", "CENTER", "RIGHT", "JUSTIFY"
     val spaceBeforePt: Float = 0f,
     val spaceAfterPt: Float = 0f,
@@ -121,7 +133,9 @@ data class PptxTextShape(
     /** True if shape is full-bleed background or master layout decorative shape. */
     val isBackgroundShape: Boolean = false,
     /** Parsed `<a:custGeom>` outline; renderer prefers it over [shapeGeometry]. */
-    val customPath: CustomGeomPath? = null
+    val customPath: CustomGeomPath? = null,
+    /** Vertical text alignment from `<a:bodyPr anchor>`. */
+    val verticalAnchor: VerticalAnchor = VerticalAnchor.TOP
 ) {
     val fullText: String get() = paragraphs.joinToString("\n") { it.fullText }
     val primaryText: String get() = paragraphs.firstOrNull()?.primaryText ?: ""
@@ -226,6 +240,22 @@ class PptxViewerViewModel @Inject constructor(
             }
         }
     }
+
+    /** Reflectively reads a String-valued XMLBeans property, e.g. `getBuChar().getChar()`. */
+    private fun xmlStringProp(parent: Any?, getter: String, prop: String): String? = try {
+        parent?.javaClass?.getMethod(getter)?.invoke(parent)
+            ?.javaClass?.getMethod(prop)?.invoke(parent.javaClass.getMethod(getter).invoke(parent)) as? String
+    } catch (_: Throwable) { null }
+
+    /** Reflectively reads an Int-valued XMLBeans property, e.g. `getBuSzPct().getVal()`. */
+    private fun xmlIntProp(parent: Any?, getter: String, prop: String): Int? = try {
+        val v = parent?.javaClass?.getMethod(getter)?.invoke(parent)
+            ?.javaClass?.getMethod(prop)?.invoke(parent.javaClass.getMethod(getter).invoke(parent))
+        when (v) {
+            is Number -> v.toInt()
+            else -> v?.toString()?.toIntOrNull()
+        }
+    } catch (_: Throwable) { null }
 
     private fun extractLongValue(obj: Any?): Long? {
         if (obj == null) return null
@@ -446,12 +476,15 @@ class PptxViewerViewModel @Inject constructor(
         var autoFit = AutoFitMode.NONE
         var fontScale: Int? = null
         var lnSpcReduction: Int? = null
+        var anchor = VerticalAnchor.TOP
         try {
-            val xml = getXmlObjectReflection(shape) ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
-            val txBody = try { xml.javaClass.getMethod("getTxBody").invoke(xml) } catch (_: Throwable) { null }
-                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
-            val bodyPr = try { txBody.javaClass.getMethod("getBodyPr").invoke(txBody) } catch (_: Throwable) { null }
-                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+            // Typed XMLBeans access: reflective getMethod on the ooxml schema classes
+            // can fail with NoClassDefFoundError (CTFlatText) on the Android classloader.
+            val xml = getXmlObjectReflection(shape) ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction, anchor)
+            val txBody = (xml as? org.openxmlformats.schemas.presentationml.x2006.main.CTShape)?.txBody
+                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction, anchor)
+            val bodyPr = txBody.bodyPr
+                ?: return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction, anchor)
 
             val lIns = extractLongAttr(bodyPr, "getLIns")
             val tIns = extractLongAttr(bodyPr, "getTIns")
@@ -465,7 +498,7 @@ class PptxViewerViewModel @Inject constructor(
             )
 
             // normAutofit (shrink text on overflow)
-            val normAuto = try { bodyPr.javaClass.getMethod("getNormAutofit").invoke(bodyPr) } catch (_: Throwable) { null }
+            val normAuto = try { bodyPr.normAutofit } catch (_: Throwable) { null }
             if (normAuto != null) {
                 autoFit = AutoFitMode.NORM_AUTOFIT
                 fontScale = try {
@@ -479,19 +512,31 @@ class PptxViewerViewModel @Inject constructor(
             }
 
             // spAutoFit (resize shape to fit text) — only if normAutofit not present
-            val spAuto = try { bodyPr.javaClass.getMethod("getSpAutoFit").invoke(bodyPr) } catch (_: Throwable) { null }
+            val spAuto = try { bodyPr.spAutoFit } catch (_: Throwable) { null }
             if (spAuto != null && autoFit == AutoFitMode.NONE) {
                 autoFit = AutoFitMode.SP_AUTO_FIT
             }
+
+            // Vertical text alignment: a:bodyPr/@anchor (t | ctr | b | just).
+            // Read via the typed CT accessor — reflective getMethod on the schema
+            // classes fails with NoClassDefFoundError (CTFlatText) on Android.
+            anchor = try {
+                when (bodyPr.anchor) {
+                    org.openxmlformats.schemas.drawingml.x2006.main.STTextAnchoringType.CTR -> VerticalAnchor.CENTER
+                    org.openxmlformats.schemas.drawingml.x2006.main.STTextAnchoringType.B -> VerticalAnchor.BOTTOM
+                    else -> VerticalAnchor.TOP
+                }
+            } catch (_: Throwable) { VerticalAnchor.TOP }
         } catch (_: Throwable) { }
-        return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction)
+        return BodyPrResult(insets, autoFit, fontScale, lnSpcReduction, anchor)
     }
 
     private data class BodyPrResult(
         val insets: Insets,
         val autoFit: AutoFitMode,
         val fontScale: Int?,
-        val lnSpcReduction: Int?
+        val lnSpcReduction: Int?,
+        val anchor: VerticalAnchor = VerticalAnchor.TOP
     )
 
     /**
@@ -1104,22 +1149,25 @@ class PptxViewerViewModel @Inject constructor(
 
     /**
      * Extracts typeface name from text run properties or XML latin tag.
+     * Theme references (`+mj-lt`/`+mn-lt`) are resolved against the active font
+     * scheme rather than discarded, which is what previously forced every themed
+     * deck to fall back to the system sans-serif.
      */
-    private fun extractRunTypeface(r: org.apache.poi.sl.usermodel.TextRun): String? {
-        val family = try { r.fontFamily } catch (_: Throwable) { null }
-        if (!family.isNullOrBlank() && !family.startsWith("org.apache.poi") && !family.startsWith("org.apache.xmlbeans") && !family.startsWith("+m")) {
-            return family
+    private fun extractRunTypeface(r: org.apache.poi.sl.usermodel.TextRun, themeFonts: ThemeFontScheme = ThemeFontScheme()): String? {
+        fun clean(raw: String?): String? {
+            if (raw.isNullOrBlank()) return null
+            if (raw.startsWith("org.apache.poi") || raw.startsWith("org.apache.xmlbeans")) return null
+            return themeFonts.resolve(raw)
         }
+        clean(try { r.fontFamily } catch (_: Throwable) { null })?.let { return it }
         if (r is XSLFTextRun) {
             try {
                 val xmlRun = getXmlObjectReflection(r)
-                if (xmlRun != null) {
-                    val rPr = try { xmlRun.javaClass.getMethod("getRPr").invoke(xmlRun) } catch (_: Throwable) { null }
-                    if (rPr != null) {
-                        val latin = try { rPr.javaClass.getMethod("getLatin").invoke(rPr) } catch (_: Throwable) { null }
-                        val typeface = try { latin?.javaClass?.getMethod("getTypeface")?.invoke(latin) as? String } catch (_: Throwable) { null }
-                        if (!typeface.isNullOrBlank() && !typeface.startsWith("+m")) return typeface
-                    }
+                val rPr = try { xmlRun?.javaClass?.getMethod("getRPr")?.invoke(xmlRun) } catch (_: Throwable) { null }
+                if (rPr != null) {
+                    val latin = try { rPr.javaClass.getMethod("getLatin").invoke(rPr) } catch (_: Throwable) { null }
+                    val typeface = try { latin?.javaClass?.getMethod("getTypeface")?.invoke(latin) as? String } catch (_: Throwable) { null }
+                    clean(typeface)?.let { return it }
                 }
             } catch (_: Throwable) {}
         }
@@ -1339,10 +1387,36 @@ class PptxViewerViewModel @Inject constructor(
 
     private fun extractParagraphRunsWithLineBreaks(
         p: org.apache.poi.sl.usermodel.TextParagraph<*, *, *>,
-        isTitle: Boolean
+        isTitle: Boolean,
+        bulletLevel: Int = 0,
+        ownerShape: org.apache.poi.xslf.usermodel.XSLFTextShape? = null,
+        ownerSlide: org.apache.poi.xslf.usermodel.XSLFSlide? = null,
+        ownerPpt: org.apache.poi.xslf.usermodel.XMLSlideShow? = null,
+        themeFonts: ThemeFontScheme = ThemeFontScheme()
     ): List<PptxTextRun> {
         val runs = mutableListOf<PptxTextRun>()
         val pRuns: List<org.apache.poi.sl.usermodel.TextRun> = try { p.textRuns } catch (t: Throwable) { emptyList() }
+
+        /**
+         * Effective properties for a run: explicit `a:rPr` first, then the full
+         * OOXML inheritance chain. POI returns null for an unset `sz`, which is
+         * the normal case for text inherited from a layout, so the resolved value
+         * is what must drive the rendered size.
+         */
+        fun styleFor(r: org.apache.poi.sl.usermodel.TextRun): ResolvedRunStyle {
+            val resolved = PptxStyleResolver.resolveRunStyle(
+                run = r as? XSLFTextRun,
+                shape = ownerShape,
+                slide = ownerSlide,
+                ppt = ownerPpt,
+                themeFonts = themeFonts,
+                isTitle = isTitle,
+                level = bulletLevel
+            )
+            val size = resolved.fontSizePt
+                ?: try { r.fontSize?.toFloat() } catch (_: Throwable) { null }
+            return resolved.copy(fontSizePt = size)
+        }
         val pText = try { (p as? XSLFTextParagraph)?.text ?: pRuns.joinToString("") { it.rawText ?: "" } } catch (t: Throwable) { "" }
 
         // Check if paragraph XML contains <a:br> line breaks
@@ -1363,7 +1437,10 @@ class PptxViewerViewModel @Inject constructor(
                         val last = runs.removeAt(runs.size - 1)
                         runs.add(last.copy(text = last.text + "\n"))
                     } else {
-                        runs.add(PptxTextRun(text = "\n", isBold = isTitle, fontSizePt = if (isTitle) 24f else 14f))
+                        // A leading <a:br> has no run to inherit from; size it from the
+                        // first run in the paragraph, or the built-in default.
+                        val brSize = pRuns.firstOrNull()?.let { styleFor(it).fontSizePt }
+                        runs.add(PptxTextRun(text = "\n", isBold = isTitle, fontSizePt = brSize ?: if (isTitle) 24f else 14f))
                     }
                 } else if (nodeName == "a:r" || nodeName == "r") {
                     if (runIdx < pRuns.size) {
@@ -1411,13 +1488,13 @@ class PptxViewerViewModel @Inject constructor(
                 }
                 rText = cleanTextRunString(rText)
                 if (rText.isNotEmpty()) {
-                    val isBold = try { r.isBold } catch (t: Throwable) { isTitle }
-                    val isItalic = try { r.isItalic } catch (t: Throwable) { false }
-                    val isUnderline = try { r.isUnderlined } catch (t: Throwable) { false }
+                    val st = styleFor(r)
+                    val isBold = st.isBold ?: try { r.isBold } catch (t: Throwable) { isTitle }
+                    val isItalic = st.isItalic ?: false
+                    val isUnderline = st.isUnderline ?: false
                     val colorHex = extractTextRunColorHex(r)
-                    val fSize: Double? = try { r.fontSize } catch (t: Throwable) { null }
-                    val fontSizePt = if (fSize != null && fSize > 0.0) fSize.toFloat() else (if (isTitle) 24f else 14f)
-                    val family = extractRunTypeface(r)
+                    val fontSizePt = st.fontSizePt ?: (if (isTitle) 24f else 14f)
+                    val family = st.typeface ?: extractRunTypeface(r)
                     runs.add(PptxTextRun(rText, isBold, isItalic, isUnderline, colorHex, fontSizePt, family))
                 }
             }
@@ -1431,7 +1508,8 @@ class PptxViewerViewModel @Inject constructor(
                 !cleaned.startsWith("org.apache.xmlbeans") &&
                 !(cleaned.startsWith("<") && cleaned.endsWith(">"))
             ) {
-                runs.add(PptxTextRun(text = cleaned, isBold = isTitle, fontSizePt = if (isTitle) 24f else 14f))
+                val fallbackSize = pRuns.firstOrNull()?.let { styleFor(it).fontSizePt }
+                runs.add(PptxTextRun(text = cleaned, isBold = isTitle, fontSizePt = fallbackSize ?: (if (isTitle) 24f else 14f)))
             }
         }
 
@@ -1601,6 +1679,9 @@ class PptxViewerViewModel @Inject constructor(
         val slides = mutableListOf<PptxSlide>()
 
         getThemeColors().clear()
+        val themeFonts = PptxStyleResolver.extractThemeFontScheme(
+            ppt as? XMLSlideShow, ppt.slides.firstOrNull() as? XSLFSlide
+        )
         if (ppt.slides.isNotEmpty()) {
             getThemeColors().putAll(extractThemeColorScheme(ppt.slides[0]))
         }
@@ -1779,10 +1860,13 @@ class PptxViewerViewModel @Inject constructor(
 
                         if (paragraphs.isNotEmpty()) {
                             for (p in paragraphs) {
-                                val paragraphRuns = extractParagraphRunsWithLineBreaks(p, isTitle)
+                                val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
+                                val paragraphRuns = extractParagraphRunsWithLineBreaks(
+                                    p, isTitle, bulletLevel,
+                                    shape as? XSLFTextShape, slide as? XSLFSlide, ppt as? XMLSlideShow, themeFonts
+                                )
 
                                 if (paragraphRuns.isNotEmpty()) {
-                                    val bulletLevel = try { p.indentLevel } catch (t: Throwable) { 0 }
                                     val rawBulletChar = try {
                                         if (p is XSLFTextParagraph) p.bulletCharacter
                                         else (p.javaClass.getMethod("getBulletCharacter").invoke(p) as? String)
@@ -1814,13 +1898,32 @@ class PptxViewerViewModel @Inject constructor(
                                         } catch (_: Throwable) { false }
                                     } else false
 
-                                    val hasBullet = bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml
+                                    // <a:buNone/> explicitly suppresses the bullet and must win over
+                                    // indentLevel, which otherwise forces a bullet onto every indented
+                                    // paragraph regardless of what the file says.
+                                    val buNone = try { pPr?.javaClass?.getMethod("getBuNone")?.invoke(pPr) != null } catch (_: Throwable) { false }
+
+                                    val hasBullet = !buNone &&
+                                        (bulletLevel > 0 || !rawBulletChar.isNullOrBlank() || hasBulletFromXml)
                                     val numberingType = extractNumberingType(pPr)
+                                    // The <a:buChar> glyph from XML wins over POI's bulletCharacter,
+                                    // which returns the raw Wingdings/Symbol code point that
+                                    // cleanTextRunString then strips.
+                                    val buCharXml = xmlStringProp(pPr, "getBuChar", "getChar")
+                                    val bulletFont = xmlStringProp(pPr, "getBuFont", "getTypeface")
+                                    val bulletSizePct = xmlIntProp(pPr, "getBuSzPct", "getVal")?.let { it / 1000f }?.takeIf { it > 0f }
+                                    val bulletColorHex = try {
+                                        val buClr = pPr?.javaClass?.getMethod("getBuClr")?.invoke(pPr)
+                                        if (buClr != null) {
+                                            extractColorFromSolidFill(buClr.javaClass.getMethod("getSrgbClr").invoke(buClr))
+                                        } else null
+                                    } catch (_: Throwable) { null }
+
                                     val bulletChar = when {
+                                        !hasBullet -> ""
                                         numberingType != null -> ""
-                                        rawBulletChar.isNullOrBlank() -> if (hasBullet) "•" else ""
-                                        rawBulletChar in listOf("•", "○", "▪", "▫", "-", "–", "—", ">", "→") -> rawBulletChar
-                                        rawBulletChar.contains("\uF0A7") || rawBulletChar.contains("\uF0B7") || rawBulletChar.contains("\uF06C") -> "•"
+                                        !buCharXml.isNullOrBlank() -> buCharXml
+                                        !rawBulletChar.isNullOrBlank() -> rawBulletChar
                                         else -> "•"
                                     }
                                     val alignment = try {
@@ -1828,10 +1931,10 @@ class PptxViewerViewModel @Inject constructor(
                                             org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
                                             org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
                                             org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
-                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
-                                            else -> if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT"
+                                            org.apache.poi.sl.usermodel.TextParagraph.TextAlign.LEFT -> "LEFT"
+                                            else -> "LEFT"
                                         }
-                                    } catch (t: Throwable) { if (isTitle && shapeWidthVal >= 0.4f) "CENTER" else "LEFT" }
+                                    } catch (t: Throwable) { "LEFT" }
 
                                      val spaceBefore = try { (p.spaceBefore ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
                                      val spaceAfter = try { (p.spaceAfter ?: 0.0).toFloat().coerceAtLeast(0f) } catch (t: Throwable) { 0f }
@@ -1843,6 +1946,9 @@ class PptxViewerViewModel @Inject constructor(
                                              bulletLevel = bulletLevel,
                                              hasBullet = hasBullet,
                                              bulletChar = bulletChar,
+                                             bulletFont = bulletFont,
+                                             bulletColorHex = bulletColorHex,
+                                             bulletSizePct = bulletSizePct,
                                              alignment = alignment,
                                              spaceBeforePt = spaceBefore,
                                              spaceAfterPt = spaceAfter,
@@ -1905,7 +2011,8 @@ class PptxViewerViewModel @Inject constructor(
                                 fontScale = bodyPr.fontScale,
                                 lnSpcReduction = bodyPr.lnSpcReduction,
                                 isBackgroundShape = isBgShape,
-                                customPath = earlyCustomPath
+                                customPath = earlyCustomPath,
+                                verticalAnchor = bodyPr.anchor
                             )
 
                             if (isDistinctTitle) {
@@ -1966,8 +2073,17 @@ class PptxViewerViewModel @Inject constructor(
                                                     val isI = try { cr.isItalic } catch (_: Throwable) { false }
                                                     val isU = try { cr.isUnderlined } catch (_: Throwable) { false }
                                                     val cHex = extractTextRunColorHex(cr)
-                                                    val fS = try { cr.fontSize?.toFloat() } catch (_: Throwable) { null } ?: 14f
-                                                    cRuns.add(PptxTextRun(crText, isB, isI, isU, cHex, fS))
+                                                    val st = PptxStyleResolver.resolveRunStyle(
+                                                        run = cr as? XSLFTextRun,
+                                                        shape = null,
+                                                        slide = slide as? XSLFSlide,
+                                                        ppt = ppt as? XMLSlideShow,
+                                                        themeFonts = themeFonts,
+                                                        isTitle = false,
+                                                        level = cp.indentLevel
+                                                    )
+                                                    val fS = st.fontSizePt ?: try { cr.fontSize?.toFloat() } catch (_: Throwable) { null }
+                                                    cRuns.add(PptxTextRun(crText, isB, isI, isU, cHex, fS ?: 14f, st.typeface))
                                                 }
                                             }
                                             if (cRuns.isNotEmpty()) {

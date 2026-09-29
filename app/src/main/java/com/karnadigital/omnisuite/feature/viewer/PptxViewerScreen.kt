@@ -2706,10 +2706,10 @@ fun TextShapeItem(
     val paraLayouts = remember(shape, fontScale) {
         shape.paragraphs.mapIndexed { i, paragraph ->
             val textAlign = when {
-                isEllipseBadge || isTitle -> TextAlign.Center
+                isEllipseBadge -> TextAlign.Center
                 paragraph.alignment == "CENTER" -> TextAlign.Center
                 paragraph.alignment == "RIGHT" -> TextAlign.Right
-                paragraph.alignment == "JUSTIFY" -> TextAlign.Justify
+                paragraph.alignment == "JUSTIFY" -> TextAlign.Start
                 else -> TextAlign.Start
             }
             val maxFontSizeSp = paragraph.runs.maxOfOrNull { run ->
@@ -2803,13 +2803,13 @@ fun TextShapeItem(
             if (availableHeightPx <= 0f) {
                 baked
             } else {
-                val minScale = 0.65f
+                val minScale = 0.5f
                 if (measureTotalHeight(baked) <= availableHeightPx) {
                     baked
                 } else {
                     var lo = minScale
                     var hi = baked
-                    repeat(6) {
+                    repeat(10) {
                         val mid = (lo + hi) / 2f
                         if (measureTotalHeight(mid) > availableHeightPx) hi = mid else lo = mid
                     }
@@ -2861,7 +2861,7 @@ fun TextShapeItem(
                     end = if (isEllipseBadge) 1.dp else (shape.insets.right * slideW).coerceAtLeast(if (isTitle) 2f else 1f).dp,
                     bottom = if (isEllipseBadge) 1.dp else (shape.insets.bottom * slideH).coerceAtLeast(1f).dp
                 ),
-            verticalArrangement = if (isEllipseBadge) Arrangement.Center else Arrangement.Top,
+            verticalArrangement = when { isEllipseBadge -> Arrangement.Center; shape.verticalAnchor == VerticalAnchor.CENTER -> Arrangement.Center; shape.verticalAnchor == VerticalAnchor.BOTTOM -> Arrangement.Bottom; else -> Arrangement.Top },
             horizontalAlignment = if (isEllipseBadge || isTitle) Alignment.CenterHorizontally else Alignment.Start
         ) {
             paraLayouts.forEach { pl ->
@@ -2886,11 +2886,15 @@ fun TextShapeItem(
                         }
                         Text(
                             text = pl.markerText,
+                            // The glyph is sized and coloured from the file's <a:buSzPct>/<a:buClr>,
+                            // not from the paragraph's largest run and not forced to bold+primary.
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = bulletSp
+                                fontSize = (pl.paragraph.bulletSizePct?.let { bulletSp.value * it }
+                                    ?: bulletSp.value).sp,
+                                fontFamily = resolveFontFamily(pl.paragraph.bulletFont)
                             ),
-                            color = MaterialTheme.colorScheme.primary
+                            color = pl.paragraph.bulletColorHex?.let { safeParseColor(it, MaterialTheme.colorScheme.primary) }
+                                ?: MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                     }
