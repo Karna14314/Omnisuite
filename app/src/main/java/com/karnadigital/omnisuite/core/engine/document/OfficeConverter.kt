@@ -23,6 +23,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xslf.usermodel.XMLSlideShow
 import org.apache.poi.xslf.usermodel.XSLFSlide
 import org.apache.poi.xslf.usermodel.XSLFShape
+import org.apache.poi.xslf.usermodel.XSLFTable
 import org.apache.poi.xslf.usermodel.XSLFTextShape
 import org.apache.poi.xslf.usermodel.XSLFSimpleShape
 import org.apache.poi.xslf.usermodel.XSLFPictureData
@@ -798,6 +799,82 @@ class OfficeConverter @Inject constructor(
 
     data class PicCrop(val l: Float = 0f, val t: Float = 0f, val r: Float = 0f, val b: Float = 0f)
 
+    /**
+     * Draws an <a:tbl> as bordered cells with text. Column widths and row heights
+     * come from <a:gridCol w> and <a:tr h> rather than an even split. Tables were
+     * entirely absent from this renderer, so PPT->PDF and the GRID/slideshow
+     * thumbnails dropped them while the Compose viewer showed them.
+     */
+    private fun drawTable(
+        canvas: android.graphics.Canvas,
+        table: XSLFTable,
+        px: Float,
+        py: Float,
+        pw: Float,
+        ph: Float,
+        targetWidth: Int
+    ) {
+        val scale = targetWidth / 960f
+        val numCols = try { table.numberOfColumns } catch (_: Throwable) { 0 }
+        val numRows = try { table.numberOfRows } catch (_: Throwable) { 0 }
+        if (numCols <= 0 || numRows <= 0) return
+
+        val gridWidths = try {
+            table.ctTable.tblGrid.gridColList.map { (it.w as? Number)?.toLong()?.toFloat() ?: 0f }
+        } catch (_: Throwable) { emptyList() }
+        val colWidths = if (gridWidths.size == numCols && gridWidths.all { it > 0f })
+            gridWidths else List(numCols) { 1f }
+        val totalColW = colWidths.sum().takeIf { it > 0f } ?: 1f
+
+        val rowHeights = try {
+            table.ctTable.trList.map { (it.h as? Number)?.toLong()?.toFloat() ?: 0f }
+        } catch (_: Throwable) { emptyList() }
+        val heights = if (rowHeights.size == numRows && rowHeights.all { it > 0f })
+            rowHeights else List(numRows) { 1f }
+        val totalRowH = heights.sum().takeIf { it > 0f } ?: 1f
+
+        val strokePaint = Paint().apply {
+            color = android.graphics.Color.argb(120, 100, 116, 139)
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * scale
+            isAntiAlias = true
+        }
+        val textPaint = Paint().apply {
+            color = android.graphics.Color.rgb(15, 23, 42)
+            textSize = 12f * scale
+            isAntiAlias = true
+        }
+
+        var y = py
+        for (r in 0 until numRows) {
+            val rowH = ph * (heights[r] / totalRowH)
+            var x = px
+            for (c in 0 until numCols) {
+                val colW = pw * (colWidths[c] / totalColW)
+                val cellRect = android.graphics.RectF(x, y, x + colW, y + rowH)
+                canvas.drawRect(cellRect, strokePaint)
+
+                val cell = try { table.getCell(r, c) } catch (_: Throwable) { null }
+                val cellText = try { cell?.text?.trim() } catch (_: Throwable) { null }
+                if (!cellText.isNullOrBlank()) {
+                    val runSize = try {
+                        cell?.textParagraphs?.firstOrNull()?.textRuns?.firstOrNull()?.fontSize
+                    } catch (_: Throwable) { null }
+                    if (runSize != null && runSize > 0) textPaint.textSize = runSize.toFloat() * scale
+                    val lines = wrapTextForCanvas(cellText, textPaint, (cellRect.width() - 8f * scale).coerceAtLeast(20f))
+                    var ty = cellRect.top + textPaint.textSize + 2f * scale
+                    for (line in lines.take(4)) {
+                        if (ty > cellRect.bottom) break
+                        canvas.drawText(line, cellRect.left + 4f * scale, ty, textPaint)
+                        ty += textPaint.textSize * 1.2f
+                    }
+                }
+                x += colW
+            }
+            y += rowH
+        }
+    }
+
     private fun extractBlipCrop(xml: Any): PicCrop? {
         val xmlStr = try { xml.toString() } catch (_: Throwable) { "" }
         if (xmlStr.isBlank()) return null
@@ -1182,6 +1259,14 @@ class OfficeConverter @Inject constructor(
                     val py = normBounds[1] * targetHeight.toFloat()
                     val pw = normBounds[2] * targetWidth.toFloat()
                     val ph = normBounds[3] * targetHeight.toFloat()
+
+                    // Tables were entirely absent from this renderer, so PPT->PDF and the
+                    // GRID/slideshow thumbnails dropped them while the Compose viewer
+                    // showed them. Draw the grid from the real <a:gridCol>/<a:tr h> values.
+                    if (shape is XSLFTable) {
+                        drawTable(canvas, shape, px, py, pw, ph, targetWidth)
+                        continue
+                    }
 
                     val geomType = getShapeGeometryType(shape)
                     // True outline for custom geometry (parsed lazily, only for FREEFORM).

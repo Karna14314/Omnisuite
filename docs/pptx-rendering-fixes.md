@@ -9,6 +9,47 @@ top to bottom.
 
 ---
 
+## 0. Implementation status
+
+Work was carried out in four verified batches. Test count went 45 -> 76.
+
+| Group | Scope | Commit | Tests |
+| --- | --- | --- | --- |
+| 1 | Text metrics: inheritance chain, theme fonts, `bodyPr` anchor, bullets, `JUSTIFY`, autofit floor | `PptxStyleResolver` added | 45 -> 59 |
+| 2 | Geometry: coherent rect clamp, table `gridCol`/`tr h`, real cell borders, `gridSpan` | see log | 59 -> 66 |
+| 3 | Images: owning-part relationships, blip alpha, rotation/flip, SHA-1 cache key, background bounds | see log | 66 -> 73 |
+| 4 | `OfficeConverter` table rendering (PPT->PDF and GRID/slideshow) | see log | 73 -> 76 |
+
+### Corrections to the original audit
+
+Two findings in the original analysis were wrong and were corrected during
+implementation. They are recorded here so nobody re-introduces them:
+
+1. **`XSLFTextRun.getFontSize()` does not simply return `null`.** It returns
+   **18.0** — POI's own hardcoded default — for text whose size is inherited from
+   a slide master `<p:txStyles>`. It *does* correctly resolve a shape's own
+   `<a:lstStyle>`. So the bug is "POI substitutes a wrong constant", not "POI
+   returns null". The fix (an explicit inheritance chain) is the same, but the
+   reasoning differed. This is now asserted in
+   `PptxTextInheritanceUnitTest.testFontSizeInheritedFromMasterBodyStyle`.
+2. **Reflective `getMethod` on the ooxml schema classes is not reliable.** Calls
+   such as `CTTextBodyProperties.getAnchor()` and `CTBaseStyles.getFontScheme()`
+   throw `NoClassDefFoundError` on the Android classloader even though they work
+   on the JVM. Those call sites now use typed XMLBeans accessors.
+
+### Android constraints worth remembering
+
+- `java.awt.*` is unavailable. POI methods returning `java.awt.Color`,
+  `java.awt.Dimension` or `java.awt.geom.Rectangle2D` cannot be called or
+  referenced. Cell border colours are read from the XML instead of via
+  `XSLFTableCell.getBorderColor`.
+- Unit tests must set anchors through the typed XMLBeans accessors
+  (`CTShape.spPr.xfrm`, `CTGraphicalObjectFrame.xfrm`), not `setAnchor`.
+- `isSetXfrm` exists on `CTShapeProperties` but not on `CTGraphicalObjectFrame`,
+  where `xfrm` is a required element.
+
+---
+
 ## 1. Environment
 
 | Item | Value |

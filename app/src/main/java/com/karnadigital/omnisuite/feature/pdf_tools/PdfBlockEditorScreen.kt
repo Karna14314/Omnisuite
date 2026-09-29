@@ -175,7 +175,7 @@ fun PdfBlockEditorScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    BoxWithConstraints(
+                                    Box(
                                         modifier = Modifier.wrapContentSize(),
                                         contentAlignment = Alignment.Center
                                     ) {

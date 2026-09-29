@@ -127,33 +127,13 @@ fun BarcodeScannerScreen(
                                 val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
 
                                 imageAnalysis.setAnalyzer(executor) { imageProxy ->
-                                    @OptIn(androidx.camera.core.ExperimentalGetImage::class)
-                                    val mediaImage = imageProxy.image
-                                    if (mediaImage != null) {
-                                        val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                                        scanner.process(image)
-                                            .addOnSuccessListener { barcodes ->
-                                                val firstBarcode = barcodes.firstOrNull()
-                                                if (firstBarcode != null) {
-                                                    val rawValue = firstBarcode.rawValue
-                                                    if (rawValue != null) {
-                                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                            if (scannedText != rawValue) {
-                                                                scannedText = rawValue
-                                                                viewModel.logScannedBarcode(rawValue)
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                    analyzeBarcodeFrame(imageProxy, scanner) { rawValue ->
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            if (scannedText != rawValue) {
+                                                scannedText = rawValue
+                                                viewModel.logScannedBarcode(rawValue)
                                             }
-                                            .addOnFailureListener {
-                                                it.printStackTrace()
-                                            }
-                                            .addOnCompleteListener {
-                                                imageProxy.close()
-                                            }
-                                    } else {
-                                        imageProxy.close()
+                                        }
                                     }
                                 }
 
@@ -317,4 +297,36 @@ fun BarcodeScannerScreen(
         textResult = viewModel.scanResultText,
         onOpenFile = onOpenFile
     )
+}
+
+/**
+ * Runs ML Kit barcode detection on a single CameraX frame.
+ *
+ * `imageProxy.image` is an experimental CameraX API. The opt-in lives here rather
+ * than at the call site because that call sits inside an AndroidView factory
+ * lambda, which does not inherit an opt-in declared on the enclosing composable.
+ * Lint's UnsafeOptInUsageError check does not honour the Kotlin @OptIn marker, so
+ * the same declaration is suppressed explicitly.
+ */
+@OptIn(androidx.camera.core.ExperimentalGetImage::class)
+@Suppress("UnsafeOptInUsageError")
+private fun analyzeBarcodeFrame(
+    imageProxy: androidx.camera.core.ImageProxy,
+    scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
+    onBarcode: (String) -> Unit
+) {
+    val mediaImage = imageProxy.image
+    if (mediaImage == null) {
+        imageProxy.close()
+        return
+    }
+    val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(
+        mediaImage, imageProxy.imageInfo.rotationDegrees
+    )
+    scanner.process(image)
+        .addOnSuccessListener { barcodes ->
+            barcodes.firstNotNullOfOrNull { it.rawValue }?.let(onBarcode)
+        }
+        .addOnFailureListener { it.printStackTrace() }
+        .addOnCompleteListener { imageProxy.close() }
 }
