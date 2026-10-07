@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Kept as path="." deliberately. Sharing and "open with" pass the active document's real
+      path to FileProvider (ViewerActionBar.kt:102, ImageViewerScreen.kt:334,407), and that
+      document lives either in cacheDir or filesDir/recent_files. Narrowing this to specific
+      prefixes breaks sharing for every converted output and every recent file.
+      Exposure is bounded instead: the provider is android:exported="false" and every share
+      hands out a single explicitly granted URI, so no other app can enumerate the cache.
+    -->
     <cache-path name="camera_photos" path="." />
+    <files-path name="recent_documents" path="recent_files/" />
 </paths>

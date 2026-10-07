@@ -22,13 +22,13 @@ All coordinates and versions are configured inside **`app/build.gradle.kts`**:
 | Dependency | Version | Purpose |
 |---|---|---|
 | `com.google.zxing:core` | 3.5.3 | QR code and 1D barcode generation offline |
-| `com.google.mlkit:barcode-scanning` | 17.2.0 | QR/Barcode camera viewfinder scanning |
+| `com.google.mlkit:barcode-scanning` | 17.3.0 | QR/Barcode camera viewfinder scanning |
 | `com.google.android.gms:play-services-mlkit-document-scanner` | 16.0.0 | Document edge-detection and perspective correction |
 | `com.google.android.gms:play-services-mlkit-text-recognition` | 19.0.0 | Offline OCR text extraction |
-| `androidx.camera:camera-core` | 1.3.4 | CameraX core |
-| `androidx.camera:camera-camera2` | 1.3.4 | Camera2 implementation |
-| `androidx.camera:camera-lifecycle` | 1.3.4 | Lifecycle-aware camera |
-| `androidx.camera:camera-view` | 1.3.4 | Camera preview view |
+| `androidx.camera:camera-core` | 1.4.1 | CameraX core |
+| `androidx.camera:camera-camera2` | 1.4.1 | Camera2 implementation |
+| `androidx.camera:camera-lifecycle` | 1.4.1 | Lifecycle-aware camera |
+| `androidx.camera:camera-view` | 1.4.1 | Camera preview view |
 
 ### 3. Core Android, Compose & UI Libraries
 | Dependency | Version | Purpose |

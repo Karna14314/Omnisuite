@@ -114,32 +114,36 @@ fun BarcodeScannerScreen(
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                             cameraProviderFuture.addListener({
-                                val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().build().also {
-                                    it.setSurfaceProvider(previewView.surfaceProvider)
-                                }
+                                // cameraProviderFuture.get() can throw (ExecutionException,
+                                // InterruptedException) on an emulator, when another app
+                                // holds the camera, or on a revoked-permission race. It sat
+                                // outside the try below, so any of those crashed the app.
+                                try {
+                                    val cameraProvider = cameraProviderFuture.get()
+                                    val preview = Preview.Builder().build().also {
+                                        it.setSurfaceProvider(previewView.surfaceProvider)
+                                    }
 
-                                val imageAnalysis = ImageAnalysis.Builder()
-                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .build()
+                                    val imageAnalysis = ImageAnalysis.Builder()
+                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                        .build()
 
-                                val executor = Executors.newSingleThreadExecutor()
-                                val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
+                                    val executor = Executors.newSingleThreadExecutor()
+                                    val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
 
-                                imageAnalysis.setAnalyzer(executor) { imageProxy ->
-                                    analyzeBarcodeFrame(imageProxy, scanner) { rawValue ->
-                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                            if (scannedText != rawValue) {
-                                                scannedText = rawValue
-                                                viewModel.logScannedBarcode(rawValue)
+                                    imageAnalysis.setAnalyzer(executor) { imageProxy ->
+                                        analyzeBarcodeFrame(imageProxy, scanner) { rawValue ->
+                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                if (scannedText != rawValue) {
+                                                    scannedText = rawValue
+                                                    viewModel.logScannedBarcode(rawValue)
+                                                }
                                             }
                                         }
                                     }
-                                }
 
-                                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-                                try {
                                     cameraProvider.unbindAll()
                                     cameraProvider.bindToLifecycle(
                                         lifecycleOwner,

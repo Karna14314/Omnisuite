@@ -54,33 +54,65 @@ fun rememberPdfThumbnails(context: Context, uri: Uri?): List<Bitmap> {
             return@LaunchedEffect
         }
         withContext(Dispatchers.IO) {
+            var renderer: android.graphics.pdf.PdfRenderer? = null
             try {
                 val pfd = context.contentResolver.openFileDescriptor(uri, "r")
                 pfd?.use { fd ->
-                    val renderer = android.graphics.pdf.PdfRenderer(fd)
+                    renderer = android.graphics.pdf.PdfRenderer(fd)
                     val list = mutableListOf<Bitmap>()
-                    val count = renderer.pageCount
-                    for (i in 0 until count) {
-                        val page = renderer.openPage(i)
-                        val w = (page.width / 3).coerceAtLeast(100)
-                        val h = (page.height / 3).coerceAtLeast(100)
-                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        val canvas = android.graphics.Canvas(bitmap)
-                        canvas.drawColor(android.graphics.Color.WHITE)
-                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        page.close()
-                        list.add(bitmap)
+                    val count = renderer!!.pageCount
+                    // Bound the work and the retained memory. Rendering every page up front
+                    // held ~108 MB for a 500-page A4 document and ~430 MB for a 17x22in one,
+                    // with no cap, no progress and no OOM guard (createBitmap throws
+                    // OutOfMemoryError, which catch (e: Exception) cannot intercept).
+                    // Beyond the cap we return an empty list rather than a partial one, so
+                    // callers fall back to their text-only page list instead of silently
+                    // showing only the first N pages.
+                    val limit = minOf(count, THUMBNAIL_PAGE_CAP)
+                    var bytes = 0L
+                    for (i in 0 until limit) {
+                        val page = renderer!!.openPage(i)
+                        try {
+                            // Cap the longest edge so a plot-sized page cannot allocate ~70 MB
+                            // for a single thumbnail.
+                            val longest = maxOf(page.width, page.height)
+                            val scale = if (longest > THUMBNAIL_MAX_EDGE_PX) {
+                                THUMBNAIL_MAX_EDGE_PX.toFloat() / longest
+                            } else {
+                                1f / 3f
+                            }
+                            val w = (page.width * scale).toInt().coerceIn(64, THUMBNAIL_MAX_EDGE_PX)
+                            val h = (page.height * scale).toInt().coerceIn(64, THUMBNAIL_MAX_EDGE_PX)
+                            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+                            val canvas = android.graphics.Canvas(bitmap)
+                            canvas.drawColor(android.graphics.Color.WHITE)
+                            page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            list.add(bitmap)
+                            bytes += bitmap.byteCount
+                            if (bytes > THUMBNAIL_TOTAL_BYTE_CAP) {
+                                list.forEach { runCatching { it.recycle() } }
+                                return@use
+                            }
+                        } finally {
+                            page.close()
+                        }
                     }
-                    renderer.close()
                     thumbnails = list
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable: createBitmap raises OutOfMemoryError, not Exception.
                 e.printStackTrace()
+            } finally {
+                try { renderer?.close() } catch (_: Throwable) {}
             }
         }
     }
     return thumbnails
 }
+
+private const val THUMBNAIL_PAGE_CAP = 200
+private const val THUMBNAIL_MAX_EDGE_PX = 512
+private const val THUMBNAIL_TOTAL_BYTE_CAP = 24L * 1024L * 1024L
 
 private fun parseRangeToSet(range: String): Set<Int> {
     val set = mutableSetOf<Int>()

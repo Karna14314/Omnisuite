@@ -1,3 +1,25 @@
+# -- Logging --
+# Strip all android.util.Log calls from release builds. Without this, Log.d/Log.e survive R8
+# and emit absolute document paths, content:// SAF URIs (which encode provider authority and
+# document id) and slide text on every open. The app has no debug-log toggle, so these calls
+# were pure release-time disclosure in adb logcat, MDM log collection and bug reports.
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int v(...);
+    public static int d(...);
+    public static int d(...);
+    public static int i(...);
+    public static int i(...);
+    public static int w(...);
+    public static int w(...);
+    public static int e(...);
+    public static int e(...);
+    public static int wtf(...);
+    public static int wtf(...);
+    public static int println(...);
+}
+
 # -- General optimization configurations --
 -dontusemixedcaseclassnames
 -dontskipnonpubliclibraryclasses

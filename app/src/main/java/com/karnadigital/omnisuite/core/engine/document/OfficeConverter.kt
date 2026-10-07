@@ -1526,11 +1526,12 @@ class OfficeConverter @Inject constructor(
                 val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700.0 else 540.0
 
                 if (x != null && y != null && w != null && h != null && w > 0 && h > 0) {
-                    return floatArrayOf(
-                        (x / slideWPt).toFloat().coerceIn(0f, 1f),
-                        (y / slideHPt).toFloat().coerceIn(0f, 1f),
-                        (w / slideWPt).toFloat().coerceIn(0.01f, 1f),
-                        (h / slideHPt).toFloat().coerceIn(0.01f, 1f)
+                    // Single shared clamp so this path agrees with the on-screen viewer.
+                    return PptxGeometry.clampRect(
+                        (x / slideWPt).toFloat(),
+                        (y / slideHPt).toFloat(),
+                        (w / slideWPt).toFloat(),
+                        (h / slideHPt).toFloat()
                     )
                 }
             }
@@ -1625,12 +1626,12 @@ class OfficeConverter @Inject constructor(
                     parentShape = parentShape.parent
                 }
 
-                return floatArrayOf(
-                    (curX.toFloat() / slideWidthEmu.toFloat()).coerceIn(0f, 1f),
-                    (curY.toFloat() / slideHeightEmu.toFloat()).coerceIn(0f, 1f),
-                    (curCx.toFloat() / slideWidthEmu.toFloat()).coerceIn(0.001f, 1f),
-                    (curCy.toFloat() / slideHeightEmu.toFloat()).coerceIn(0.001f, 1f)
-                )
+                return PptxGeometry.clampRect(
+                        curX.toFloat() / slideWidthEmu.toFloat(),
+                        curY.toFloat() / slideHeightEmu.toFloat(),
+                        curCx.toFloat() / slideWidthEmu.toFloat(),
+                        curCy.toFloat() / slideHeightEmu.toFloat()
+                    )
             }
         } catch (_: Throwable) { }
         return null

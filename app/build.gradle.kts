@@ -97,6 +97,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             // Necessary exclusions for Apache POI duplicate assets
@@ -157,7 +160,7 @@ dependencies {
 
     // QR & Barcode Utilities
     implementation("com.google.zxing:core:3.5.3")
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
@@ -165,7 +168,7 @@ dependencies {
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 
     // CameraX Hardware Stack
-    val cameraXVersion = "1.3.4"
+    val cameraXVersion = "1.4.1"
     implementation("androidx.camera:camera-core:$cameraXVersion")
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")

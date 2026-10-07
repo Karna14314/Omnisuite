@@ -3,19 +3,29 @@
 
     <!-- Scoped Camera permission for CameraX live scanning of barcodes -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Internet permission to handle and download documents from external URLs -->
+    <!--
+      Internet is required by exactly one feature: Web to PDF, which loads a URL the user
+      types into a WebView (PdfToolsViewModel.printWebViewToPdf -> wv.loadUrl). There is no
+      analytics, telemetry, upload or background network code in the app.
+    -->
     <uses-permission android:name="android.permission.INTERNET" />
-    
-    <!-- Storage Permissions for Android 12 and below compatibility -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    
+
+    <!--
+      READ/WRITE_EXTERNAL_STORAGE were removed. With minSdk 30 the runtime request sits in the
+      SDK_INT < R branch of FilesScreen/FilesViewModel and can never execute, so these were
+      dead declarations that still showed up as a broad storage permission on Android 11-12.
+      All file access goes through the Storage Access Framework (ACTION_OPEN_DOCUMENT), which
+      needs no permission at all.
+    -->
+
     <!-- Declare camera hardware feature as optional so it compiles and runs universally -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".OmniApplication"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="OmniSuite"

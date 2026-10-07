@@ -103,13 +103,17 @@ class PdfViewerViewModel @Inject constructor(
     // Search Job Control
     private var searchJob: Job? = null
 
-    // 5-item LRU Bitmap cache to prevent OutOfMemory crashes
-    private val bitmapCache = object : android.util.LruCache<Int, Bitmap>(5) {
-        override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
-            if (evicted) {
-                try { oldValue?.recycle() } catch (_: Throwable) {}
-            }
-        }
+    // Bitmap cache bounded by BYTES rather than entry count.
+    // Deliberately never calls Bitmap.recycle() on eviction: rendered pages are handed to
+    // Compose, which may still be drawing that exact instance on the next frame. Recycling
+    // here caused "RuntimeException: Canvas: trying to use a recycled bitmap", both on LRU
+    // eviction during a fling and on evictAll() from the OutOfMemoryError path, which
+    // recycled every currently visible page at once. Dropping the reference is enough:
+    // the pixels live in native memory and are reclaimed by the GC.
+    private val bitmapCache = object : android.util.LruCache<Int, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 8L).coerceAtMost(64L * 1024L * 1024L).toInt()
+    ) {
+        override fun sizeOf(key: Int, value: Bitmap): Int = value.byteCount
     }
 
     init {
@@ -398,7 +402,10 @@ class PdfViewerViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             var doc: com.tom_roush.pdfbox.pdmodel.PDDocument? = null
             val file = java.io.File(path)
-            val tempFile = java.io.File(file.parentFile ?: file.absoluteFile.parentFile, "annot_${System.currentTimeMillis()}.pdf")
+            // Stage in cacheDir, never in the user's own directory. cacheUriToFile can hand
+            // back the real file, so writing "annot_<ts>.pdf" next to it littered the user's
+            // Downloads folder and left the file behind if the save threw.
+            val tempFile = java.io.File(context.cacheDir, "annot_${System.currentTimeMillis()}.pdf")
             var isSuccess = false
             try {
                 doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(file)
@@ -502,17 +509,31 @@ class PdfViewerViewModel @Inject constructor(
             }
 
             if (isSuccess && tempFile.exists() && tempFile.length() > 0) {
+                // Publish atomically. copyTo(overwrite = true) truncates the destination
+                // BEFORE streaming, so any mid-copy failure used to leave the user's only
+                // copy truncated while the UI still reported success and cleared the
+                // in-memory strokes. Stage beside the target, then rename over it.
+                val published = try {
+                    val parent = file.parentFile ?: file.absoluteFile.parentFile
+                    val staged = java.io.File(parent, ".${file.name}.annot.tmp")
+                    tempFile.copyTo(staged, overwrite = true)
+                    if (!staged.renameTo(file)) {
+                        // Some filesystems refuse rename onto an existing name.
+                        staged.copyTo(file, overwrite = true)
+                        staged.delete()
+                    }
+                    true
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    false
+                } finally {
+                    try { if (tempFile.exists()) tempFile.delete() } catch (_: Throwable) {}
+                }
                 withContext(Dispatchers.Main) {
                     closeRenderer()
-                    try {
-                        tempFile.copyTo(file, overwrite = true)
-                        tempFile.delete()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
                     bitmapCache.evictAll()
                     loadPdf(path)
-                    onComplete(true)
+                    onComplete(published)
                 }
             } else {
                 withContext(Dispatchers.Main) {

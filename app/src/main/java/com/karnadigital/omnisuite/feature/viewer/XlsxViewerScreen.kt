@@ -2166,7 +2166,12 @@ fun SpreadsheetWebView(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     allowFileAccess = true
-                    allowContentAccess = true
+                    // android_asset pages are file:// only. Blocking content:// and network
+                    // access keeps document-derived hyperlinks from navigating this WebView
+                    // to a remote origin, where the AndroidBridge below would be reachable.
+                    allowContentAccess = false
+                    blockNetworkLoads = true
+                    blockNetworkImage = true
                     builtInZoomControls = false
                     displayZoomControls = false
                     useWideViewPort = false
@@ -2197,6 +2202,26 @@ fun SpreadsheetWebView(
                 }, "AndroidBridge")
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?
+                    ): Boolean {
+                        val scheme = request?.url?.scheme?.lowercase()
+                        return if (scheme == "http" || scheme == "https") {
+                            runCatching {
+                                ctx.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        request!!.url
+                                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         isPageLoaded = true
@@ -2205,7 +2230,7 @@ fun SpreadsheetWebView(
                         if (workbookJson != null) {
                             val escaped = workbookJson.replace("\\", "\\\\").replace("'", "\\'")
                             evaluateJavascript("renderSpreadsheetData('$escaped', '$xlsxBase64')", null)
-                        } else {
+                        } else if (xlsxBase64 != null && xlsxBase64.length < 8_000_000) {
                             evaluateJavascript("renderSpreadsheetBase64('$xlsxBase64')", null)
                         }
                     }
@@ -2219,6 +2244,14 @@ fun SpreadsheetWebView(
         update = { wv ->
             webViewInstance = wv
             onWebViewReady(wv)
+        },
+        onRelease = { wv ->
+            // Without this the WebView and its renderer process leaked on every open.
+            wv.stopLoading()
+            wv.removeJavascriptInterface("AndroidBridge")
+            wv.webViewClient = WebViewClient()
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            wv.destroy()
         },
         modifier = modifier
     )

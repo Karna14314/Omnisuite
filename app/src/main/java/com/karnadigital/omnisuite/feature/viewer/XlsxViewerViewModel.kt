@@ -26,6 +26,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import android.util.Base64
 import java.io.File
 import java.io.FileInputStream
+import java.util.Locale
 import javax.inject.Inject
 
 data class CellData(
@@ -106,6 +107,48 @@ class XlsxViewerViewModel @Inject constructor(
 
     private var activeWorkbook: org.apache.poi.ss.usermodel.Workbook? = null
     private var activeFilePath: String? = null
+
+    companion object {
+        const val MAX_RENDER_ROWS = 5000
+        const val MAX_RENDER_COLS = 200
+
+        /** Upper bound on a spreadsheet we will hand to POI. Above this the parse is a
+         *  coin flip between a multi-second stall and an unrecoverable OutOfMemoryError. */
+        const val MAX_PARSEABLE_BYTES = 64L * 1024L * 1024L
+
+        /** XlsxViewerScreen refuses to evaluateJavascript above this many Base64 chars, so
+         *  the producer must not produce more or the grid renders blank. 3 bytes -> 4 chars. */
+        const val MAX_WEBVIEW_BASE64_CHARS = 8_000_000
+        const val MAX_WEBVIEW_BASE64_BYTES = MAX_WEBVIEW_BASE64_CHARS * 3 / 4
+
+        /**
+         * True when clamping would drop rows or columns the user still has, i.e. the parsed
+         * workbook is a slice rather than the whole file. Saving in that state would
+         * serialise the slice back over the original and destroy the remainder, so this
+         * predicate gates commitChanges.
+         */
+        fun isTruncatedByLimits(
+            actualRows: Int,
+            actualCols: Int,
+            requestedRows: Int = MAX_RENDER_ROWS,
+            rowLimit: Int? = null
+        ): Boolean {
+            if (rowLimit != null && rowLimit < actualRows) return true
+            return requestedRows < actualRows || MAX_RENDER_COLS < actualCols
+        }
+    }
+
+    // True when at least one sheet was clamped to MAX_RENDER_ROWS / MAX_RENDER_COLS (or to an
+    // explicit row limit), meaning the in-memory workbook is only a slice of the real file.
+    @Volatile
+    private var workbookIsTruncated = false
+
+    // The Base64 payload for the high-fidelity SheetJS grid, retained across mutations.
+    // Every state update used to rebuild XlsxLoadState.Success positionally without it,
+    // which nulled xlsxBase64 and silently dropped the user from the SheetJS renderer to
+    // the native grid on the first keystroke. Holding it here makes that impossible.
+    @Volatile
+    private var activeBase64: String? = null
     private val tempImageCache = mutableMapOf<String, File>()
     // POI caps workbooks at ~64k cell styles — cache by formatting key instead of
     // createCellStyle()/createFont() per edit.
@@ -136,6 +179,8 @@ class XlsxViewerViewModel @Inject constructor(
                 }
                 activeWorkbook = null
                 activeFilePath = null
+                workbookIsTruncated = false
+                activeBase64 = null
 
                 var fileInputStream: FileInputStream? = null
                 var workbook: org.apache.poi.ss.usermodel.Workbook? = null
@@ -146,10 +191,25 @@ class XlsxViewerViewModel @Inject constructor(
                         return@withContext
                     }
 
-                    // Guard: files >15MB skip Base64 (Binder/JS limit + OOM); parse still works.
-                    val base64Data = if (file.length() <= 15L * 1024L * 1024L) {
+                    // Guard: files above the WebView ceiling skip Base64 (Binder/JS literal
+                    // limit + OOM) and fall back to the native grid, which does render.
+                    val base64Data = if (file.length() <= MAX_WEBVIEW_BASE64_BYTES) {
                         Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
                     } else null
+                    activeBase64 = base64Data
+
+                    // XSSFWorkbook/HSSFWorkbook (and loadCsvAsWorkbook's readLines) materialise
+                    // the whole document in the heap, so a large or crafted file can raise
+                    // OutOfMemoryError. That is an Error, not an Exception, so the catch below
+                    // used to miss it and the process died. Refuse up front instead.
+                    if (file.length() > MAX_PARSEABLE_BYTES) {
+                        _loadState.value = XlsxLoadState.Error(
+                            "Spreadsheet is too large to open safely " +
+                                "(${"%.1f".format(Locale.US, file.length() / 1048576.0)} MB, " +
+                                "limit ${MAX_PARSEABLE_BYTES / 1048576} MB)."
+                        )
+                        return@withContext
+                    }
 
                     val isCsv = SpreadsheetUtils.isCsvFile(file)
                     workbook = if (isCsv) {
@@ -194,14 +254,22 @@ class XlsxViewerViewModel @Inject constructor(
                         )
                     }
 
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // Throwable, not Exception: POI signals an unrecoverable workbook with
+                    // OutOfMemoryError, which an Exception catch cannot intercept.
                     e.printStackTrace()
                     try {
                         workbook?.close()
-                    } catch (ex: Exception) {
+                    } catch (ex: Throwable) {
                         ex.printStackTrace()
                     }
-                    _loadState.value = XlsxLoadState.Error("Spreadsheet parser failure: ${e.localizedMessage}")
+                    _loadState.value = XlsxLoadState.Error(
+                        if (e is OutOfMemoryError) {
+                            "Not enough memory to open this spreadsheet."
+                        } else {
+                            "Spreadsheet parser failure: ${e.localizedMessage}"
+                        }
+                    )
                 } finally {
                     try {
                         fileInputStream?.close()
@@ -294,9 +362,13 @@ class XlsxViewerViewModel @Inject constructor(
             // Large-sheet guard: skip UX padding when it would explode cell count.
             val extraRowsHere = if (lastRowNum > 1000 || rowLimitPerSheet != null) 0 else EXTRA_ROWS
             val extraColsHere = if (maxCols > 50) 0 else EXTRA_COLS
-            val totalCols = (maxCols + extraColsHere).coerceAtMost(200)
-            val totalRowsCapped = (lastRowNum + 1 + extraRowsHere).coerceAtMost(5000)
+            val totalCols = (maxCols + extraColsHere).coerceAtMost(MAX_RENDER_COLS)
+            val totalRowsCapped = (lastRowNum + 1 + extraRowsHere).coerceAtMost(MAX_RENDER_ROWS)
             val totalRows = if (rowLimitPerSheet != null) minOf(totalRowsCapped, rowLimitPerSheet) else totalRowsCapped
+
+            if (isTruncatedByLimits(lastRowNum + 1, maxCols + extraColsHere, totalRows, rowLimitPerSheet)) {
+                workbookIsTruncated = true
+            }
 
             // POI column width is in 1/256th character units; 1 char ≈ 7px at 96dpi ≈ 5.25dp
             val columnWidthsDp = (0 until totalCols).map { c ->
@@ -1110,7 +1182,7 @@ class XlsxViewerViewModel @Inject constructor(
         // Full parseWorkbook() is reserved for structural operations (insert/delete row/col).
         val currentState = _loadState.value as? XlsxLoadState.Success ?: run {
             val updatedWb = parseWorkbook(wb)
-            _loadState.value = XlsxLoadState.Success(updatedWb, File(activeFilePath!!).name)
+            _loadState.value = XlsxLoadState.Success(updatedWb, File(activeFilePath!!).name, activeBase64)
             return
         }
         try {
@@ -1247,10 +1319,7 @@ class XlsxViewerViewModel @Inject constructor(
                     excelSheet.copy(rows = updatedRows)
                 }
             }
-            _loadState.value = XlsxLoadState.Success(
-                ExcelWorkbook(updatedSheets),
-                currentState.fileName
-            )
+            _loadState.value = currentState.copy(workbook = ExcelWorkbook(updatedSheets))
         } catch (e: Exception) {
             e.printStackTrace()
             // Fall back to full re-parse only if targeted update fails
@@ -1272,7 +1341,7 @@ class XlsxViewerViewModel @Inject constructor(
         val updatedSheets = workbook.sheets.mapIndexed { i, s ->
             if (i == sheetIndex) updatedSheet else s
         }
-        _loadState.value = XlsxLoadState.Success(ExcelWorkbook(updatedSheets), currentState.fileName)
+        _loadState.value = currentState.copy(workbook = ExcelWorkbook(updatedSheets))
     }
 
     fun addMoreEmptyCols(sheetIndex: Int, count: Int) {
@@ -1292,7 +1361,7 @@ class XlsxViewerViewModel @Inject constructor(
         val updatedSheets = workbook.sheets.mapIndexed { i, s ->
             if (i == sheetIndex) updatedSheet else s
         }
-        _loadState.value = XlsxLoadState.Success(ExcelWorkbook(updatedSheets), currentState.fileName)
+        _loadState.value = currentState.copy(workbook = ExcelWorkbook(updatedSheets))
     }
 
     fun insertRow(sheetIndex: Int, atRowIndex: Int, above: Boolean = true) {
@@ -1464,7 +1533,7 @@ class XlsxViewerViewModel @Inject constructor(
         val wb = activeWorkbook ?: return
         val filePath = activeFilePath ?: return
         val updatedWb = parseWorkbook(wb)
-        _loadState.value = XlsxLoadState.Success(updatedWb, File(filePath).name)
+        _loadState.value = XlsxLoadState.Success(updatedWb, File(filePath).name, activeBase64)
     }
 
     /**
@@ -1476,6 +1545,18 @@ class XlsxViewerViewModel @Inject constructor(
             val filePath = activeFilePath
             if (wb == null || filePath == null) {
                 _saveStatus.emit("No active spreadsheet loaded.")
+                return@launch
+            }
+            if (workbookIsTruncated) {
+                // Writing here would serialise only the clamped slice back over the user's
+                // file. That is silent, unrecoverable data loss: a 1,000,000-row workbook
+                // would be replaced by its first 5,000 rows. Refuse instead.
+                _saveStatus.emit(
+                    "Not saved: this workbook is larger than the ${MAX_RENDER_ROWS}-row / " +
+                        "${MAX_RENDER_COLS}-column viewer limit, so only part of it is loaded. " +
+                        "Saving now would delete the rest of your data. Open it in a desktop " +
+                        "spreadsheet app to make changes."
+                )
                 return@launch
             }
 

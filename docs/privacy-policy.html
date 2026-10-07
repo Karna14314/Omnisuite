@@ -261,8 +261,9 @@
 
         <div class="policy-section">
             <h2>3. On-Device Processing &amp; File Handling</h2>
-            <p>Every operation performed inside OmniSuite—including rendering presentation slides, spreadsheet computations, Word paragraph parsing, PDF page merging, splitting, AES-128 document encryption, OCR optical character recognition, and QR/barcode generation—is executed entirely within your device's isolated application sandbox.</p>
-            <p>Your files are never transmitted to external cloud servers, remote databases, or third-party APIs.</p>
+            <p>Every document operation inside OmniSuite—including rendering presentation slides, spreadsheet computations, Word paragraph parsing, PDF page merging, splitting, AES-128 document encryption, OCR optical character recognition, and QR/barcode generation—is executed entirely within your device's isolated application sandbox.</p>
+            <p><strong>Your documents are never uploaded, transmitted, or shared by OmniSuite.</strong> No document, file name, file path, or extracted text is ever sent to a server by the app. There is no account, no cloud sync, and no telemetry.</p>
+            <p><strong>One deliberate exception, which you initiate explicitly:</strong> the <em>Web to PDF</em> tool fetches the web page whose address you type into that tool, using the device's normal browser engine, and converts what is rendered into a PDF. This is the only feature in OmniSuite that touches the network, and it does nothing until you enter a URL and tap convert. It never sends your files anywhere.</p>
         </div>
 
         <div class="policy-section">
@@ -275,9 +276,14 @@
                     <em>Purpose:</em> Used exclusively when you open the Barcode / QR Scanner tool. Camera frames are streamed into your device's local memory to detect barcodes and are instantly discarded. Camera data is never saved, photographed, or transmitted over the internet.
                 </li>
                 <li>
+                    <strong>Internet Permission (<code>android.permission.INTERNET</code>):</strong>
+                    <br>
+                    <em>Purpose:</em> Required solely by the <em>Web to PDF</em> tool, which must retrieve the web page you ask it to convert. The app contains no analytics, advertising, telemetry, crash-reporting or background network code. This permission is never used unless you personally enter a URL in that tool.
+                </li>
+                <li>
                     <strong>Storage &amp; File Access (System File Picker / Storage Framework):</strong>
                     <br>
-                    <em>Purpose:</em> Used to allow you to select document files (e.g. PDFs, Office documents, images) from your device storage to view or convert, and to save newly generated PDFs, QR codes, or text files back into your device's local storage folder.
+                    <em>Purpose:</em> Used to allow you to select document files (e.g. PDFs, Office documents, images) from your device storage to view or convert, and to save newly generated PDFs, QR codes, or text files back into your device's local storage folder. OmniSuite requests no broad storage permission: Android's system file picker grants access only to the specific file you choose.
                 </li>
             </ul>
         </div>
@@ -289,7 +295,8 @@
 
         <div class="policy-section">
             <h2>6. Data Security</h2>
-            <p>Because all processing is performed offline, your document security is protected by Android's operating system application sandboxing. When you use OmniSuite's PDF Password Protection feature, your document is encrypted using standard AES-128 encryption with a password of your choice, ensuring only authorized readers can open the file.</p>
+            <p>All document processing is performed locally, so your document security is protected by Android's operating system application sandboxing. When you use OmniSuite's PDF Password Protection feature, your document is encrypted using standard AES-128 encryption with a password of your choice, ensuring only authorized readers can open the file.</p>
+            <p><strong>Platform backup is disabled for your documents.</strong> OmniSuite explicitly excludes its document storage, its recent-files history, and its settings from Android's automatic cloud backup and device-to-device transfer, so copies of the documents you open are not carried into your Google Drive app backup. Temporary working copies, including decrypted copies of password-protected PDFs, are written only to the app's private cache, which Android excludes from backup and from other apps.</p>
         </div>
 
         <div class="policy-section">

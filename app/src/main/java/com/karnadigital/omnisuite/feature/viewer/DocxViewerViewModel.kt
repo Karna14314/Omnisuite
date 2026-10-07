@@ -116,6 +116,23 @@ sealed class DocxBodyElement {
     data class Table(val rows: List<DocxTableRow>, override val elementId: String = java.util.UUID.randomUUID().toString()) : DocxBodyElement()
 }
 
+/**
+ * Single source of truth for the WebView preview ceiling.
+ *
+ * DocxViewerScreen picks the WebView branch purely on `docxBase64 != null` but only calls
+ * `evaluateJavascript` below [MAX_WEBVIEW_BASE64_CHARS]. Previously the producer allowed
+ * 15 MB while the consumer refused anything above ~5.7 MB of source bytes, so every DOCX in
+ * that window rendered as a completely blank WebView with no error, because the native
+ * LazyColumn fallback sits in the `else` branch that was never taken.
+ *
+ * Expressed in source bytes because Base64 encodes 3 bytes as 4 chars, and the payload
+ * becomes a UTF-16 String on ART (~2 bytes/char), so a 6 MB file costs ~16 MB resident.
+ */
+object DocxWebViewLimits {
+    const val MAX_WEBVIEW_BASE64_CHARS = 8_000_000
+    const val MAX_WEBVIEW_BASE64_BYTES = MAX_WEBVIEW_BASE64_CHARS * 3 / 4
+}
+
 data class DocxDocument(
     val elements: List<DocxBodyElement>,
     val pageGeometry: DocxPageGeometry = DocxPageGeometry()
@@ -247,9 +264,10 @@ class DocxViewerViewModel @Inject constructor(
                     }
 
                     // Read raw bytes for WebView rendering (DOCX files only).
-                    // Guard: files >15MB skip Base64 (Binder/JS literal limit + OOM);
-                    // native parse below still works, WebView preview just disables.
-                    val maxBase64Bytes = 15L * 1024L * 1024L
+                    // Above DocxWebViewLimits the WebView cannot render the payload, so we
+                    // must NOT produce it: emitting null routes the screen to the native
+                    // Compose renderer instead of a blank WebView.
+                    val maxBase64Bytes = DocxWebViewLimits.MAX_WEBVIEW_BASE64_BYTES
                     base64ForWebView = if (!filePath.endsWith(".doc", ignoreCase = true) && file.length() <= maxBase64Bytes) {
                         Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
                     } else null

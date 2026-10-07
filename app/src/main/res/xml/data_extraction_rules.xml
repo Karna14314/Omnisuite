@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto Backup / device-transfer exclusions.
+
+  The app markets itself as offline-first with documents that "never leave your phone".
+  With android:allowBackup="true" and no rules, Auto Backup uploaded a full byte-for-byte
+  copy of every document ever opened (filesDir/recent_files), plus the recent-file index
+  with SAF URIs, file names, MIME types, sizes and access timestamps, to the user's
+  Google Drive app backup, and copied it on device transfer.
+
+  Everything the app persists is either user document content or a record of the user
+  having opened a document. None of it belongs in a cloud backup.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="recent_files" />
+        <exclude domain="file" path="datastore" />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="recent_files" />
+        <exclude domain="file" path="datastore" />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

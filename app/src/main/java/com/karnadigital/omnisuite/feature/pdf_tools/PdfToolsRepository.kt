@@ -209,7 +209,7 @@ class PdfToolsRepository @Inject constructor(
                         throw Exception("Range ${startPage}-${endPage} is out of bounds (1 to $totalPages).")
                     }
                     PDDocument().use { subDoc ->
-                        for (p in startPage..endPage) subDoc.addPage(mainDocument.getPage(p - 1))
+                        for (p in startPage..endPage) subDoc.importPage(mainDocument.getPage(p - 1))
                         val subFileName = "${originalName}_part_${startPage}_to_${endPage}.pdf"
                         val tempSubFile = File(context.cacheDir, "split_${System.currentTimeMillis()}_$index.pdf")
                         createdTempFiles.add(tempSubFile)
@@ -601,7 +601,7 @@ class PdfToolsRepository @Inject constructor(
                 PDDocument().use { outputDoc ->
                     val pages = document.pages
                     selectedPages.sorted().forEach { pageIdx ->
-                        if (pageIdx in 0 until pages.count) outputDoc.addPage(pages.get(pageIdx))
+                        if (pageIdx in 0 until pages.count) outputDoc.importPage(pages.get(pageIdx))
                     }
                     FileOutputStream(tempOutputFile).use { outputDoc.save(it) }
                 }
@@ -1097,7 +1097,7 @@ class PdfToolsRepository @Inject constructor(
                 val pages = (0 until pageCount).map { document.getPage(it) }
                 val newDoc = PDDocument()
                 for (idx in newOrder) {
-                    newDoc.addPage(pages[idx])
+                    newDoc.importPage(pages[idx])
                 }
                 FileOutputStream(tempOutputFile).use { newDoc.save(it) }
                 newDoc.close()

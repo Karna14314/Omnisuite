@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for Android 11 and below (android:fullBackupContent).
+  data_extraction_rules.xml covers Android 12+; both are needed because minSdk is 30.
+-->
+<full-backup-content>
+    <exclude domain="file" path="recent_files" />
+    <exclude domain="file" path="datastore" />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="root" path="." />
+</full-backup-content>

@@ -2370,7 +2370,14 @@ fun DocxWebView(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     allowFileAccess = true
-                    allowContentAccess = true
+                    // android_asset pages are file:// only, so content:// access buys
+                    // nothing. Block network at the WebView level and route any tapped
+                    // http(s) link to the system browser: docx-preview renders document
+                    // hyperlinks as anchors, so viewing a document could otherwise
+                    // silently navigate to a remote origin.
+                    allowContentAccess = false
+                    blockNetworkLoads = true
+                    blockNetworkImage = true
                     builtInZoomControls = true
                     displayZoomControls = false
                     useWideViewPort = true
@@ -2383,6 +2390,26 @@ fun DocxWebView(
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?
+                    ): Boolean {
+                        val scheme = request?.url?.scheme?.lowercase()
+                        return if (scheme == "http" || scheme == "https") {
+                            runCatching {
+                                ctx.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        request!!.url
+                                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         isPageLoaded = true
@@ -2402,6 +2429,13 @@ fun DocxWebView(
         update = { wv ->
             webViewInstance = wv
             onWebViewReady(wv)
+        },
+        onRelease = { wv ->
+            // Without this the WebView and its renderer process leaked on every open.
+            wv.stopLoading()
+            wv.webViewClient = android.webkit.WebViewClient()
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            wv.destroy()
         },
         modifier = modifier
     )

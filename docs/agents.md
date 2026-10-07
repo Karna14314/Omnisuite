@@ -21,7 +21,7 @@
 | **Target SDK** | 36 (Android 16) |
 | **Compile SDK** | 36 |
 | **JDK** | 17 |
-| **Offline-Only** | Yes — zero network features allowed |
+| **Offline-Only** | Local-first — no telemetry/upload/cloud; one disclosed exception (Web to PDF fetches a user-typed URL) |
 | **Total Routes** | 76 (Screen.kt) / 87 (OmniNavGraph.kt) |
 | **Total Tools** | 86 across 6 tabs |
 
@@ -352,8 +352,19 @@ adb shell am start -n com.karnadigital.omnisuite/.MainActivity
 
 ## ⚠️ Critical Rules for Agents
 
-### 1. 100% Offline — No Exceptions
-No network calls, no cloud APIs, no analytics, no ads. Every engine runs on-device.
+### 1. Local-First — No Telemetry, No Upload, No Cloud APIs
+No analytics, no ads, no crash reporting, no document upload, and no background network code.
+Every document engine runs on-device.
+
+The **one** sanctioned exception is the *Web to PDF* tool (`PdfToolsViewModel.printWebViewToPdf`),
+which fetches the URL the user explicitly types in `WebToPdfScreen` and prints it. It is
+user-initiated, sends no document anywhere, and is disclosed in `docs/privacy-policy.html`
+along with the `INTERNET` permission it requires. Do not add network capability without
+updating the privacy policy and the Play Data Safety declaration.
+
+Verify with: `Select-String -Path app/src/main/java/**\*.kt -Pattern "URLConnection|okhttp3|Retrofit|Socket|openConnection"`.
+At the time of writing this returns only `java.net.URLEncoder` in `PdfViewerScreen`, which
+builds a search URI for the system browser and performs no request.
 
 ### 2. Always Use `Dispatchers.IO` for File Operations
 All POI, PDFBox, and bitmap operations MUST run on background coroutines.
@@ -375,7 +386,20 @@ Use `com.tom_roush.pdfbox` (NOT `org.apache.pdfbox`). This is the Android port.
 When adding new reflection-dependent libraries, update `app/proguard-rules.pro`.
 
 ### 7. Bitmap Memory Management
-Always `bitmap.recycle()` after use. Use `WeakReference` for page caches.
+**Do NOT call `bitmap.recycle()` on a bitmap you have handed to the UI.** This rule used to
+say the opposite and it shipped a guaranteed crash: `PdfViewerViewModel.bitmapCache` overrode
+`LruCache.entryRemoved` and recycled evicted pages, but `LruCache.put` trims synchronously,
+so the 6th page render recycled a bitmap that Compose was still drawing from `remember`,
+producing `RuntimeException: Canvas: trying to use a recycled bitmap`. `evictAll()` recycled
+every visible page at once.
+
+Correct approach:
+- Bound memory with a byte-sized `LruCache` (`override fun sizeOf(...) = value.byteCount`)
+  sized off `Runtime.getRuntime().maxMemory()`, and simply drop references on eviction.
+- Only `recycle()` a bitmap you created, still hold exclusively, and have already stopped
+  rendering — e.g. a thumbnail list you are discarding.
+- Cap the longest rasterised edge (`maxDim`) before allocating, so one oversized page cannot
+  allocate tens of megabytes.
 
 ### 8. Surgical Changes Only
 - Match existing code style

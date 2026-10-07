@@ -422,8 +422,11 @@ fun OmniNavGraph(
                     navController.popBackStack()
                 },
                 onOpenFile = { uri, name ->
-                    val encodedUri = android.net.Uri.encode(uri.toString())
-                    navController.navigate(Screen.ViewerDispatcher.createRoute(encodedUri))
+                    // Screen.ViewerDispatcher.createRoute already URL-encodes. Encoding here
+                    // too produced content%3A%2F%2F... which Navigation decoded only once,
+                    // so every file opened from the ZIP Maker failed with
+                    // "File Moved or Deleted".
+                    navController.navigate(Screen.ViewerDispatcher.createRoute(uri.toString()))
                 }
             )
         }

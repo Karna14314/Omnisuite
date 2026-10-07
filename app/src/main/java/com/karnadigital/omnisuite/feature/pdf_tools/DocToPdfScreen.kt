@@ -391,10 +391,23 @@ fun DocToPdfScreen(
                             javaScriptEnabled = true
                             domStorageEnabled = true
                             allowFileAccess = true
-                            allowContentAccess = true
+                            // Renders bundled assets only; content:// access is unnecessary
+                            // and network loads are blocked so a document can never cause an
+                            // outbound request from this hidden converter WebView.
+                            allowContentAccess = false
+                            blockNetworkLoads = true
+                            blockNetworkImage = true
                         }
                         converterWebView = this
                     }
+                },
+                onRelease = { wv ->
+                    wv.stopLoading()
+                    wv.removeJavascriptInterface("AndroidBridge")
+                    wv.webViewClient = android.webkit.WebViewClient()
+                    (wv.parent as? ViewGroup)?.removeView(wv)
+                    wv.destroy()
+                    if (converterWebView === wv) converterWebView = null
                 },
                 modifier = Modifier
                     .size(1.dp)

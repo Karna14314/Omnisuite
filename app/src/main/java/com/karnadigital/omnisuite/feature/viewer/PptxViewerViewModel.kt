@@ -299,13 +299,8 @@ class PptxViewerViewModel @Inject constructor(
      * anchored at x=1.0 with a full width, which the view model's width clamp then
      * collapsed into a 5%-wide sliver.
      */
-    private fun clampRect(x: Float, y: Float, w: Float, h: Float): FloatArray {
-        val cx = x.coerceIn(0f, 0.99f)
-        val cy = y.coerceIn(0f, 0.99f)
-        val cw = w.coerceIn(0.001f, 1f - cx)
-        val ch = h.coerceIn(0.001f, 1f - cy)
-        return floatArrayOf(cx, cy, cw, ch)
-    }
+    private fun clampRect(x: Float, y: Float, w: Float, h: Float): FloatArray =
+        com.karnadigital.omnisuite.core.engine.document.PptxGeometry.clampRect(x, y, w, h)
 
     private fun getShapeNormalizedBounds(
         shape: Any,
@@ -3799,7 +3794,19 @@ class PptxViewerViewModel @Inject constructor(
                         ppt.write(fos)
                         fos.flush()
                     }
-                    tempFile.copyTo(targetFile, overwrite = true)
+                    // Atomic publish: temp file + rename. copyTo(overwrite = true)
+                    // truncates the destination before streaming, so a process death or a
+                    // full disk mid-write used to leave the user's only presentation
+                    // truncated. Mirrors the tmp+rename pattern already used by the DOCX and
+                    // XLSX save paths.
+                    val staged = File(parentDir, ".${targetFile.name}.save.tmp")
+                    tempFile.copyTo(staged, overwrite = true)
+                    if (!staged.renameTo(targetFile)) {
+                        targetFile.delete()
+                        if (!staged.renameTo(targetFile)) {
+                            throw java.io.IOException("Atomic save rename failed")
+                        }
+                    }
 
                     // Also write back to external SAF URI if present
                     if (sourceUriString != null && sourceUriString!!.startsWith("content://")) {
