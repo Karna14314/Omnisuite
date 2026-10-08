@@ -2178,20 +2178,34 @@ class PptxViewerViewModel @Inject constructor(
                             rowOffset[r + 1] = rowOffset[r] + rowHeights[r].toFloat() / totalGridH
                         }
 
+                        // Covered targets of a spanning cell must not emit their own
+                        // boxes, or merged cells render as overlapping fragments.
+                        val covered = mutableSetOf<Pair<Int, Int>>()
                         for (r in 0 until numRows) {
                             for (c in 0 until numCols) {
+                                if ((r to c) in covered) continue
                                 val cell = try { shape.getCell(r, c) } catch (t: Throwable) { null } ?: continue
+                                // A merged cell occupies the span of the cells it absorbs.
+                                val gridSpan = (try { cell.gridSpan } catch (_: Throwable) { 1 }).coerceAtLeast(1)
+                                val rowSpan = (try { cell.rowSpan } catch (_: Throwable) { 1 }).coerceAtLeast(1)
+                                val lastC = (c + gridSpan).coerceAtMost(numCols)
+                                val lastR = (r + rowSpan).coerceAtMost(numRows)
+                                for (rr in r until lastR) {
+                                    for (cc in c until lastC) {
+                                        if (rr != r || cc != c) covered.add(rr to cc)
+                                    }
+                                }
+                                // Continuation target of a merge (unit spans but flagged
+                                // merged): the origin cell already covers it.
+                                val isMergeContinuation = (try { cell.isMerged } catch (_: Throwable) { false }) &&
+                                    gridSpan <= 1 && rowSpan <= 1
+                                if (isMergeContinuation) continue
                                 val text = try { cell.text ?: "" } catch (t: Throwable) { "" }
-                                if (text.isNotBlank()) {
-                                    // A horizontally or vertically merged cell occupies the
-                                    // span of the cells it absorbs, so widen the box and skip
-                                    // the continuation targets.
-                                    val gridSpan = (try { cell.gridSpan } catch (_: Throwable) { 1 }).coerceAtLeast(1)
-                                    val lastC = (c + gridSpan).coerceAtMost(numCols)
+                                run {
                                     val cellLeft = (tLeft + colOffset[c] * tWidth).coerceIn(0f, 1f)
                                     val cellTop = (tTop + rowOffset[r] * tHeight).coerceIn(0f, 1f)
                                     val cellW = ((colOffset[lastC] - colOffset[c]) * tWidth).coerceIn(0.01f, 1f - cellLeft)
-                                    val cellH = ((rowOffset[r + 1] - rowOffset[r]) * tHeight).coerceIn(0.01f, 1f - cellTop)
+                                    val cellH = ((rowOffset[lastR] - rowOffset[r]) * tHeight).coerceIn(0.01f, 1f - cellTop)
 
                                     val cellParas = try { cell.textParagraphs } catch (_: Throwable) { emptyList() }
                                     val cellShapeParas = mutableListOf<PptxParagraph>()
@@ -2203,46 +2217,76 @@ class PptxViewerViewModel @Inject constructor(
                                             for (cr in cpRuns) {
                                                 val crText = cleanTextRunString(try { cr.rawText ?: "" } catch (_: Throwable) { "" })
                                                 if (crText.isNotEmpty()) {
-                                                    val isB = try { cr.isBold } catch (_: Throwable) { false }
-                                                    val isI = try { cr.isItalic } catch (_: Throwable) { false }
-                                                    val isU = try { cr.isUnderlined } catch (_: Throwable) { false }
-                                                    val cHex = extractTextRunColorHex(cr)
+                                                    // Resolve through the file's inheritance chain
+                                                    // with the cell as shape scope (a cell IS an
+                                                    // XSLFTextShape), falling back to POI and only
+                                                    // then to constants — same rule as body text.
                                                     val st = PptxStyleResolver.resolveRunStyle(
                                                         run = cr as? XSLFTextRun,
-                                                        shape = null,
+                                                        shape = cell as? XSLFTextShape,
                                                         slide = slide as? XSLFSlide,
                                                         ppt = ppt as? XMLSlideShow,
                                                         themeFonts = themeFonts,
                                                         isTitle = false,
                                                         level = cp.indentLevel
                                                     )
-                                                    val fS = st.fontSizePt ?: try { cr.fontSize?.toFloat() } catch (_: Throwable) { null }
-                                                    cRuns.add(PptxTextRun(crText, isB, isI, isU, cHex, fS ?: 14f, st.typeface))
+                                                    val isB = st.isBold ?: try { cr.isBold } catch (_: Throwable) { false }
+                                                    val isI = st.isItalic ?: try { cr.isItalic } catch (_: Throwable) { false }
+                                                    val isU = st.isUnderline ?: try { cr.isUnderlined } catch (_: Throwable) { false }
+                                                    val cHex = extractTextRunColorHex(cr)
+                                                    val fSPoi = try { cr.fontSize?.toFloat() } catch (_: Throwable) { null }
+                                                    val fam = st.typeface ?: extractRunTypeface(cr, themeFonts)
+                                                    cRuns.add(PptxTextRun(crText, isB, isI, isU, cHex, st.fontSizePt ?: fSPoi ?: 14f, fam))
                                                 }
                                             }
                                             if (cRuns.isNotEmpty()) {
+                                                // Real paragraph alignment from the file; never
+                                                // force bullets or LEFT inside tables.
+                                                val cpAlign = try {
+                                                    when (cp.textAlign) {
+                                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.CENTER -> "CENTER"
+                                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.RIGHT -> "RIGHT"
+                                                        org.apache.poi.sl.usermodel.TextParagraph.TextAlign.JUSTIFY -> "JUSTIFY"
+                                                        else -> "LEFT"
+                                                    }
+                                                } catch (_: Throwable) { "LEFT" }
                                                 cellShapeParas.add(
                                                     PptxParagraph(
                                                         runs = cRuns,
                                                         bulletLevel = cp.indentLevel,
-                                                        hasBullet = cp.indentLevel > 0,
-                                                        bulletChar = if (cp.indentLevel > 0) "•" else "",
-                                                        alignment = "LEFT"
+                                                        hasBullet = false,
+                                                        bulletChar = "",
+                                                        alignment = cpAlign
                                                     )
                                                 )
                                             }
                                         }
                                     }
                                     
-                                    if (cellShapeParas.isEmpty()) {
+                                    // Fallback only when the cell actually has text but no
+                                    // parsed paragraphs: empty cells keep an empty box so
+                                    // the grid still renders instead of floating fragments.
+                                    if (cellShapeParas.isEmpty() && text.isNotBlank()) {
                                         val firstParagraph = try { cell.textParagraphs.firstOrNull() } catch (t: Throwable) { null }
                                         val firstRun = try { firstParagraph?.textRuns?.firstOrNull() } catch (t: Throwable) { null }
-                                        val isBold = try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
-                                        val isItalic = try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
-                                        val isUnderline = try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
+                                        val fst = if (firstRun != null) PptxStyleResolver.resolveRunStyle(
+                                            run = firstRun as? XSLFTextRun,
+                                            shape = cell as? XSLFTextShape,
+                                            slide = slide as? XSLFSlide,
+                                            ppt = ppt as? XMLSlideShow,
+                                            themeFonts = themeFonts,
+                                            isTitle = false,
+                                            level = 0
+                                        ) else null
+                                        val isBold = fst?.isBold ?: try { firstRun?.isBold ?: false } catch (t: Throwable) { false }
+                                        val isItalic = fst?.isItalic ?: try { firstRun?.isItalic ?: false } catch (t: Throwable) { false }
+                                        val isUnderline = fst?.isUnderline ?: try { firstRun?.isUnderlined ?: false } catch (t: Throwable) { false }
                                         val colorHex = firstRun?.let { extractTextRunColorHex(it) }
-                                        val fSize = try { firstRun?.fontSize } catch (t: Throwable) { null }
-                                        val fontSizePt = if (fSize != null && fSize > 0) fSize.toFloat() else 14f
+                                        val fSize: Float? = fst?.fontSizePt
+                                            ?: try { firstRun?.fontSize?.toFloat() } catch (t: Throwable) { null }
+                                        val fontSizePt = if (fSize != null && fSize > 0) fSize else 14f
+                                        val fam = fst?.typeface
+                                            ?: firstRun?.let { extractRunTypeface(it, themeFonts) }
                                         cellShapeParas.add(
                                             PptxParagraph(
                                                 runs = listOf(
@@ -2252,7 +2296,8 @@ class PptxViewerViewModel @Inject constructor(
                                                         isItalic = isItalic,
                                                         isUnderline = isUnderline,
                                                         textColorHex = colorHex,
-                                                        fontSizePt = fontSizePt
+                                                        fontSizePt = fontSizePt,
+                                                        fontFamily = fam
                                                     )
                                                 ),
                                                 bulletLevel = 0,
@@ -2271,14 +2316,14 @@ class PptxViewerViewModel @Inject constructor(
                                             bottom = 45720f / (if (slideHeightEmu > 0) slideHeightEmu.toFloat() else 5143500f)
                                         )
 
-                                    // Read the cell's real outline from <a:tcPr><a:lnL> instead
-                                    // of stamping a hardcoded grey on every cell. POI's
-                                    // getBorderColor returns java.awt.Color, unavailable on
-                                    // Android, so the colour is read straight from the XML.
+                                    // Read the cell's real outline. POI's getBorderColor
+                                    // returns java.awt.Color, unavailable on Android, so the
+                                    // colour is read straight from the XML. Any of the four
+                                    // edges may carry it — first explicit edge wins.
                                     val cellBorder = try {
                                         val tcPr = (shape as? XSLFTable)?.ctTable
                                             ?.getTrList()?.getOrNull(r)?.getTcList()?.getOrNull(c)?.tcPr
-                                        val ln = tcPr?.lnL
+                                        val ln = listOfNotNull(tcPr?.lnL, tcPr?.lnR, tcPr?.lnT, tcPr?.lnB).firstOrNull()
                                         // srgbClr/@val is a 3-byte RGB triple.
                                         val rgb = ln?.solidFill?.srgbClr?.getVal()
                                         if (rgb != null && rgb.size >= 3) {
@@ -2290,6 +2335,18 @@ class PptxViewerViewModel @Inject constructor(
                                             ShapeBorder(hex, dp.coerceIn(0.25f, 4f))
                                         } else null
                                     } catch (_: Throwable) { null }
+
+                                    // Vertical alignment from the cell itself, not a constant.
+                                    // (TableCell interface lacks it; the impl carries it.)
+                                    val cellAnchor = try {
+                                        val vAlign = (cell as? org.apache.poi.xslf.usermodel.XSLFTableCell)
+                                            ?.verticalAlignment?.toString() ?: ""
+                                        when (vAlign.uppercase()) {
+                                            "MIDDLE", "CENTER" -> VerticalAnchor.CENTER
+                                            "BOTTOM" -> VerticalAnchor.BOTTOM
+                                            else -> VerticalAnchor.TOP
+                                        }
+                                    } catch (_: Throwable) { VerticalAnchor.TOP }
 
                                     textShapes.add(
                                         PptxTextShape(
@@ -2303,6 +2360,7 @@ class PptxViewerViewModel @Inject constructor(
                                             shapeWidth = cellW,
                                             shapeHeight = cellH,
                                             zOrder = shapeZOrder,
+                                            verticalAnchor = cellAnchor,
                                             insets = Insets(
                                                 left = cellMargins.left,
                                                 top = cellMargins.top,

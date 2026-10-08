@@ -137,6 +137,9 @@ fun XlsxViewerScreen(
                 val c = parts[1].toInt()
                 selectedCell = CellCoords(r, c)
                 lazyListState.animateScrollToItem(r + 1)
+                // WebView path (native tab bar hidden inside it): move its grid
+                // to the match's sheet/cell. No-op when the native grid is shown.
+                webViewRef?.evaluateJavascript("jumpToCell(${match.pageIndex}, $r, $c)", null)
             }
         }
     }
@@ -555,6 +558,12 @@ fun XlsxViewerScreen(
                                                     selectedCell = null // Clear selection when sheet changes
                                                     selectedRow = null  // Clear row selection when sheet changes
                                                     selectedColForSort = null
+                                                    // Drive the WebView grid too: its own tab bar is
+                                                    // hidden, so this is the only switcher.
+                                                    webViewRef?.evaluateJavascript(
+                                                        "switchToSheetFromNative($index)",
+                                                        null
+                                                    )
                                                 },
                                                 text = {
                                                     Text(

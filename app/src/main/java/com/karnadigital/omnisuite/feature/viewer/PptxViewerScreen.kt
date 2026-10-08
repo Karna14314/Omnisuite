@@ -2885,7 +2885,10 @@ fun TextShapeItem(
                     bottom = if (isEllipseBadge) 1.dp else (shape.insets.bottom * slideH).coerceAtLeast(1f).dp
                 ),
             verticalArrangement = when { isEllipseBadge -> Arrangement.Center; shape.verticalAnchor == VerticalAnchor.CENTER -> Arrangement.Center; shape.verticalAnchor == VerticalAnchor.BOTTOM -> Arrangement.Bottom; else -> Arrangement.Top },
-            horizontalAlignment = if (isEllipseBadge || isTitle) Alignment.CenterHorizontally else Alignment.Start
+            // Audit §1.6: never force-centre titles at the box level. Per-paragraph
+            // textAlign (from the file's <a:pPr algn>) already governs alignment;
+            // centring an over-wide title here clips its left edge ("…ICAL").
+            horizontalAlignment = if (isEllipseBadge) Alignment.CenterHorizontally else Alignment.Start
         ) {
             paraLayouts.forEach { pl ->
                 val textAlign = pl.textAlign
@@ -2901,7 +2904,9 @@ fun TextShapeItem(
                         .fillMaxWidth()
                         .padding(bottom = (pl.spaceAfterSp * shrinkScale).coerceAtLeast(0f).dp),
                     verticalAlignment = Alignment.Top,
-                    horizontalArrangement = if (isEllipseBadge || isTitle) Arrangement.Center else Arrangement.Start
+                    // Audit §1.6: same as above — the paragraph's own textAlign
+                    // decides; box-level centring clips over-wide titles left.
+                    horizontalArrangement = if (isEllipseBadge) Arrangement.Center else Arrangement.Start
                 ) {
                     if (showMarker) {
                         if (bulletLevel > 0) {
