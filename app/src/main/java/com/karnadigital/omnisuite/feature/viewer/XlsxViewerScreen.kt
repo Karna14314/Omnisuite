@@ -451,8 +451,11 @@ fun XlsxViewerScreen(
                                 )
                             }
 
-                            // High-performance SheetJS + x-spreadsheet view with full font styling
-                            if (currentState.xlsxBase64 != null) {
+                            // High-performance SheetJS + x-spreadsheet view with full font styling.
+                            // Oversized payloads route to the native grid: SpreadsheetWebView
+                            // skips evaluateJavascript at/above the Binder/JS-literal ceiling,
+                            // so handing it such a payload would stall on its loading state.
+                            if (currentState.xlsxBase64 != null && currentState.xlsxBase64.length < 8_000_000) {
                                 // Save scroll position before recomposition
                                 webViewRef?.let { wv ->
                                     webViewScrollX = wv.scrollX
@@ -497,7 +500,13 @@ fun XlsxViewerScreen(
                                         .fillMaxWidth()
                                 )
                             } else {
-                                val currentSheet = currentState.workbook.sheets.getOrNull(activeSheetIndex)
+                                // Clamp: a stale index (e.g. from a previous file's search
+                                // match) must still show a sheet, never an empty slot.
+                                val safeSheetIndex = activeSheetIndex.coerceIn(
+                                    0,
+                                    (currentState.workbook.sheets.size - 1).coerceAtLeast(0)
+                                )
+                                val currentSheet = currentState.workbook.sheets.getOrNull(safeSheetIndex)
                                 if (currentSheet != null) {
                                     NativeSpreadsheetGrid(
                                         sheet = currentSheet,
