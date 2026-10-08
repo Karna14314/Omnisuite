@@ -60,7 +60,38 @@ fun ViewerDispatcherScreen(
     onBack: () -> Unit,
     viewModel: HomeScreenViewModel = hiltViewModel()
 ) {
-    if (fileUri.isNullOrEmpty()) {
+    // Fallback: external VIEW/SEND intents carry the document in the activity
+    // intent, which survives Navigation. Navigation has been observed to drop
+    // the route argument for some provider URIs (arg=null while intent.data is
+    // set, e.g. WhatsApp shares), so recover it here instead of stranding the
+    // user on the Invalid Document card.
+    val intentFallbackUri: String? = run {
+        val act = LocalContext.current as? android.app.Activity
+        when (act?.intent?.action) {
+            android.content.Intent.ACTION_VIEW -> act.intent?.dataString
+            android.content.Intent.ACTION_SEND -> {
+                act.intent?.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)?.toString()
+                    ?: act.intent?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri?.toString()
+            }
+            else -> null
+        }
+    }
+    val resolvedUri = fileUri ?: intentFallbackUri
+    if (resolvedUri.isNullOrEmpty()) {
+        // DEBUG-only diagnostic for the "external open shows Invalid Document"
+        // reports: tells whether Navigation dropped the arg (intent has data but
+        // arg is null) or MainActivity got nothing from the system (no data).
+        // Release builds keep the plain message.
+        val diagContext = LocalContext.current
+        // Debuggable check without BuildConfig (BuildConfig generation is off).
+        val isDebug = 0 != diagContext.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
+        val diagSuffix = if (isDebug) {
+            val act = diagContext as? android.app.Activity
+            val inAction = act?.intent?.action ?: "no-intent"
+            val inData = act?.intent?.dataString?.take(180) ?: "no-data"
+            val extras = act?.intent?.extras?.keySet()?.joinToString(",") ?: "no-extras"
+            "\n\n[debug] arg=null action=$inAction data=$inData extras=$extras"
+        } else ""
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -69,7 +100,7 @@ fun ViewerDispatcherScreen(
         ) {
             ErrorCard(
                 title = "Invalid Document",
-                message = "No document URI or path was provided.",
+                message = "No document URI or path was provided.$diagSuffix",
                 onBack = onBack
             )
         }
@@ -81,40 +112,53 @@ fun ViewerDispatcherScreen(
     val officeConverter = coreEntryPoint(context).officeConverter()
     var state by remember { mutableStateOf<DispatcherState>(DispatcherState.Loading) }
 
-    LaunchedEffect(fileUri) {
+    LaunchedEffect(resolvedUri) {
         try {
-            if (fileUri != null && fileUri.contains("|")) {
-                state = DispatcherState.Success(fileUri, FileType.IMAGE)
+            if (resolvedUri.contains("|")) {
+                // Multi-image viewer: record each constituent URI so image opens keep
+                // their history entries (picker-time recording was removed to stop
+                // double entries; this branch is the only writer for "|" opens).
+                resolvedUri.split("|").filter { it.isNotBlank() }.forEach { part ->
+                    try {
+                        val partUri = Uri.parse(part)
+                        val name = getFileNameFromUri(context, partUri) ?: partUri.lastPathSegment ?: "image"
+                        val mime = try {
+                            context.contentResolver.getType(partUri) ?: "image/*"
+                        } catch (_: Exception) { "image/*" }
+                        viewModel.addRecentFile(part, name, mime, 0L)
+                    } catch (_: Exception) { }
+                }
+                state = DispatcherState.Success(resolvedUri, FileType.IMAGE)
                 return@LaunchedEffect
             }
-            val parsedUri = Uri.parse(fileUri)
+            val parsedUri = Uri.parse(resolvedUri)
             uriCacheUtils.takePersistablePermission(parsedUri)
 
             val cachedFile = uriCacheUtils.cacheUriToFile(parsedUri)
             if (cachedFile != null && cachedFile.exists() && cachedFile.length() > 0) {
-                val fileType = determineFileType(context, fileUri, cachedFile)
+                val fileType = determineFileType(context, resolvedUri, cachedFile)
                 if (fileType != null) {
-                    state = DispatcherState.Success(cachedFile.absolutePath, fileType, originalUri = fileUri)
+                    state = DispatcherState.Success(cachedFile.absolutePath, fileType, originalUri = resolvedUri)
                     val fileName = getFileNameFromUri(context, parsedUri) ?: cachedFile.name
                     val fileSize = cachedFile.length()
                     val mimeType = getMimeTypeFromFileType(fileType)
                     val persistentBackup = uriCacheUtils.getPersistentBackupFile(parsedUri)
-                    val uriToSave = if (fileUri.startsWith("content://") && persistentBackup.exists() && persistentBackup.length() > 0) {
+                    val uriToSave = if (resolvedUri.startsWith("content://") && persistentBackup.exists() && persistentBackup.length() > 0) {
                         persistentBackup.absolutePath
                     } else {
-                        fileUri
+                        resolvedUri
                     }
                     viewModel.addRecentFile(uriToSave, fileName, mimeType, fileSize)
                 } else {
                     state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                 }
             } else {
-                val pathToCheck = parsedUri.path ?: fileUri
+                val pathToCheck = parsedUri.path ?: resolvedUri
                 val directFile = File(pathToCheck)
                 if (directFile.exists() && directFile.isFile && directFile.length() > 0) {
-                    val fileType = determineFileType(context, fileUri, directFile)
+                    val fileType = determineFileType(context, resolvedUri, directFile)
                     if (fileType != null) {
-                        state = DispatcherState.Success(directFile.absolutePath, fileType, originalUri = fileUri)
+                        state = DispatcherState.Success(directFile.absolutePath, fileType, originalUri = resolvedUri)
                         val fileName = directFile.name
                         val fileSize = directFile.length()
                         val mimeType = getMimeTypeFromFileType(fileType)
@@ -123,7 +167,7 @@ fun ViewerDispatcherScreen(
                         state = DispatcherState.Error("Unsupported File Format: OmniSuite does not support this file type.")
                     }
                 } else {
-                    if (fileUri.startsWith("content://")) {
+                    if (resolvedUri.startsWith("content://")) {
                         state = DispatcherState.Error("File Moved or Permission Expired: The original document stream could not be accessed. The file may have been moved, deleted, or its access permission was revoked.")
                     } else {
                         state = DispatcherState.Error("File Moved or Deleted: The file could not be found at $pathToCheck.")

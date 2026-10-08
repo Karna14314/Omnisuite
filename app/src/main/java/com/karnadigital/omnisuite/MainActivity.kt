@@ -47,13 +47,21 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         getExternalFileUri(intent)?.let { uri ->
-            navController?.navigate(Screen.ViewerDispatcher.createRoute(uri)) {
-                // Pop up to the main shell so we don't pile up view dispatchers in the backstack
-                popUpTo(Screen.MainShell.route) {
-                    saveState = true
+            runCatching {
+                navController?.navigate(Screen.ViewerDispatcher.createRoute(uri)) {
+                    // Pop up to the main shell so we don't pile up view dispatchers in the backstack
+                    popUpTo(Screen.MainShell.route) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
                 }
-                launchSingleTop = true
-                restoreState = true
+            }.onFailure {
+                // Backstack has no MainShell (e.g. cold-started from an external
+                // open): plain navigate instead of crashing.
+                runCatching {
+                    navController?.navigate(Screen.ViewerDispatcher.createRoute(uri))
+                }
             }
         }
     }

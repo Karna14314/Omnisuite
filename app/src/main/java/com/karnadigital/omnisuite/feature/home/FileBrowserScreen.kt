@@ -89,16 +89,10 @@ fun FileBrowserScreen(
                         e.printStackTrace()
                     }
 
-                    val fileName = getFileName(context, it)
-                    val fileSize = getFileSize(context, it)
-                    val mimeType = context.contentResolver.getType(it) ?: getMimeFromName(fileName)
-                    
-                    viewModel.addRecentFile(
-                        fileUri = it.toString(),
-                        fileName = fileName,
-                        mimeType = mimeType,
-                        fileSize = fileSize
-                    )
+                    // History is recorded once by ViewerDispatcherScreen on successful
+                    // resolve. Recording here too with the raw content:// URI while the
+                    // dispatcher records the durable backup path yields two entries
+                    // per open for the same file.
                     onOpenFile(it.toString())
                 } catch (e: Exception) {
                     e.printStackTrace()

@@ -107,24 +107,10 @@ fun HomeScreen(
                         e.printStackTrace()
                     }
 
-                    val fileSize = getFileSize(context, it)
-                    val mimeType = context.contentResolver.getType(it) ?: when {
-                        fileName.endsWith(".pdf") -> "application/pdf"
-                        fileName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        fileName.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        fileName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                        fileName.endsWith(".txt") -> "text/plain"
-                        fileName.endsWith(".csv") -> "text/csv"
-                        fileName.endsWith(".zip") -> "application/zip"
-                        else -> "*/*"
-                    }
-
-                    viewModel.addRecentFile(
-                        fileUri = it.toString(),
-                        fileName = fileName,
-                        mimeType = mimeType,
-                        fileSize = fileSize
-                    )
+                    // History is recorded once by ViewerDispatcherScreen on successful
+                    // resolve. Recording here too with the raw content:// URI while the
+                    // dispatcher records the durable backup path yields two entries
+                    // per open for the same file.
                     onEvent(NavigationEvent.OpenFile(it.toString()))
                 } catch (e: Exception) {
                     e.printStackTrace()

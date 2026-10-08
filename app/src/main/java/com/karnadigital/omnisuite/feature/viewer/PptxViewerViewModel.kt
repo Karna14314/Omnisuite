@@ -1547,13 +1547,19 @@ class PptxViewerViewModel @Inject constructor(
                         }
                         rText = cleanTextRunString(rText)
                         if (rText.isNotEmpty()) {
-                            val isBold = try { r.isBold } catch (t: Throwable) { isTitle }
-                            val isItalic = try { r.isItalic } catch (t: Throwable) { false }
-                            val isUnderline = try { r.isUnderlined } catch (t: Throwable) { false }
+                            // Resolve through the full OOXML inheritance chain
+                            // (a:rPr -> a:defRPr -> shape/layout/master styles), exactly
+                            // like the pRuns fallback below. POI alone returns null for
+                            // inherited sz/b/i/u and drops +mj-lt/+mn-lt theme fonts, so
+                            // reading them raw here produced hardcoded-size text that
+                            // overflowed its box (clipped "…" / overlapping shapes).
+                            val st = styleFor(r)
+                            val isBold = st.isBold ?: try { r.isBold } catch (t: Throwable) { isTitle }
+                            val isItalic = st.isItalic ?: try { r.isItalic } catch (t: Throwable) { false }
+                            val isUnderline = st.isUnderline ?: try { r.isUnderlined } catch (t: Throwable) { false }
                             val colorHex = extractTextRunColorHex(r)
-                            val fSize: Double? = try { r.fontSize } catch (t: Throwable) { null }
-                            val fontSizePt = if (fSize != null && fSize > 0.0) fSize.toFloat() else (if (isTitle) 24f else 14f)
-                            val family = extractRunTypeface(r)
+                            val fontSizePt = st.fontSizePt ?: (if (isTitle) 24f else 14f)
+                            val family = st.typeface ?: extractRunTypeface(r, themeFonts)
                             runs.add(PptxTextRun(rText, isBold, isItalic, isUnderline, colorHex, fontSizePt, family))
                         }
                     }
@@ -1830,6 +1836,10 @@ class PptxViewerViewModel @Inject constructor(
 
             var titleShape: PptxTextShape? = null
             var bodyCount = 0
+            // Running Y cursor for text shapes whose anchor cannot be resolved from
+            // the file. Stacking every such shape at one fixed rect overlapped real
+            // content; flowing them below each other keeps all text visible.
+            var fallbackTop = 0.05f
 
             // Helper function to recursively flatten group shapes and collect all shapes
             val allShapes = mutableListOf<org.apache.poi.sl.usermodel.Shape<*, *>>()
@@ -1948,11 +1958,31 @@ class PptxViewerViewModel @Inject constructor(
                             continue
                         }
                         // Text must still render even when its anchor cannot be resolved —
-                        // losing content is worse than a default position.
-                        val shapeLeft = bounds?.get(0) ?: 0.05f
-                        val shapeTop = bounds?.get(1) ?: 0.05f
-                        val shapeWidthVal = bounds?.get(2) ?: 0.9f
-                        val shapeHeightVal = bounds?.get(3) ?: 0.35f
+                        // losing content is worse than a default position. Flow such
+                        // shapes below each other instead of stacking them all at one
+                        // fixed rect. Height is estimated from the shape's own text at
+                        // the renderer's default size, so it scales with content.
+                        val shapeLeft: Float
+                        val shapeTop: Float
+                        val shapeWidthVal: Float
+                        val shapeHeightVal: Float
+                        if (bounds != null) {
+                            shapeLeft = bounds[0]
+                            shapeTop = bounds[1]
+                            shapeWidthVal = bounds[2]
+                            shapeHeightVal = bounds[3]
+                        } else {
+                            val estPt = if (isTitle) 24f else 14f
+                            val slideHPt = if (slideHeightEmu > 0) slideHeightEmu / 12700f else 540f
+                            val textLines = shapeText.lines()
+                            val wrappedLines = textLines.sumOf { l -> maxOf(1, (l.length + 69) / 70) }
+                            val estH = (wrappedLines * estPt * 1.2f / slideHPt).coerceIn(0.03f, 0.85f)
+                            shapeLeft = 0.05f
+                            shapeTop = fallbackTop.coerceAtMost(0.9f)
+                            shapeWidthVal = 0.9f
+                            shapeHeightVal = estH
+                            fallbackTop = (fallbackTop + estH + 0.02f).coerceAtMost(0.95f)
+                        }
 
                         val paragraphs = if (isTextShape) try { (shape as org.apache.poi.sl.usermodel.TextShape<*, *>).textParagraphs } catch (t: Throwable) { emptyList() } else emptyList()
                         val shapeParagraphs = mutableListOf<PptxParagraph>()
