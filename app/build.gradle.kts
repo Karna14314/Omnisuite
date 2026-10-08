@@ -27,6 +27,15 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        // 16KB page-size compliance (Google Play requirement for targetSdk 35+):
+        // com.google.mlkit:barcode-scanning:17.3.0 (latest) ships 16KB-aligned
+        // 64-bit slices but 4KB-only 32-bit slices of libbarhopper_v3.so, and no
+        // newer bundled release exists. Ship 64-bit ABIs only so every bundled
+        // .so in the final AAB is 16KB ELF-aligned. Play has required 64-bit
+        // support since 2019; 32-bit-only devices are negligible on minSdk 30.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     testOptions {
