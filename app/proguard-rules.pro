@@ -66,6 +66,11 @@
     static <fields>;
 }
 
+# -- Commons Compress Rules --
+# Keep Apache Commons Compress classes and members used by Apache POI for OOXML package parsing and zip streams
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.apache.commons.compress.**
+
 # -- XMLBeans Rules --
 -keep class org.apache.xmlbeans.** { *; }
 -dontwarn org.apache.xmlbeans.**
