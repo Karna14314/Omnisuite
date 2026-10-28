@@ -2471,8 +2471,11 @@ class PptxViewerViewModel @Inject constructor(
                     }
 
                 } catch (e: Throwable) {
+                    android.util.Log.e("PptxViewerViewModel", "Failed to parse PowerPoint presentation", e)
                     e.printStackTrace()
-                    _loadState.value = PptxLoadState.Error("PowerPoint presentation parser failure: ${e.localizedMessage}")
+                    val detail = e.message?.takeIf { it.isNotBlank() } ?: e.localizedMessage ?: e.javaClass.simpleName
+                    val errorMsg = if (e.javaClass.simpleName !in detail) "${e.javaClass.simpleName}: $detail" else detail
+                    _loadState.value = PptxLoadState.Error("PowerPoint presentation parser failure: $errorMsg")
                 } finally {
                     try {
                         fileInputStream?.close()

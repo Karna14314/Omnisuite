@@ -319,7 +319,10 @@ class DocxViewerViewModel @Inject constructor(
                             docxBase64 = base64ForWebView
                         )
                     } else {
-                        _loadState.value = DocxLoadState.Error("Word document parser failure: ${t.localizedMessage}")
+                        android.util.Log.e("DocxViewerViewModel", "Failed to parse Word document", t)
+                        val detail = t.message?.takeIf { it.isNotBlank() } ?: t.localizedMessage ?: t.javaClass.simpleName
+                        val errorMsg = if (t.javaClass.simpleName !in detail) "${t.javaClass.simpleName}: $detail" else detail
+                        _loadState.value = DocxLoadState.Error("Word document parser failure: $errorMsg")
                     }
                 } finally {
                     try {

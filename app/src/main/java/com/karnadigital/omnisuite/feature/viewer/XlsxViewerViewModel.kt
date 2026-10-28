@@ -257,17 +257,20 @@ class XlsxViewerViewModel @Inject constructor(
                 } catch (e: Throwable) {
                     // Throwable, not Exception: POI signals an unrecoverable workbook with
                     // OutOfMemoryError, which an Exception catch cannot intercept.
+                    android.util.Log.e("XlsxViewerViewModel", "Failed to parse spreadsheet document", e)
                     e.printStackTrace()
                     try {
                         workbook?.close()
                     } catch (ex: Throwable) {
                         ex.printStackTrace()
                     }
+                    val detail = e.message?.takeIf { it.isNotBlank() } ?: e.localizedMessage ?: e.javaClass.simpleName
+                    val errorMsg = if (e.javaClass.simpleName !in detail) "${e.javaClass.simpleName}: $detail" else detail
                     _loadState.value = XlsxLoadState.Error(
                         if (e is OutOfMemoryError) {
                             "Not enough memory to open this spreadsheet."
                         } else {
-                            "Spreadsheet parser failure: ${e.localizedMessage}"
+                            "Spreadsheet parser failure: $errorMsg"
                         }
                     )
                 } finally {
